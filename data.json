@@ -1,0 +1,71 @@
+[
+{
+  "model": "inventory.product",
+  "pk": 1,
+  "fields": {
+    "name": "tornillo 3x15mm",
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.location",
+  "pk": 1,
+  "fields": {
+    "name": "cajonera",
+    "container": null,
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.location",
+  "pk": 2,
+  "fields": {
+    "name": "cajon 1",
+    "container": 1,
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.location",
+  "pk": 3,
+  "fields": {
+    "name": "A1",
+    "container": 2,
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.location",
+  "pk": 4,
+  "fields": {
+    "name": "A2",
+    "container": 2,
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.location",
+  "pk": 5,
+  "fields": {
+    "name": "A3",
+    "container": 2,
+    "picture": "",
+    "description": ""
+  }
+},
+{
+  "model": "inventory.stock",
+  "pk": 1,
+  "fields": {
+    "product": 1,
+    "location": 3,
+    "quantity": 100.0,
+    "approximate": false
+  }
+}
+]
