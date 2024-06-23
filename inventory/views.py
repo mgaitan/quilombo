@@ -1,19 +1,23 @@
 # inventory/views.py
 
-from rest_framework import viewsets
+from rest_framework import viewsets, filters
 from rest_framework.decorators import api_view
-from rest_framework.response import Response
+
 from .models import Product, Location, Stock, StockTransaction
 from .serializers import ProductSerializer, LocationSerializer, StockSerializer, StockTransactionSerializer
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name', 'description']
 
 
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all()
     serializer_class = LocationSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name', 'description']
 
 
 class StockViewSet(viewsets.ModelViewSet):

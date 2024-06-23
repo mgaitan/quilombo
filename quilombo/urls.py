@@ -7,10 +7,10 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/schema",
             get_schema_view(
-                title="Quilombo", description="API for your quilombo …", version="1.0.0"
+                title="Quilombo", description="API for your quilombo …", version="1.0.0",
+                url='https://quilombo-i1f4.onrender.com/api/'
             ),
             name="openapi-schema",
-            url='https://quilombo-i1f4.onrender.com/api/'
 
         ),
     path('api/', include('inventory.urls')),
