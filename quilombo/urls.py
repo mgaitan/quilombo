@@ -8,7 +8,7 @@ urlpatterns = [
     path("api/schema",
             get_schema_view(
                 title="Quilombo", description="API for your quilombo …", version="1.0.0",
-                url='https://quilombo-i1f4.onrender.com/api/'
+                url='https://quilombo-i1f4.onrender.com/'
             ),
             name="openapi-schema",
 
