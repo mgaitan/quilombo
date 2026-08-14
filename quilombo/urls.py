@@ -1,18 +1,22 @@
 from django.contrib import admin
+from django.contrib.auth import views as auth_views
 from django.urls import include, path
+from django.views.generic import RedirectView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-# from rest_framework.schemas import get_schema_view
-from drf_spectacular.views import SpectacularAPIView
+from inventory.views import SignupView
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="workspace-list", permanent=False)),
     path("admin/", admin.site.urls),
-    # path("api/schema",
-    #         get_schema_view(
-    #             title="Quilombo", description="API for your quilombo …", version="1.0.0",
-    #             url='https://quilombo-i1f4.onrender.com/'
-    #         ),
-    #         name="openapi-schema",
-    #     ),
+    path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
+    path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("accounts/signup/", SignupView.as_view(), name="signup"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="api-docs",
+    ),
     path("api/", include("inventory.urls")),
 ]

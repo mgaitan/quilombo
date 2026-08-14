@@ -1,17 +1,32 @@
+from django.contrib.auth import login
+from django.contrib.auth.forms import UserCreationForm
+from django.db import transaction
+from django.db.models import Q, TextField
+from django.db.models.functions import Cast
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
+from django.utils import timezone
+from django.views.generic import FormView
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from .models import Holding, Item, Location, LocationRelation, Workspace
+from .models import ApiToken, Holding, Item, Location, LocationRelation, Membership, Workspace
 from .serializers import (
+    ApiTokenCreateSerializer,
+    ApiTokenIssuedSerializer,
+    ApiTokenSerializer,
     BulkUpsertResultSerializer,
     BulkUpsertSerializer,
     HoldingSerializer,
     ItemSerializer,
     LocationRelationSerializer,
     LocationSerializer,
+    SearchQuerySerializer,
+    SearchResultSerializer,
+    WorkspaceSerializer,
 )
 from .services import BulkUpsertError, IdempotencyConflict, bulk_upsert_inventory, hash_request
 
@@ -21,10 +36,12 @@ class WorkspaceAccessMixin:
 
     def get_workspace(self):
         if self.workspace is None:
+            queryset = Workspace.objects.filter(memberships__user=self.request.user)
+            if getattr(self.request.auth, "workspace_id", None):
+                queryset = queryset.filter(pk=self.request.auth.workspace_id)
             self.workspace = get_object_or_404(
-                Workspace,
+                queryset,
                 slug=self.kwargs["workspace_slug"],
-                memberships__user=self.request.user,
             )
         return self.workspace
 
@@ -103,3 +120,133 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
         return Response(
             output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
         )
+
+
+class WorkspaceViewSet(viewsets.ModelViewSet):
+    queryset = Workspace.objects.all()
+    serializer_class = WorkspaceSerializer
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        queryset = Workspace.objects.filter(memberships__user=self.request.user).distinct()
+        if getattr(self.request.auth, "workspace_id", None):
+            queryset = queryset.filter(pk=self.request.auth.workspace_id)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(
+                {"detail": "Use a browser session to create workspaces."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        workspace = serializer.save()
+        Membership.objects.create(
+            workspace=workspace,
+            user=self.request.user,
+            role=Membership.Role.OWNER,
+        )
+
+
+class ApiTokenView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = ApiTokenCreateSerializer
+
+    @extend_schema(responses={status.HTTP_200_OK: ApiTokenSerializer(many=True)})
+    def get(self, request, *args, **kwargs):
+        tokens = self.get_workspace().api_tokens.filter(user=request.user)
+        return Response(ApiTokenSerializer(tokens, many=True).data)
+
+    @extend_schema(responses={status.HTTP_201_CREATED: ApiTokenIssuedSerializer})
+    def post(self, request, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(
+                {"detail": "Use a browser session to issue API tokens."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token, raw_token = ApiToken.issue(
+            workspace=self.get_workspace(),
+            user=request.user,
+            name=serializer.validated_data["name"],
+        )
+        output = ApiTokenIssuedSerializer(
+            {
+                "id": token.id,
+                "name": token.name,
+                "prefix": token.prefix,
+                "created_at": token.created_at,
+                "revoked_at": token.revoked_at,
+                "token": raw_token,
+            }
+        )
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class ApiTokenRevokeView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = ApiTokenSerializer
+
+    @extend_schema(responses={status.HTTP_204_NO_CONTENT: None})
+    def delete(self, request, token_id, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        token = get_object_or_404(
+            self.get_workspace().api_tokens,
+            pk=token_id,
+            user=request.user,
+            revoked_at__isnull=True,
+        )
+        token.revoked_at = timezone.now()
+        token.save(update_fields=["revoked_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = SearchQuerySerializer
+
+    @extend_schema(parameters=[SearchQuerySerializer], responses=SearchResultSerializer)
+    def get(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        query = serializer.validated_data["q"].strip()
+        holdings = (
+            Holding.objects.filter(workspace=self.get_workspace())
+            .select_related("item", "location")
+            .annotate(
+                item_aliases_text=Cast("item__aliases", TextField()),
+                item_attributes_text=Cast("item__attributes", TextField()),
+                location_aliases_text=Cast("location__aliases", TextField()),
+            )
+        )
+        for term in query.split():
+            holdings = holdings.filter(
+                Q(item__key__icontains=term)
+                | Q(item__name__icontains=term)
+                | Q(item__description__icontains=term)
+                | Q(item__category__icontains=term)
+                | Q(item_aliases_text__icontains=term)
+                | Q(item_attributes_text__icontains=term)
+                | Q(location__key__icontains=term)
+                | Q(location__name__icontains=term)
+                | Q(location_aliases_text__icontains=term)
+            )
+        if category := serializer.validated_data.get("category"):
+            holdings = holdings.filter(item__category__iexact=category)
+        if location := serializer.validated_data.get("location"):
+            holdings = holdings.filter(location__key=location)
+        results = list(holdings[:100])
+        output = SearchResultSerializer({"query": query, "count": len(results), "results": results})
+        return Response(output.data)
+
+
+class SignupView(FormView):
+    template_name = "registration/signup.html"
+    form_class = UserCreationForm
+
+    def form_valid(self, form):
+        user = form.save()
+        login(self.request, user)
+        return HttpResponseRedirect(reverse("workspace-list"))

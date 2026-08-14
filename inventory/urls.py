@@ -2,11 +2,15 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ApiTokenRevokeView,
+    ApiTokenView,
     BulkUpsertView,
     HoldingViewSet,
+    InventorySearchView,
     ItemViewSet,
     LocationRelationViewSet,
     LocationViewSet,
+    WorkspaceViewSet,
 )
 
 router = DefaultRouter()
@@ -15,7 +19,26 @@ router.register("location-relations", LocationRelationViewSet)
 router.register("items", ItemViewSet)
 router.register("holdings", HoldingViewSet)
 
+workspace_router = DefaultRouter()
+workspace_router.register("workspaces", WorkspaceViewSet, basename="workspace")
+
 urlpatterns = [
+    path("", include(workspace_router.urls)),
+    path(
+        "workspaces/<slug:workspace_slug>/search/",
+        InventorySearchView.as_view(),
+        name="inventory-search",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/tokens/",
+        ApiTokenView.as_view(),
+        name="api-token-list",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/tokens/<uuid:token_id>/",
+        ApiTokenRevokeView.as_view(),
+        name="api-token-revoke",
+    ),
     path(
         "workspaces/<slug:workspace_slug>/bulk-upsert/",
         BulkUpsertView.as_view(),

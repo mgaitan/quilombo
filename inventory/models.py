@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 import uuid
 
 from django.conf import settings
@@ -247,3 +249,40 @@ class InventoryEvent(models.Model):
 
     def __str__(self):
         return f"{self.kind} @ {self.workspace} ({self.created_at})"
+
+
+class ApiToken(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="api_tokens")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_tokens"
+    )
+    name = models.CharField(max_length=120)
+    prefix = models.CharField(max_length=12, unique=True)
+    token_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @classmethod
+    def issue(cls, *, workspace, user, name):
+        prefix = secrets.token_hex(6)
+        secret = secrets.token_urlsafe(32)
+        raw_token = f"qlo_{prefix}_{secret}"
+        token = cls.objects.create(
+            workspace=workspace,
+            user=user,
+            name=name,
+            prefix=prefix,
+            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        )
+        return token, raw_token
+
+    def matches(self, raw_token):
+        candidate = hashlib.sha256(raw_token.encode()).hexdigest()
+        return secrets.compare_digest(candidate, self.token_hash)
+
+    def __str__(self):
+        return f"{self.name} ({self.prefix})"

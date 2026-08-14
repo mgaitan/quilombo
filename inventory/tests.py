@@ -7,7 +7,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
-from .models import Holding, InventoryEvent, Item, Location, Membership, Workspace
+from .models import ApiToken, Holding, InventoryEvent, Item, Location, Membership, Workspace
 
 
 @pytest.fixture
@@ -234,3 +234,99 @@ def test_bulk_upsert_query_count_is_constant_for_large_batch(users, workspaces):
 
     assert response.status_code == 201
     assert len(queries) < 25
+
+
+@pytest.mark.django_db
+def test_user_can_create_workspace_and_becomes_owner(users):
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post("/api/workspaces/", {"name": "Garage", "slug": "garage"}, format="json")
+
+    assert response.status_code == 201
+    workspace = Workspace.objects.get(slug="garage")
+    assert workspace.memberships.get(user=users[0]).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
+def test_api_token_is_returned_once_and_scoped_to_workspace(users, workspaces):
+    first, second = workspaces
+    Membership.objects.create(workspace=second, user=users[0], role=Membership.Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    issued = client.post("/api/workspaces/workshop/tokens/", {"name": "My agent"}, format="json")
+
+    assert issued.status_code == 201
+    raw_token = issued.json()["token"]
+    stored = ApiToken.objects.get(workspace=first)
+    assert raw_token.startswith(f"qlo_{stored.prefix}_")
+    assert stored.token_hash != raw_token
+
+    token_client = APIClient()
+    token_client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+    assert token_client.get("/api/workspaces/workshop/locations/").status_code == 200
+    assert token_client.get("/api/workspaces/library/locations/").status_code == 404
+    assert token_client.get("/api/workspaces/").json()[0]["slug"] == "workshop"
+
+
+@pytest.mark.django_db
+def test_inventory_search_uses_aliases_attributes_and_locations(users, workspaces):
+    workshop, library = workspaces
+    drawer = Location.objects.create(
+        workspace=workshop,
+        key="drawer-1-a",
+        name="Drawer 1 compartment A",
+        aliases=["cajón superior"],
+    )
+    screws = Item.objects.create(
+        workspace=workshop,
+        key="fix-35mm",
+        name="FIX 35 mm",
+        category="fasteners",
+        aliases=["tornillos para madera"],
+        attributes={"length_mm": 35, "material": "steel"},
+        unit="piece",
+    )
+    Holding.objects.create(workspace=workshop, item=screws, location=drawer, quantity=Decimal("80"))
+    shelf = Location.objects.create(workspace=library, key="middle-left", name="Middle left")
+    book = Item.objects.create(
+        workspace=library,
+        key="gelman-interrupciones-1",
+        name="Interrupciones I",
+        category="poetry",
+        attributes={"author": "Juan Gelman"},
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+    )
+    Holding.objects.create(workspace=library, item=book, location=shelf, quantity=Decimal("1"))
+    workshop_client = APIClient()
+    workshop_client.force_authenticate(users[0])
+    library_client = APIClient()
+    library_client.force_authenticate(users[1])
+
+    screws_response = workshop_client.get(
+        "/api/workspaces/workshop/search/", {"q": "tornillos madera"}
+    )
+    book_response = library_client.get("/api/workspaces/library/search/", {"q": "Gelman"})
+
+    assert screws_response.status_code == 200
+    assert screws_response.json()["results"][0]["location_key"] == "drawer-1-a"
+    assert book_response.status_code == 200
+    assert book_response.json()["results"][0]["item_key"] == "gelman-interrupciones-1"
+
+
+@pytest.mark.django_db
+def test_public_signup_logs_user_in(client):
+    response = client.post(
+        "/accounts/signup/",
+        {
+            "username": "new-user",
+            "password1": "correct-horse-battery-staple-917",
+            "password2": "correct-horse-battery-staple-917",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.url == "/api/workspaces/"
+    assert client.session.get("_auth_user_id") is not None

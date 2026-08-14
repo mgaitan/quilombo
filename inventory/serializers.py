@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Holding, InventoryEvent, Item, Location, LocationRelation
+from .models import ApiToken, Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
 
 
 class StringListField(serializers.ListField):
@@ -202,3 +202,49 @@ class BulkUpsertResultSerializer(serializers.Serializer):
     event_id = serializers.UUIDField()
     replayed = serializers.BooleanField()
     processed = serializers.DictField(child=serializers.IntegerField())
+
+
+class WorkspaceSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Workspace
+        fields = ["id", "name", "slug", "role", "created_at"]
+        read_only_fields = ["id", "role", "created_at"]
+
+    def get_role(self, workspace) -> str | None:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        membership = workspace.memberships.filter(user=request.user).first()
+        return membership.role if membership else None
+
+
+class ApiTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApiToken
+        fields = ["id", "name", "prefix", "created_at", "revoked_at"]
+        read_only_fields = fields
+
+
+class ApiTokenCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=120)
+
+
+class ApiTokenIssuedSerializer(ApiTokenSerializer):
+    token = serializers.CharField()
+
+    class Meta(ApiTokenSerializer.Meta):
+        fields = [*ApiTokenSerializer.Meta.fields, "token"]
+
+
+class SearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(max_length=200)
+    category = serializers.CharField(required=False, max_length=120)
+    location = serializers.CharField(required=False, max_length=128)
+
+
+class SearchResultSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    count = serializers.IntegerField()
+    results = HoldingSerializer(many=True)
