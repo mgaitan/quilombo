@@ -1,13 +1,18 @@
+import asyncio
 from decimal import Decimal
 
+import httpx2
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from mcp.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from rest_framework.test import APIClient
 
 from .models import ApiToken, Holding, InventoryEvent, Item, Location, Membership, Workspace
+from .services import hash_request, move_inventory
 
 
 @pytest.fixture
@@ -330,3 +335,94 @@ def test_public_signup_logs_user_in(client):
     assert response.status_code == 302
     assert response.url == "/api/workspaces/"
     assert client.session.get("_auth_user_id") is not None
+
+
+@pytest.mark.django_db
+def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
+    workspace, _ = workspaces
+    source = Location.objects.create(workspace=workspace, key="drawer-1", name="Drawer 1")
+    destination = Location.objects.create(workspace=workspace, key="drawer-2", name="Drawer 2")
+    item = Item.objects.create(workspace=workspace, key="fix-35mm", name="FIX 35 mm")
+    Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=source,
+        quantity=Decimal("10"),
+    )
+    request = {
+        "item_key": item.key,
+        "from_location_key": source.key,
+        "to_location_key": destination.key,
+        "quantity": "3",
+        "idempotency_key": "move-fix-001",
+        "provenance": {"client_actor": "test-agent"},
+    }
+
+    event, replayed = move_inventory(
+        workspace=workspace,
+        actor=users[0],
+        request_hash=hash_request(request),
+        **request,
+    )
+    replay_event, was_replayed = move_inventory(
+        workspace=workspace,
+        actor=users[0],
+        request_hash=hash_request(request),
+        **request,
+    )
+
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert workspace.holdings.get(location=source).quantity == Decimal("7")
+    assert workspace.holdings.get(location=destination).quantity == Decimal("3")
+    assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.MOVE).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="drawer-1-a", name="Drawer 1 A")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="fix-35mm",
+        name="FIX 35 mm screws",
+        aliases=["tornillos para madera"],
+    )
+    Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("12")
+    )
+    _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
+
+    async def exercise_mcp():
+        from quilombo.asgi import application
+
+        transport = httpx2.ASGITransport(app=application)
+        async with application.router.lifespan_context(application):
+            async with httpx2.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {raw_token}"},
+            ) as http_client:
+                mcp_transport = streamable_http_client(
+                    "http://testserver/mcp",
+                    http_client=http_client,
+                    terminate_on_close=False,
+                )
+                async with Client(mcp_transport) as mcp_client:
+                    tools = await mcp_client.list_tools()
+                    result = await mcp_client.call_tool(
+                        "find_inventory", {"query": "tornillos madera"}
+                    )
+                    return tools, result
+
+    tools, result = asyncio.run(exercise_mcp())
+
+    assert {tool.name for tool in tools.tools} == {
+        "bulk_upsert_inventory",
+        "find_inventory",
+        "get_inventory_snapshot",
+        "move_inventory",
+    }
+    assert result.is_error is False
+    assert result.structured_content["results"][0]["location_key"] == "drawer-1-a"

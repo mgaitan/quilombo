@@ -4,6 +4,19 @@ from rest_framework.exceptions import AuthenticationFailed
 from .models import ApiToken
 
 
+def resolve_api_token(raw_token):
+    token_parts = raw_token.split("_", 2)
+    if len(token_parts) != 3 or token_parts[0] != "qlo":
+        return None
+    try:
+        token = ApiToken.objects.select_related("user", "workspace").get(
+            prefix=token_parts[1], revoked_at__isnull=True
+        )
+    except ApiToken.DoesNotExist:
+        return None
+    return token if token.matches(raw_token) else None
+
+
 class ApiTokenAuthentication(BaseAuthentication):
     keyword = "Bearer"
 
@@ -16,17 +29,8 @@ class ApiTokenAuthentication(BaseAuthentication):
             return None
 
         raw_token = parts[1]
-        token_parts = raw_token.split("_", 2)
-        if len(token_parts) != 3 or token_parts[0] != "qlo":
-            raise AuthenticationFailed("Invalid API token.")
-
-        try:
-            token = ApiToken.objects.select_related("user", "workspace").get(
-                prefix=token_parts[1], revoked_at__isnull=True
-            )
-        except ApiToken.DoesNotExist as error:
-            raise AuthenticationFailed("Invalid API token.") from error
-        if not token.matches(raw_token):
+        token = resolve_api_token(raw_token)
+        if not token:
             raise AuthenticationFailed("Invalid API token.")
         return token.user, token
 

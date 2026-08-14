@@ -1,8 +1,6 @@
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.db import transaction
-from django.db.models import Q, TextField
-from django.db.models.functions import Cast
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -28,7 +26,13 @@ from .serializers import (
     SearchResultSerializer,
     WorkspaceSerializer,
 )
-from .services import BulkUpsertError, IdempotencyConflict, bulk_upsert_inventory, hash_request
+from .services import (
+    BulkUpsertError,
+    IdempotencyConflict,
+    bulk_upsert_inventory,
+    hash_request,
+    search_holdings,
+)
 
 
 class WorkspaceAccessMixin:
@@ -212,32 +216,12 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
         serializer = self.get_serializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         query = serializer.validated_data["q"].strip()
-        holdings = (
-            Holding.objects.filter(workspace=self.get_workspace())
-            .select_related("item", "location")
-            .annotate(
-                item_aliases_text=Cast("item__aliases", TextField()),
-                item_attributes_text=Cast("item__attributes", TextField()),
-                location_aliases_text=Cast("location__aliases", TextField()),
-            )
+        results = search_holdings(
+            workspace=self.get_workspace(),
+            query=query,
+            category=serializer.validated_data.get("category", ""),
+            location=serializer.validated_data.get("location", ""),
         )
-        for term in query.split():
-            holdings = holdings.filter(
-                Q(item__key__icontains=term)
-                | Q(item__name__icontains=term)
-                | Q(item__description__icontains=term)
-                | Q(item__category__icontains=term)
-                | Q(item_aliases_text__icontains=term)
-                | Q(item_attributes_text__icontains=term)
-                | Q(location__key__icontains=term)
-                | Q(location__name__icontains=term)
-                | Q(location_aliases_text__icontains=term)
-            )
-        if category := serializer.validated_data.get("category"):
-            holdings = holdings.filter(item__category__iexact=category)
-        if location := serializer.validated_data.get("location"):
-            holdings = holdings.filter(location__key=location)
-        results = list(holdings[:100])
         output = SearchResultSerializer({"query": query, "count": len(results), "results": results})
         return Response(output.data)
 

@@ -41,6 +41,22 @@ CSRF_TRUSTED_ORIGINS = [
     for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+MCP_ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        "MCP_ALLOWED_HOSTS",
+        "localhost:*,127.0.0.1:*,testserver,quilombo-i1f4.onrender.com",
+    ).split(",")
+    if host.strip()
+]
+MCP_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "MCP_ALLOWED_ORIGINS",
+        "http://localhost:*,http://127.0.0.1:*,https://quilombo-i1f4.onrender.com",
+    ).split(",")
+    if origin.strip()
+]
 
 
 # Application definition

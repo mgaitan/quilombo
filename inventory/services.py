@@ -1,7 +1,10 @@
 import hashlib
 import json
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models import Q, TextField
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
@@ -13,6 +16,35 @@ class BulkUpsertError(Exception):
 
 class IdempotencyConflict(BulkUpsertError):
     pass
+
+
+def search_holdings(*, workspace, query, category="", location="", limit=100):
+    holdings = (
+        Holding.objects.filter(workspace=workspace)
+        .select_related("item", "location")
+        .annotate(
+            item_aliases_text=Cast("item__aliases", TextField()),
+            item_attributes_text=Cast("item__attributes", TextField()),
+            location_aliases_text=Cast("location__aliases", TextField()),
+        )
+    )
+    for term in query.strip().split():
+        holdings = holdings.filter(
+            Q(item__key__icontains=term)
+            | Q(item__name__icontains=term)
+            | Q(item__description__icontains=term)
+            | Q(item__category__icontains=term)
+            | Q(item_aliases_text__icontains=term)
+            | Q(item_attributes_text__icontains=term)
+            | Q(location__key__icontains=term)
+            | Q(location__name__icontains=term)
+            | Q(location_aliases_text__icontains=term)
+        )
+    if category:
+        holdings = holdings.filter(item__category__iexact=category)
+    if location:
+        holdings = holdings.filter(location__key=location)
+    return list(holdings[:limit])
 
 
 def hash_request(payload):
@@ -194,6 +226,97 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
     event = InventoryEvent.objects.create(
         workspace=workspace,
         kind=InventoryEvent.Kind.BULK_UPSERT,
+        actor=actor,
+        client_actor=provenance.get("client_actor", ""),
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+        source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
+        source_reference=provenance.get("source_reference", ""),
+        observed_at=provenance.get("observed_at"),
+        metadata=provenance.get("metadata", {}),
+        summary=summary,
+    )
+    return event, False
+
+
+@transaction.atomic
+def move_inventory(
+    *,
+    workspace,
+    actor,
+    item_key,
+    from_location_key,
+    to_location_key,
+    quantity,
+    idempotency_key,
+    provenance,
+    request_hash,
+):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    existing_event = InventoryEvent.objects.filter(
+        workspace=workspace, idempotency_key=idempotency_key
+    ).first()
+    if existing_event:
+        if existing_event.request_hash != request_hash:
+            raise IdempotencyConflict("Idempotency key was already used with a different payload.")
+        return existing_event, True
+    if from_location_key == to_location_key:
+        raise BulkUpsertError("Source and destination locations must differ.")
+    try:
+        amount = Decimal(str(quantity))
+    except InvalidOperation as error:
+        raise BulkUpsertError("Quantity must be a decimal number.") from error
+    if amount <= 0:
+        raise BulkUpsertError("Quantity must be greater than zero.")
+
+    item = Item.objects.filter(workspace=workspace, key=item_key).first()
+    source_location = Location.objects.filter(workspace=workspace, key=from_location_key).first()
+    destination_location = Location.objects.filter(workspace=workspace, key=to_location_key).first()
+    if not item:
+        raise BulkUpsertError(f"Unknown item '{item_key}'.")
+    if not source_location:
+        raise BulkUpsertError(f"Unknown location '{from_location_key}'.")
+    if not destination_location:
+        raise BulkUpsertError(f"Unknown location '{to_location_key}'.")
+    if item.tracking_mode == Item.TrackingMode.DISCRETE and amount != amount.to_integral_value():
+        raise BulkUpsertError(f"Discrete item '{item.key}' requires a whole quantity.")
+
+    source = (
+        Holding.objects.select_for_update()
+        .filter(workspace=workspace, item=item, location=source_location)
+        .first()
+    )
+    if not source or source.quantity < amount:
+        available = source.quantity if source else Decimal("0")
+        raise BulkUpsertError(
+            f"Insufficient quantity at source; available quantity is {available}."
+        )
+
+    destination, _ = Holding.objects.select_for_update().get_or_create(
+        workspace=workspace,
+        item=item,
+        location=destination_location,
+        defaults={"quantity": Decimal("0"), "approximate": source.approximate},
+    )
+    source.quantity -= amount
+    destination.quantity += amount
+    destination.approximate = destination.approximate or source.approximate
+    if source.quantity == 0:
+        source.delete()
+    else:
+        source.save(update_fields=["quantity", "updated_at"])
+    destination.save(update_fields=["quantity", "approximate", "updated_at"])
+
+    summary = {
+        "item_key": item_key,
+        "from_location_key": from_location_key,
+        "to_location_key": to_location_key,
+        "quantity": str(amount),
+        "unit": item.unit,
+    }
+    event = InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=InventoryEvent.Kind.MOVE,
         actor=actor,
         client_actor=provenance.get("client_actor", ""),
         idempotency_key=idempotency_key,
