@@ -2,7 +2,7 @@
 services:
   - type: web
     plan: free
-    name: quilombo
+    name: quilombo-v1-mgaitan
     runtime: python
     buildCommand: "./build.sh"
     startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
@@ -17,8 +17,8 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
-        value: https://quilombo-i1f4.onrender.com
+        value: https://quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_HOSTS
-        value: localhost:*,127.0.0.1:*,quilombo-i1f4.onrender.com
+        value: localhost:*,127.0.0.1:*,quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_ORIGINS
-        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-i1f4.onrender.com
+        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com

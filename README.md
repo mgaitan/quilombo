@@ -42,8 +42,10 @@ not uploaded or retained.
 
 ## Connect an MCP client
 
-The Streamable HTTP endpoint is `/mcp`. Configure the client with the same workspace bearer token.
-It exposes four tools:
+The hosted v0.1 app is available at
+[`https://quilombo-v1-mgaitan.onrender.com`](https://quilombo-v1-mgaitan.onrender.com). Its
+Streamable HTTP endpoint is `https://quilombo-v1-mgaitan.onrender.com/mcp`. Configure the client
+with the same workspace bearer token. It exposes four tools:
 
 - `find_inventory`
 - `get_inventory_snapshot`
