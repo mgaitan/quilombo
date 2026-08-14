@@ -338,6 +338,14 @@ def test_public_signup_logs_user_in(client):
 
 
 @pytest.mark.django_db
+def test_health_check_includes_database(client):
+    response = client.get("/health/")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.django_db
 def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
     workspace, _ = workspaces
     source = Location.objects.create(workspace=workspace, key="drawer-1", name="Drawer 1")

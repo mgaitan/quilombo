@@ -6,6 +6,7 @@ services:
     runtime: python
     buildCommand: "./build.sh"
     startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health/
     envVars:
       - key: SECRET_KEY
         generateValue: true
@@ -17,3 +18,7 @@ services:
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
         value: https://quilombo-i1f4.onrender.com
+      - key: MCP_ALLOWED_HOSTS
+        value: localhost:*,127.0.0.1:*,quilombo-i1f4.onrender.com
+      - key: MCP_ALLOWED_ORIGINS
+        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-i1f4.onrender.com
