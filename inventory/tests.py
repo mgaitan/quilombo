@@ -1,3 +1,5 @@
-from django.test import TestCase
+from django.core.management import call_command
 
-# Create your tests here.
+
+def test_django_system_checks():
+    call_command("check")

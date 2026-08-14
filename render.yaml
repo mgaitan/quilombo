@@ -5,7 +5,7 @@ services:
     name: quilombo
     runtime: python
     buildCommand: "./build.sh"
-    startCommand: "python -m gunicorn quilombo.asgi:application -k uvicorn.workers.UvicornWorker"
+    startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
     envVars:
       - key: SECRET_KEY
         generateValue: true
@@ -13,3 +13,7 @@ services:
         value: 4
       - key: IS_PROD
         value: 1
+      - key: DATABASE_URL
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://quilombo-i1f4.onrender.com

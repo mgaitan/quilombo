@@ -1,14 +1,15 @@
 from django.db import models
 
+
 class Product(models.Model):
     name = models.CharField(max_length=100)
-    picture = models.ImageField(upload_to='products', blank=True)
+    picture = models.ImageField(upload_to="products", blank=True)
     description = models.TextField()
     locations = models.ManyToManyField("Location", through="Stock")
 
     @property
     def quantity(self):
-        return self.stock_set.aggregate(total=models.Sum('quantity'))['total'] or 0
+        return self.stock_set.aggregate(total=models.Sum("quantity"))["total"] or 0
 
     def __str__(self):
         return self.name
@@ -19,7 +20,7 @@ class Location(models.Model):
     container = models.ForeignKey(
         "self", null=True, blank=True, related_name="sublocation", on_delete=models.CASCADE
     )
-    picture = models.ImageField(upload_to='locations', blank=True)
+    picture = models.ImageField(upload_to="locations", blank=True)
     description = models.TextField()
 
     def __str__(self):
@@ -50,4 +51,7 @@ class StockTransaction(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.product.name} @ {self.location.name} ({self.quantity_change}) on {self.timestamp}"
+        return (
+            f"{self.product.name} @ {self.location.name} "
+            f"({self.quantity_change}) on {self.timestamp}"
+        )
