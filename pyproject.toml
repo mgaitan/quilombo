@@ -9,7 +9,6 @@ dependencies = [
     "djangorestframework>=3.16,<3.17",
     "drf-spectacular>=0.28,<0.29",
     "mcp>=2.0,<2.1",
-    "pillow>=12,<13",
     "psycopg[binary]>=3.2,<4",
     "uvicorn[standard]>=0.35,<0.36",
     "whitenoise>=6.9,<7",

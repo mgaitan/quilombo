@@ -1,21 +1,14 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import (
-    LocationViewSet,
-    ProductViewSet,
-    StockTransactionViewSet,
-    StockViewSet,
-    update_stock,
-)
+from .views import HoldingViewSet, ItemViewSet, LocationRelationViewSet, LocationViewSet
 
 router = DefaultRouter()
-router.register(r"products", ProductViewSet)
-router.register(r"locations", LocationViewSet)
-router.register(r"stocks", StockViewSet)
-router.register(r"stocktransactions", StockTransactionViewSet)
+router.register("locations", LocationViewSet)
+router.register("location-relations", LocationRelationViewSet)
+router.register("items", ItemViewSet)
+router.register("holdings", HoldingViewSet)
 
 urlpatterns = [
-    path("", include(router.urls)),
-    path("update_stock/", update_stock),
+    path("workspaces/<slug:workspace_slug>/", include(router.urls)),
 ]
