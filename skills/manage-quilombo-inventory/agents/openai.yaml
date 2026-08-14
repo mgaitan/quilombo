@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Quilombo Inventory"
+  short_description: "Find and organize physical inventory"
+  default_prompt: "Use $manage-quilombo-inventory to locate, record, or reorganize my physical inventory safely."
