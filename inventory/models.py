@@ -227,6 +227,7 @@ class InventoryEvent(models.Model):
     )
     client_actor = models.CharField(max_length=160, blank=True)
     idempotency_key = models.CharField(max_length=160, blank=True)
+    request_hash = models.CharField(max_length=64, blank=True)
     source_kind = models.CharField(max_length=16, choices=SourceKind, default=SourceKind.MANUAL)
     source_reference = models.TextField(blank=True)
     observed_at = models.DateTimeField(null=True, blank=True)

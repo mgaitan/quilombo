@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Holding, Item, Location, LocationRelation
+from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 
 
 class StringListField(serializers.ListField):
@@ -123,3 +123,82 @@ class HoldingSerializer(serializers.ModelSerializer):
                 {"quantity": "Discrete items require a whole quantity."}
             )
         return attrs
+
+
+class BulkLocationSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=160)
+    description = serializers.CharField(required=False, allow_blank=True)
+    kind = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    parent_key = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=128
+    )
+    aliases = StringListField(required=False)
+    metadata = serializers.JSONField(required=False)
+
+
+class BulkItemSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=200)
+    description = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    aliases = StringListField(required=False)
+    attributes = serializers.JSONField(required=False)
+    tracking_mode = serializers.ChoiceField(required=False, choices=Item.TrackingMode)
+    unit = serializers.CharField(required=False, max_length=32)
+
+
+class BulkHoldingSerializer(serializers.Serializer):
+    item_key = serializers.CharField(max_length=128)
+    location_key = serializers.CharField(max_length=128)
+    quantity = serializers.DecimalField(max_digits=20, decimal_places=6, min_value=0)
+    approximate = serializers.BooleanField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class BulkLocationRelationSerializer(serializers.Serializer):
+    subject_key = serializers.CharField(max_length=128)
+    relation = serializers.ChoiceField(choices=LocationRelation.Relation)
+    object_key = serializers.CharField(max_length=128)
+
+
+class ProvenanceSerializer(serializers.Serializer):
+    client_actor = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    source_kind = serializers.ChoiceField(required=False, choices=InventoryEvent.SourceKind)
+    source_reference = serializers.CharField(required=False, allow_blank=True)
+    observed_at = serializers.DateTimeField(required=False, allow_null=True)
+    metadata = serializers.JSONField(required=False)
+
+
+class BulkUpsertSerializer(serializers.Serializer):
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+    locations = BulkLocationSerializer(many=True, required=False, max_length=2000)
+    items = BulkItemSerializer(many=True, required=False, max_length=2000)
+    holdings = BulkHoldingSerializer(many=True, required=False, max_length=5000)
+    location_relations = BulkLocationRelationSerializer(many=True, required=False, max_length=5000)
+
+    def validate(self, attrs):
+        collection_keys = {
+            "locations": lambda row: row["key"],
+            "items": lambda row: row["key"],
+            "holdings": lambda row: (row["item_key"], row["location_key"]),
+            "location_relations": lambda row: (
+                row["subject_key"],
+                row["relation"],
+                row["object_key"],
+            ),
+        }
+        if not any(attrs.get(name) for name in collection_keys):
+            raise serializers.ValidationError("At least one collection must contain data.")
+        for name, identity in collection_keys.items():
+            values = [identity(row) for row in attrs.get(name, [])]
+            if len(values) != len(set(values)):
+                raise serializers.ValidationError({name: "Batch contains duplicate keys."})
+        return attrs
+
+
+class BulkUpsertResultSerializer(serializers.Serializer):
+    event_id = serializers.UUIDField()
+    replayed = serializers.BooleanField()
+    processed = serializers.DictField(child=serializers.IntegerField())
