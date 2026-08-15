@@ -46,6 +46,7 @@ from .serializers import (
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
+    build_holding_clue_context,
     bulk_upsert_inventory,
     hash_request,
     search_holdings,
@@ -309,7 +310,11 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
             location=serializer.validated_data.get("location", ""),
             include_descendants=serializer.validated_data["include_descendants"],
         )
-        output = SearchResultSerializer({"query": query, "count": len(results), "results": results})
+        clue_context = build_holding_clue_context(workspace=self.get_workspace(), holdings=results)
+        output = SearchResultSerializer(
+            {"query": query, "count": len(results), "results": results},
+            context=clue_context,
+        )
         return Response(output.data)
 
 

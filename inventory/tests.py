@@ -454,6 +454,69 @@ def test_inventory_search_scopes_to_location_descendants(users, workspaces):
 
 
 @pytest.mark.django_db
+def test_inventory_search_returns_physical_and_neighboring_clues(users, workspaces):
+    _, library = workspaces
+    bookcase = Location.objects.create(workspace=library, key="biblioteca", name="Biblioteca")
+    shelf = Location.objects.create(
+        workspace=library,
+        key="estante-2-izquierda",
+        name="Segundo estante a la izquierda",
+        parent=bookcase,
+    )
+    quilombo = Item.objects.create(
+        workspace=library,
+        key="quilombo",
+        name="Quilombo",
+        description="Edición ancha con lomo rojo y letras blancas",
+        aliases=["Quilombo de Samantha Schweblin"],
+        attributes={
+            "schema": "book",
+            "appearance": {"spine_color": "red", "lettering_color": "white"},
+        },
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+    )
+    dolina = Item.objects.create(
+        workspace=library,
+        key="cronicas-angel-gris",
+        name="Crónicas del Ángel Gris",
+        description="Edición con lomo azul",
+        attributes={"schema": "book", "appearance": {"spine_color": "blue"}},
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+    )
+    Holding.objects.create(
+        workspace=library,
+        item=quilombo,
+        location=shelf,
+        quantity=1,
+        notes="La copia tiene una marca en la esquina inferior",
+    )
+    Holding.objects.create(workspace=library, item=dolina, location=shelf, quantity=1)
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    response = client.get("/api/workspaces/library/search/", {"q": "Quilombo"})
+
+    result = response.json()["results"][0]
+    assert response.status_code == 200
+    assert result["item_description"] == "Edición ancha con lomo rojo y letras blancas"
+    assert result["item_attributes"]["appearance"]["spine_color"] == "red"
+    assert [location["key"] for location in result["location_path"]] == [
+        "biblioteca",
+        "estante-2-izquierda",
+    ]
+    assert result["nearby_items"] == [
+        {
+            "item_key": "cronicas-angel-gris",
+            "item_name": "Crónicas del Ángel Gris",
+            "description": "Edición con lomo azul",
+            "attributes": {"schema": "book", "appearance": {"spine_color": "blue"}},
+        }
+    ]
+
+
+@pytest.mark.django_db
 def test_public_signup_logs_user_in(client):
     response = client.post(
         "/accounts/signup/",
@@ -616,15 +679,34 @@ def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
 @pytest.mark.django_db(transaction=True)
 def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     workspace, _ = workspaces
-    location = Location.objects.create(workspace=workspace, key="drawer-1-a", name="Drawer 1 A")
+    workshop = Location.objects.create(workspace=workspace, key="workshop", name="Workshop")
+    location = Location.objects.create(
+        workspace=workspace,
+        parent=workshop,
+        key="drawer-1-a",
+        name="Drawer 1 A",
+    )
     item = Item.objects.create(
         workspace=workspace,
         key="fix-35mm",
         name="FIX 35 mm screws",
+        description="Red box with white lettering",
         aliases=["tornillos para madera"],
+        attributes={"appearance": {"color": "red"}},
     )
     Holding.objects.create(
         workspace=workspace, item=item, location=location, quantity=Decimal("12")
+    )
+    neighbor = Item.objects.create(
+        workspace=workspace,
+        key="wall-plugs",
+        name="Wall plugs",
+    )
+    Holding.objects.create(
+        workspace=workspace,
+        item=neighbor,
+        location=location,
+        quantity=Decimal("8"),
     )
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
 
@@ -660,8 +742,15 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "move_inventory",
     }
     assert result.is_error is False
-    assert result.structured_content["results"][0]["location_key"] == "drawer-1-a"
-    assert result.structured_content["results"][0]["search"]["match_type"] == "complete"
+    first_result = result.structured_content["results"][0]
+    assert first_result["location_key"] == "drawer-1-a"
+    assert first_result["search"]["match_type"] == "complete"
+    assert first_result["item_description"] == "Red box with white lettering"
+    assert [place["key"] for place in first_result["location_path"]] == [
+        "workshop",
+        "drawer-1-a",
+    ]
+    assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
 
 
 @pytest.mark.django_db(transaction=True)
