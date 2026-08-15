@@ -2,14 +2,17 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
 import httpx2
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -615,6 +618,45 @@ def test_item_rejects_target_below_minimum(users, workspaces):
 
 
 @pytest.mark.django_db
+def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users, workspaces):
+    cache.clear()
+    payload = {
+        "ISBN:9780140328721": {
+            "url": "https://openlibrary.org/books/OL7353617M/Matilda",
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "publish_date": "1988",
+            "number_of_pages": 240,
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "cover": {"medium": "https://covers.openlibrary.org/example.jpg"},
+        }
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        response = client.get("/api/workspaces/workshop/catalog/books/978-0-14-032872-1/")
+        cached_response = client.get("/api/workspaces/workshop/catalog/books/9780140328721/")
+
+    assert response.status_code == 200
+    assert cached_response.status_code == 200
+    assert urlopen_mock.call_count == 1
+    result = response.json()
+    assert result["provider"] == "open_library"
+    assert result["suggested_item"]["name"] == "Matilda"
+    assert result["suggested_item"]["attributes"]["book"]["authors"] == ["Roald Dahl"]
+
+    inaccessible = client.get("/api/workspaces/library/catalog/books/9780140328721/")
+    invalid = client.get("/api/workspaces/workshop/catalog/books/9780140328722/")
+    assert inaccessible.status_code == 404
+    assert invalid.status_code == 400
+
+
+@pytest.mark.django_db
 def test_public_signup_logs_user_in(client):
     response = client.post(
         "/accounts/signup/",
@@ -841,6 +883,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "find_inventory",
         "get_inventory_status",
         "get_inventory_snapshot",
+        "lookup_book_by_isbn",
         "move_inventory",
     }
     assert result.is_error is False

@@ -12,6 +12,14 @@ class StringListField(serializers.ListField):
         return normalize_aliases(super().to_internal_value(data))
 
 
+class BookLookupResultSerializer(serializers.Serializer):
+    provider = serializers.CharField()
+    isbn = serializers.CharField()
+    source_url = serializers.URLField()
+    retrieved_at = serializers.DateTimeField()
+    suggested_item = serializers.JSONField()
+
+
 class LocationSerializer(serializers.ModelSerializer):
     aliases = StringListField(required=False)
     parent_key = serializers.CharField(source="parent.key", read_only=True)

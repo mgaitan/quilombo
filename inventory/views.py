@@ -18,6 +18,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
 from .models import (
     ApiToken,
     Holding,
@@ -33,6 +34,7 @@ from .serializers import (
     ApiTokenCreateSerializer,
     ApiTokenIssuedSerializer,
     ApiTokenSerializer,
+    BookLookupResultSerializer,
     BulkUpsertResultSerializer,
     BulkUpsertSerializer,
     HoldingSerializer,
@@ -215,6 +217,23 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
         return Response(
             output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
         )
+
+
+class BookLookupView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = BookLookupResultSerializer
+
+    @extend_schema(responses=BookLookupResultSerializer)
+    def get(self, request, isbn, *args, **kwargs):
+        self.get_workspace()
+        try:
+            result = lookup_book_by_isbn(isbn)
+        except ValueError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        except CatalogRecordNotFound as error:
+            return Response({"detail": str(error)}, status=status.HTTP_404_NOT_FOUND)
+        except CatalogLookupError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(self.get_serializer(result).data)
 
 
 class WorkspaceViewSet(viewsets.ModelViewSet):

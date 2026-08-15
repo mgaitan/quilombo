@@ -43,6 +43,11 @@ Set `minimum_quantity` on an item to include it in missing/low-stock reports. Op
 These thresholds use the item's `unit`. Without a target, the minimum is also the replenishment
 target.
 
+For books, keep bibliographic facts under `attributes.book` and identifiers under
+`attributes.identifiers`. `lookup_book_by_isbn` returns this shape as a suggestion sourced from
+Open Library. It does not mutate inventory. Keep subjective reviews out of canonical metadata;
+store a user's own note explicitly or retain an external reference instead.
+
 ## Bulk upsert
 
 `bulk_upsert_inventory` accepts optional lists and commits all of them in one transaction:
