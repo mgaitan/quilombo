@@ -10,8 +10,10 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      # OAuth authorization state is persisted in PostgreSQL; keep one worker on the free tier
+      # until we have measured the app under load and configured a production process manager.
       - key: WEB_CONCURRENCY
-        value: 4
+        value: 1
       - key: IS_PROD
         value: 1
       - key: PUBLIC_BASE_URL

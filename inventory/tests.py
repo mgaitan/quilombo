@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import io
+from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
@@ -12,6 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from rest_framework.test import APIClient
@@ -23,6 +25,8 @@ from .models import (
     Item,
     Location,
     Membership,
+    OAuthAuthorizationRequest,
+    OAuthClient,
     OAuthCredential,
     Workspace,
 )
@@ -404,6 +408,26 @@ def test_public_home_and_connector_guide(client):
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_oauth_consent_explains_missing_workspace(client, users):
+    oauth_client = OAuthClient.objects.create(
+        client_id="consent-test-client",
+        metadata={"client_name": "Consent test", "redirect_uris": ["https://example.com/cb"]},
+    )
+    authorization_request = OAuthAuthorizationRequest.objects.create(
+        client=oauth_client,
+        code_challenge="challenge",
+        redirect_uri="https://example.com/cb",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    client.force_login(users[0])
+
+    response = client.get("/oauth/consent/", {"request": authorization_request.id})
+
+    assert response.status_code == 400
+    assert "no tiene un inventario" in response.content.decode()
 
 
 def test_skill_zip_is_downloadable(client):

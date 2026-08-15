@@ -370,7 +370,11 @@ def oauth_consent(request):
 
     workspaces = Workspace.objects.filter(memberships__user=request.user).distinct()
     if not workspaces.exists():
-        raise Http404("No workspace is available for authorization.")
+        return render(
+            request,
+            "inventory/oauth_consent_error.html",
+            status=400,
+        )
     return render(
         request,
         "inventory/oauth_consent.html",

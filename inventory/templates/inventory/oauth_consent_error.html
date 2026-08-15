@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}No hay un workspace disponible | Quilombo{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+
+{% block content %}
+  <section class="auth-panel">
+    <h1>No hay un workspace disponible</h1>
+    <p class="lede">
+      Esta cuenta todavía no tiene un inventario para autorizar. Volvé a intentar después de
+      crear uno o contactá al administrador de Quilombo.
+    </p>
+    <p><a class="button button-primary" href="{% url 'dashboard' %}">Ir a mis inventarios</a></p>
+  </section>
+{% endblock %}
