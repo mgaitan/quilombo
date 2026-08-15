@@ -368,6 +368,11 @@ def test_public_signup_logs_user_in(client):
     assert response.status_code == 302
     assert response.url == "/api/workspaces/"
     assert client.session.get("_auth_user_id") is not None
+    user = get_user_model().objects.get(username="new-user")
+    workspace = user.workspaces.get()
+    assert workspace.name == "Home"
+    assert workspace.slug == f"home-{str(user.id)[:8]}"
+    assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
 
 
 @pytest.mark.django_db

@@ -231,7 +231,14 @@ class SignupView(FormView):
     template_name = "registration/signup.html"
     form_class = UserCreationForm
 
+    @transaction.atomic
     def form_valid(self, form):
         user = form.save()
+        workspace = Workspace.objects.create(name="Home", slug=f"home-{str(user.id)[:8]}")
+        Membership.objects.create(
+            workspace=workspace,
+            user=user,
+            role=Membership.Role.OWNER,
+        )
         login(self.request, user)
         return HttpResponseRedirect(reverse("workspace-list"))
