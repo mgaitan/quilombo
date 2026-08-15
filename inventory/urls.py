@@ -10,6 +10,7 @@ from .views import (
     ItemViewSet,
     LocationRelationViewSet,
     LocationViewSet,
+    StockStatusView,
     WorkspaceViewSet,
 )
 
@@ -24,6 +25,11 @@ workspace_router.register("workspaces", WorkspaceViewSet, basename="workspace")
 
 urlpatterns = [
     path("", include(workspace_router.urls)),
+    path(
+        "workspaces/<slug:workspace_slug>/stock-status/",
+        StockStatusView.as_view(),
+        name="stock-status",
+    ),
     path(
         "workspaces/<slug:workspace_slug>/search/",
         InventorySearchView.as_view(),

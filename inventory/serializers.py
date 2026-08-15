@@ -77,10 +77,29 @@ class ItemSerializer(serializers.ModelSerializer):
             "attributes",
             "tracking_mode",
             "unit",
+            "minimum_quantity",
+            "target_quantity",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        minimum = attrs.get("minimum_quantity", getattr(self.instance, "minimum_quantity", None))
+        target = attrs.get("target_quantity", getattr(self.instance, "target_quantity", None))
+        if minimum is not None and minimum < 0:
+            raise serializers.ValidationError(
+                {"minimum_quantity": "Minimum quantity cannot be negative."}
+            )
+        if target is not None and target < 0:
+            raise serializers.ValidationError(
+                {"target_quantity": "Target quantity cannot be negative."}
+            )
+        if minimum is not None and target is not None and target < minimum:
+            raise serializers.ValidationError(
+                {"target_quantity": "Target quantity must reach the minimum."}
+            )
+        return attrs
 
 
 class HoldingSerializer(serializers.ModelSerializer):
@@ -151,6 +170,21 @@ class BulkItemSerializer(serializers.Serializer):
     attributes = serializers.JSONField(required=False)
     tracking_mode = serializers.ChoiceField(required=False, choices=Item.TrackingMode)
     unit = serializers.CharField(required=False, max_length=32)
+    minimum_quantity = serializers.DecimalField(
+        required=False, allow_null=True, max_digits=20, decimal_places=6, min_value=0
+    )
+    target_quantity = serializers.DecimalField(
+        required=False, allow_null=True, max_digits=20, decimal_places=6, min_value=0
+    )
+
+    def validate(self, attrs):
+        minimum = attrs.get("minimum_quantity")
+        target = attrs.get("target_quantity")
+        if minimum is not None and target is not None and target < minimum:
+            raise serializers.ValidationError(
+                {"target_quantity": "Target quantity must reach the minimum."}
+            )
+        return attrs
 
 
 class BulkHoldingSerializer(serializers.Serializer):
@@ -289,3 +323,21 @@ class SearchResultSerializer(serializers.Serializer):
     query = serializers.CharField()
     count = serializers.IntegerField()
     results = HoldingClueSerializer(many=True)
+
+
+class StockStatusItemSerializer(serializers.Serializer):
+    item_key = serializers.CharField()
+    item_name = serializers.CharField()
+    status = serializers.ChoiceField(choices=["missing", "low"])
+    current_quantity = serializers.DecimalField(max_digits=20, decimal_places=6)
+    minimum_quantity = serializers.DecimalField(max_digits=20, decimal_places=6)
+    target_quantity = serializers.DecimalField(max_digits=20, decimal_places=6)
+    recommended_add_quantity = serializers.DecimalField(max_digits=20, decimal_places=6)
+    unit = serializers.CharField()
+    locations = serializers.JSONField()
+
+
+class StockStatusResultSerializer(serializers.Serializer):
+    workspace = serializers.CharField()
+    count = serializers.IntegerField()
+    items = StockStatusItemSerializer(many=True)

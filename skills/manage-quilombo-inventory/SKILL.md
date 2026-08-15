@@ -85,6 +85,12 @@ For reorganization:
 
 Prefer suggestions over mutations when the user asks only for advice.
 
+## Check supplies
+
+Call `get_inventory_status` when the user asks what is missing, low, or needs replenishment. Explain
+that this compares workspace-wide recorded quantities with user-configured minimum and target
+values; it does not forecast consumption or apply per-location thresholds.
+
 ## Handle corrections and failures
 
 - Accept a human correction as a new observation and preserve its provenance.

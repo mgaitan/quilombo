@@ -41,6 +41,7 @@ from .serializers import (
     LocationSerializer,
     SearchQuerySerializer,
     SearchResultSerializer,
+    StockStatusResultSerializer,
     WorkspaceSerializer,
 )
 from .services import (
@@ -48,6 +49,7 @@ from .services import (
     IdempotencyConflict,
     build_holding_clue_context,
     bulk_upsert_inventory,
+    get_stock_status,
     hash_request,
     search_holdings,
 )
@@ -85,6 +87,7 @@ def workspace_inventory(request, workspace_slug):
         location=location_key,
         limit=200,
     )
+    stock_status = get_stock_status(workspace=workspace)
     return render(
         request,
         "inventory/workspace.html",
@@ -94,6 +97,7 @@ def workspace_inventory(request, workspace_slug):
             "locations": workspace.locations.only("key", "name"),
             "query": query,
             "location_key": location_key,
+            "stock_status": stock_status,
         },
     )
 
@@ -316,6 +320,15 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
             context=clue_context,
         )
         return Response(output.data)
+
+
+class StockStatusView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = StockStatusResultSerializer
+
+    @extend_schema(responses=StockStatusResultSerializer)
+    def get(self, request, *args, **kwargs):
+        result = get_stock_status(workspace=self.get_workspace())
+        return Response(StockStatusResultSerializer(result).data)
 
 
 class SignupView(FormView):

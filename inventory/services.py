@@ -335,6 +335,46 @@ def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
     }
 
 
+def get_stock_status(*, workspace):
+    items = workspace.items.filter(minimum_quantity__isnull=False).prefetch_related(
+        "holdings__location"
+    )
+    attention = []
+    for item in items:
+        holdings = list(item.holdings.all())
+        current = sum((holding.quantity for holding in holdings), Decimal("0"))
+        if current >= item.minimum_quantity:
+            continue
+        target = item.target_quantity or item.minimum_quantity
+        attention.append(
+            {
+                "item_key": item.key,
+                "item_name": item.name,
+                "status": "missing" if current == 0 else "low",
+                "current_quantity": current,
+                "minimum_quantity": item.minimum_quantity,
+                "target_quantity": target,
+                "recommended_add_quantity": max(target - current, Decimal("0")),
+                "unit": item.unit,
+                "locations": [
+                    {
+                        "location_key": holding.location.key,
+                        "location_name": holding.location.name,
+                        "quantity": str(holding.quantity),
+                    }
+                    for holding in holdings
+                    if holding.quantity > 0
+                ],
+            }
+        )
+    attention.sort(key=lambda row: (row["status"] != "missing", row["item_name"].lower()))
+    return {
+        "workspace": workspace.slug,
+        "count": len(attention),
+        "items": attention,
+    }
+
+
 def hash_request(payload):
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -431,6 +471,8 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             attributes=row.get("attributes", {}),
             tracking_mode=row.get("tracking_mode", Item.TrackingMode.BULK),
             unit=row.get("unit", "unit"),
+            minimum_quantity=row.get("minimum_quantity"),
+            target_quantity=row.get("target_quantity"),
             updated_at=now,
         )
         for row in item_rows
@@ -448,6 +490,8 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
                 "attributes",
                 "tracking_mode",
                 "unit",
+                "minimum_quantity",
+                "target_quantity",
                 "updated_at",
             ],
         )
