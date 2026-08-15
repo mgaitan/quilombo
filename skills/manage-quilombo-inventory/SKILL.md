@@ -27,18 +27,23 @@ relative locations.
 
 ## Locate objects
 
-1. Call `find_inventory` with the user's wording; include category or location only when known.
+1. Call `find_inventory` with the user's concise wording; include category or location only when known.
 2. Report item name, precise recorded location, quantity, unit, and whether it is approximate.
 3. Distinguish "not recorded" from "not present" when no result matches.
-4. Try a concise synonym or broader category only when the first deterministic search misses.
-   Never claim semantic matching came from Quilombo.
-5. Call `get_inventory_snapshot` when the question depends on spatial relations, a full location,
+4. Read the result's `search` diagnostics. A partial result can be useful; state which terms
+   matched and which did not.
+5. If the first search misses, try concise synonyms or translations in separate searches. Never
+   concatenate unrelated alternatives into one query, and never claim semantic matching came from
+   Quilombo.
+6. Call `get_inventory_snapshot` when the question depends on spatial relations, a full location,
    or several scattered holdings.
 
 ## Record observations
 
 1. Convert the observation into stable location, item, holding, and relation records.
-2. Search or inspect a snapshot first to reuse existing keys and aliases.
+2. Search or inspect a snapshot first to reuse existing keys and aliases. Preserve useful user
+   vocabulary in aliases; include known translations and spelling variants, but do not invent
+   uncertain translations.
 3. Mark uncertain counts as `approximate: true`; keep unstructured uncertainty in `notes`.
 4. Build one transactional `bulk_upsert_inventory` call for related changes.
 5. Show a draft summarizing created/updated records and current quantities, then confirm and write.

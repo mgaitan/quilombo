@@ -340,6 +340,67 @@ def test_inventory_search_uses_aliases_attributes_and_locations(users, workspace
 
 
 @pytest.mark.django_db
+def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    batteries = Item.objects.create(
+        workspace=workshop,
+        key="aaa-batteries",
+        name="Pilas AAA",
+        category="pilas",
+        aliases=["pilas triple A", "baterías AAA", "AAA batteries"],
+        attributes={"size": "AAA"},
+    )
+    Holding.objects.create(workspace=workshop, item=batteries, location=location, quantity=1)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    partial = client.get(
+        "/api/workspaces/workshop/search/",
+        {"q": "¿Hay PILAS baterías AAA AA?"},
+    )
+    exact_code = client.get("/api/workspaces/workshop/search/", {"q": "AA"})
+    english = client.get("/api/workspaces/workshop/search/", {"q": "battery"})
+
+    assert partial.status_code == 200
+    result = partial.json()["results"][0]
+    assert result["item_key"] == "aaa-batteries"
+    assert result["search"]["match_type"] == "partial"
+    assert "PILAS" in result["search"]["matched_terms"]
+    assert "baterías" in result["search"]["matched_terms"]
+    assert "AA?" in result["search"]["unmatched_terms"]
+    assert exact_code.json()["results"] == []
+    assert english.json()["results"][0]["item_key"] == "aaa-batteries"
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_normalizes_duplicate_aliases(users, workspaces):
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/bulk-upsert/",
+        {
+            "idempotency_key": "normalize-aliases",
+            "items": [
+                {
+                    "key": "aaa-batteries",
+                    "name": "Pilas AAA",
+                    "aliases": [" Baterías ", "baterías", "AAA batteries"],
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert Workspace.objects.get(slug="workshop").items.get(key="aaa-batteries").aliases == [
+        "Baterías",
+        "AAA batteries",
+    ]
+
+
+@pytest.mark.django_db
 def test_inventory_search_scopes_to_location_descendants(users, workspaces):
     workshop, _ = workspaces
     workshop_location = Location.objects.create(workspace=workshop, key="taller", name="Taller")
@@ -580,6 +641,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert result.is_error is False
     assert result.structured_content["results"][0]["location_key"] == "drawer-1-a"
+    assert result.structured_content["results"][0]["search"]["match_type"] == "complete"
 
 
 @pytest.mark.django_db(transaction=True)

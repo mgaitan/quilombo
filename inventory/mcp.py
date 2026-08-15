@@ -79,9 +79,11 @@ def _token_from_context(ctx: Context):
 
 
 def _serialize_holding(holding):
-    return {
+    serialized = {
         "item_key": holding.item.key,
         "item_name": holding.item.name,
+        "item_description": holding.item.description,
+        "item_aliases": holding.item.aliases,
         "category": holding.item.category,
         "attributes": holding.item.attributes,
         "location_key": holding.location.key,
@@ -91,13 +93,17 @@ def _serialize_holding(holding):
         "approximate": holding.approximate,
         "notes": holding.notes,
     }
+    if hasattr(holding, "_search_match"):
+        serialized["search"] = holding._search_match
+    return serialized
 
 
 @server.tool(
     title="Find inventory",
     description=(
         "Find stored items and their precise locations using deterministic text, alias, category, "
-        "attribute, and location matching. Use this before telling a user where something is."
+        "attribute, and location matching. Results are ranked and explain matched and unmatched "
+        "terms. Use this before telling a user where something is."
     ),
     annotations=READ_ONLY,
     structured_output=True,
