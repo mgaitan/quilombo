@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}{{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="Migas de pan">
+    <a href="{% url 'dashboard' %}">Inventarios</a>
+    <span aria-hidden="true">/</span>
+    <span>{{ workspace.name }}</span>
+  </nav>
+  <div class="page-heading">
+    <div>
+      <h1>{{ workspace.name }}</h1>
+      <p class="lede">Buscá por objeto, categoría, alias, atributo o ubicación.</p>
+    </div>
+  </div>
+
+  <form class="search-form" method="get">
+    <div>
+      <label for="query">Qué estás buscando</label>
+      <input id="query" name="q" type="search" value="{{ query }}" placeholder="tornillos para madera">
+    </div>
+    <div>
+      <label for="location">Dentro de</label>
+      <select id="location" name="location">
+        <option value="">Todo {{ workspace.name }}</option>
+        {% for location in locations %}
+          <option value="{{ location.key }}" {% if location.key == location_key %}selected{% endif %}>{{ location.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="button button-primary" type="submit">Buscar</button>
+  </form>
+
+  <div class="result-summary">{{ holdings|length }} resultado{{ holdings|length|pluralize }}</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Objeto</th>
+          <th>Ubicación</th>
+          <th>Cantidad</th>
+          <th>Notas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for holding in holdings %}
+          <tr>
+            <td>
+              <strong>{{ holding.item.name }}</strong>
+              <span class="row-detail">{{ holding.item.key }}{% if holding.item.category %} · {{ holding.item.category }}{% endif %}</span>
+            </td>
+            <td>{{ holding.location.name }}<span class="row-detail">{{ holding.location.key }}</span></td>
+            <td>{% if holding.approximate %}≈{% endif %}{{ holding.quantity|floatformat:"-6" }} {{ holding.item.unit }}</td>
+            <td>{{ holding.notes|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">Todavía no hay existencias que coincidan.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -17,8 +17,8 @@ uv run python manage.py migrate
 uv run python manage.py runserver
 ```
 
-Open `http://127.0.0.1:8000/accounts/signup/` to create an account. API documentation is available
-at `http://127.0.0.1:8000/api/docs/`.
+Open `http://127.0.0.1:8000/` to create an account, inspect inventories, and read the connector
+guide. API documentation is available at `http://127.0.0.1:8000/api/docs/`.
 
 Useful checks:
 
@@ -30,7 +30,8 @@ uv run python manage.py check
 
 ## Use the API
 
-1. Create a workspace through `POST /api/workspaces/`.
+1. Create an account; it automatically gets a private `Home` workspace. Additional workspaces can
+   be created through `POST /api/workspaces/` in a browser session.
 2. Issue a workspace token through `POST /api/workspaces/{slug}/tokens/` while logged in.
 3. Save the returned `qlo_...` token; only its hash is retained and the raw value is shown once.
 4. Send it as `Authorization: Bearer qlo_...` to REST or the MCP endpoint.
@@ -44,8 +45,10 @@ not uploaded or retained.
 
 The hosted v0.1 app is available at
 [`https://quilombo-v1-mgaitan.onrender.com`](https://quilombo-v1-mgaitan.onrender.com). Its
-Streamable HTTP endpoint is `https://quilombo-v1-mgaitan.onrender.com/mcp`. Configure the client
-with the same workspace bearer token. It exposes four tools:
+Streamable HTTP endpoint is `https://quilombo-v1-mgaitan.onrender.com/mcp`. ChatGPT, Claude, and
+other OAuth-capable clients register dynamically, open Quilombo for login, and ask which workspace
+to authorize. Long-lived workspace bearer tokens remain available for clients without OAuth. The
+server exposes four tools:
 
 - `find_inventory`
 - `get_inventory_snapshot`
@@ -55,6 +58,8 @@ with the same workspace bearer token. It exposes four tools:
 The curated client workflow lives in
 [`skills/manage-quilombo-inventory`](skills/manage-quilombo-inventory/SKILL.md). It requires drafts
 and confirmation on the client side because mutating tools write immediately.
+
+Current ChatGPT and Claude setup steps are maintained at `/connect/` in the app.
 
 ## Deploy
 

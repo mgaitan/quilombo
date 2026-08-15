@@ -1,8 +1,10 @@
 import asyncio
 import base64
 import hashlib
+import io
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
+from zipfile import ZipFile
 
 import httpx2
 import pytest
@@ -378,13 +380,82 @@ def test_public_signup_logs_user_in(client):
     )
 
     assert response.status_code == 302
-    assert response.url == "/api/workspaces/"
+    assert response.url == "/app/"
     assert client.session.get("_auth_user_id") is not None
     user = get_user_model().objects.get(username="new-user")
     workspace = user.workspaces.get()
     assert workspace.name == "Home"
     assert workspace.slug == f"home-{str(user.id)[:8]}"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
+def test_public_home_and_connector_guide(client):
+    home_response = client.get("/")
+    connector_response = client.get("/connect/")
+    login_response = client.get("/accounts/login/")
+    signup_response = client.get("/accounts/signup/")
+
+    assert home_response.status_code == 200
+    assert "organizar el mundo físico" in home_response.content.decode()
+    assert connector_response.status_code == 200
+    assert "http://localhost:8000/mcp" in connector_response.content.decode()
+    assert "ChatGPT" in connector_response.content.decode()
+    assert "Claude" in connector_response.content.decode()
+    assert login_response.status_code == 200
+    assert signup_response.status_code == 200
+
+
+def test_skill_zip_is_downloadable(client):
+    response = client.get("/skills/manage-quilombo-inventory.zip")
+    archive = ZipFile(io.BytesIO(b"".join(response.streaming_content)))
+
+    assert response.status_code == 200
+    assert "attachment;" in response.headers["Content-Disposition"]
+    assert "manage-quilombo-inventory/SKILL.md" in archive.namelist()
+    assert "manage-quilombo-inventory/agents/openai.yaml" in archive.namelist()
+
+
+@pytest.mark.django_db
+def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users, workspaces):
+    workshop, library = workspaces
+
+    anonymous = client.get("/app/")
+    client.force_login(users[0])
+    authenticated = client.get("/app/")
+
+    assert anonymous.status_code == 302
+    assert anonymous.url.startswith("/accounts/login/")
+    assert authenticated.status_code == 200
+    assert workshop.name in authenticated.content.decode()
+    assert library.name not in authenticated.content.decode()
+
+
+@pytest.mark.django_db
+def test_human_inventory_search_scopes_to_location_subtree(client, users, workspaces):
+    workshop, _ = workspaces
+    root = Location.objects.create(workspace=workshop, key="taller", name="Taller")
+    drawer = Location.objects.create(
+        workspace=workshop,
+        key="cajon-1",
+        name="Cajón 1",
+        parent=root,
+    )
+    outside = Location.objects.create(workspace=workshop, key="biblioteca", name="Biblioteca")
+    screws = Item.objects.create(workspace=workshop, key="fix-35", name="Tornillos FIX 35 mm")
+    Holding.objects.create(workspace=workshop, item=screws, location=drawer, quantity=20)
+    Holding.objects.create(workspace=workshop, item=screws, location=outside, quantity=5)
+    client.force_login(users[0])
+
+    response = client.get(
+        "/app/workshop/",
+        {"q": "tornillos", "location": "taller"},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Cajón 1" in content
+    assert [holding.location.key for holding in response.context["holdings"]] == ["cajon-1"]
 
 
 @pytest.mark.django_db
@@ -546,6 +617,9 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
     consent_url = urlsplit(authorization.headers["location"])
     request_id = parse_qs(consent_url.query)["request"][0]
     client.force_login(users[0])
+    consent_page = client.get(consent_url.path, {"request": request_id})
+    assert consent_page.status_code == 200
+    assert "Quilombo test client" in consent_page.content.decode()
     consent = client.post(
         consent_url.path,
         {"request": request_id, "workspace": str(workspace.id), "action": "allow"},

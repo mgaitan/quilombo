@@ -1,31 +1,25 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ingresar | Quilombo</title>
-    <style>
-      :root { color-scheme: light; font-family: system-ui, sans-serif; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f8; color: #17212b; }
-      main { width: min(24rem, calc(100% - 2rem)); background: white; border: 1px solid #d8dee4; padding: 2rem; }
-      h1 { margin: 0 0 1.5rem; font-size: 1.5rem; }
-      p { margin: 1rem 0 0; }
-      label { display: block; margin: 1rem 0 .35rem; font-weight: 600; }
-      input { box-sizing: border-box; width: 100%; padding: .7rem; border: 1px solid #9aa5b1; }
-      button { width: 100%; margin-top: 1.5rem; padding: .75rem; border: 0; background: #176b55; color: white; font-weight: 700; cursor: pointer; }
-      a { color: #075b9b; }
-      .errorlist { color: #a21c2d; padding-left: 1.25rem; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Quilombo</h1>
-      <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Ingresar</button>
-      </form>
-      <p><a href="{% url 'signup' %}">Crear una cuenta</a></p>
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Ingresar | Quilombo{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+
+{% block content %}
+  <section class="auth-panel">
+    <h1>Ingresar</h1>
+    <p class="lede">Volvé a tus inventarios y conexiones.</p>
+    <form method="post" class="stacked-form">
+      {% csrf_token %}
+      {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+      {% for field in form %}
+        <div class="field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button class="button button-primary" type="submit">Ingresar</button>
+    </form>
+    <p class="auth-alternate">¿Primera vez? <a href="{% url 'signup' %}">Crear una cuenta</a></p>
+  </section>
+{% endblock %}

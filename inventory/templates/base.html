@@ -1,0 +1,37 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Quilombo{% endblock %}</title>
+    <meta name="description" content="Inventario agent-first para encontrar y organizar objetos físicos.">
+    <link rel="stylesheet" href="{% static 'inventory/styles.css' %}">
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="wordmark" href="{% url 'home' %}">Quilombo</a>
+      <nav class="nav" aria-label="Principal">
+        <a href="{% url 'connector-guide' %}">Conectar</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'dashboard' %}">Inventarios</a>
+          <form action="{% url 'logout' %}" method="post">
+            {% csrf_token %}
+            <button class="text-button" type="submit">Salir</button>
+          </form>
+        {% else %}
+          <a href="{% url 'login' %}">Ingresar</a>
+        {% endif %}
+      </nav>
+    </header>
+    <main class="page {% block page_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="footer">
+      <span>Quilombo guarda hechos. La inteligencia vive en tus agentes.</span>
+      <a href="https://github.com/mgaitan/quilombo">GitHub</a>
+      <a href="{% url 'api-docs' %}">API</a>
+    </footer>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

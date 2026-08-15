@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Conectar un agente | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <h1>Conectar un agente</h1>
+  <p class="lede">Quilombo expone un MCP remoto con OAuth. Al conectarlo, elegís qué workspace puede consultar y actualizar.</p>
+
+  <section class="endpoint" aria-labelledby="endpoint-title">
+    <h2 id="endpoint-title">URL del servidor</h2>
+    <div class="copy-row">
+      <code id="mcp-url">{{ mcp_url }}</code>
+      <button class="button" id="copy-mcp" type="button">Copiar</button>
+    </div>
+    <p class="status" id="copy-status" role="status"></p>
+  </section>
+
+  <section class="connector-section" aria-labelledby="chatgpt-title">
+    <h2 id="chatgpt-title">ChatGPT</h2>
+    <ol>
+      <li>Activá el modo desarrollador desde Configuración → Apps y conectores → Configuración avanzada.</li>
+      <li>Creá una app, elegí URL del servidor y pegá la URL de arriba.</li>
+      <li>Elegí OAuth como autenticación. ChatGPT abrirá Quilombo para ingresar y autorizar un workspace.</li>
+      <li>Subí la skill de Quilombo para que el agente use correctamente las herramientas.</li>
+    </ol>
+    <div class="actions">
+      <a class="button button-primary" href="https://chatgpt.com/">Abrir ChatGPT</a>
+      <a class="button" href="{% url 'skill-download' %}">Descargar skill</a>
+      <a class="quiet-link" href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">Guía oficial</a>
+    </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="claude-title">
+    <h2 id="claude-title">Claude</h2>
+    <ol>
+      <li>Abrí Personalizar → Conectores y elegí agregar un conector personalizado.</li>
+      <li>Ingresá “Quilombo” y pegá la URL del servidor.</li>
+      <li>Completá el ingreso y elegí el workspace cuando se abra la autorización OAuth.</li>
+    </ol>
+    <div class="actions">
+      <a class="button button-primary" href="https://claude.ai/">Abrir Claude</a>
+      <a class="quiet-link" href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Guía oficial</a>
+    </div>
+  </section>
+
+  <p class="note">No existe hoy un enlace universal y documentado que instale un MCP personalizado con un clic. La conexión se crea dentro de cada cliente.</p>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const copyButton = document.querySelector("#copy-mcp");
+    const status = document.querySelector("#copy-status");
+    copyButton.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(document.querySelector("#mcp-url").textContent.trim());
+      status.textContent = "URL copiada";
+    });
+  </script>
+{% endblock %}

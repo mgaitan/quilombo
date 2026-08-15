@@ -3,10 +3,17 @@ from django.contrib.auth import views as auth_views
 from django.db import connection
 from django.http import JsonResponse
 from django.urls import include, path
-from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from inventory.views import SignupView, oauth_consent
+from inventory.views import (
+    SignupView,
+    connector_guide,
+    dashboard,
+    download_skill,
+    home,
+    oauth_consent,
+    workspace_inventory,
+)
 
 
 def health_check(request):
@@ -17,7 +24,11 @@ def health_check(request):
 
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="workspace-list", permanent=False)),
+    path("", home, name="home"),
+    path("app/", dashboard, name="dashboard"),
+    path("app/<slug:workspace_slug>/", workspace_inventory, name="workspace-inventory"),
+    path("connect/", connector_guide, name="connector-guide"),
+    path("skills/manage-quilombo-inventory.zip", download_skill, name="skill-download"),
     path("health/", health_check, name="health-check"),
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),

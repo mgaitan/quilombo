@@ -1,9 +1,13 @@
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
 from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.db import transaction
-from django.http import Http404, HttpResponseRedirect
+from django.db.models import Count
+from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
@@ -46,6 +50,75 @@ from .services import (
     hash_request,
     search_holdings,
 )
+
+
+def home(request):
+    return render(request, "inventory/home.html")
+
+
+@login_required
+def dashboard(request):
+    workspaces = (
+        Workspace.objects.filter(memberships__user=request.user)
+        .annotate(
+            location_count=Count("locations", distinct=True),
+            item_count=Count("items", distinct=True),
+            holding_count=Count("holdings", distinct=True),
+        )
+        .distinct()
+    )
+    return render(request, "inventory/dashboard.html", {"workspaces": workspaces})
+
+
+@login_required
+def workspace_inventory(request, workspace_slug):
+    workspace = get_object_or_404(
+        Workspace.objects.filter(memberships__user=request.user),
+        slug=workspace_slug,
+    )
+    query = request.GET.get("q", "").strip()
+    location_key = request.GET.get("location", "").strip()
+    holdings = search_holdings(
+        workspace=workspace,
+        query=query,
+        location=location_key,
+        limit=200,
+    )
+    return render(
+        request,
+        "inventory/workspace.html",
+        {
+            "workspace": workspace,
+            "holdings": holdings,
+            "locations": workspace.locations.only("key", "name"),
+            "query": query,
+            "location_key": location_key,
+        },
+    )
+
+
+def connector_guide(request):
+    return render(
+        request,
+        "inventory/connect.html",
+        {"mcp_url": f"{settings.PUBLIC_BASE_URL}/mcp"},
+    )
+
+
+def download_skill(request):
+    skill_root = settings.BASE_DIR / "skills" / "manage-quilombo-inventory"
+    archive = BytesIO()
+    with ZipFile(archive, "w", ZIP_DEFLATED) as zip_file:
+        for path in sorted(skill_root.rglob("*")):
+            if path.is_file():
+                zip_file.write(path, f"manage-quilombo-inventory/{path.relative_to(skill_root)}")
+    archive.seek(0)
+    return FileResponse(
+        archive,
+        as_attachment=True,
+        filename="manage-quilombo-inventory.zip",
+        content_type="application/zip",
+    )
 
 
 class WorkspaceAccessMixin:
@@ -254,7 +327,7 @@ class SignupView(FormView):
             role=Membership.Role.OWNER,
         )
         login(self.request, user)
-        return HttpResponseRedirect(reverse("workspace-list"))
+        return HttpResponseRedirect(reverse("dashboard"))
 
 
 @login_required
