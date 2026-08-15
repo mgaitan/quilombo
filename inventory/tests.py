@@ -1,5 +1,8 @@
 import asyncio
+import base64
+import hashlib
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
@@ -11,7 +14,16 @@ from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from rest_framework.test import APIClient
 
-from .models import ApiToken, Holding, InventoryEvent, Item, Location, Membership, Workspace
+from .models import (
+    ApiToken,
+    Holding,
+    InventoryEvent,
+    Item,
+    Location,
+    Membership,
+    OAuthCredential,
+    Workspace,
+)
 from .services import hash_request, move_inventory
 
 
@@ -441,8 +453,9 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
 
     async def exercise_mcp():
-        from quilombo.asgi import application
+        from quilombo.asgi import create_application
 
+        application = create_application()
         transport = httpx2.ASGITransport(app=application)
         async with application.router.lifespan_context(application):
             async with httpx2.AsyncClient(
@@ -472,3 +485,127 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert result.is_error is False
     assert result.structured_content["results"][0]["location_key"] == "drawer-1-a"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(workspace=workspace, key="gelman", name="Interrupciones I")
+    Holding.objects.create(workspace=workspace, item=item, location=location, quantity=1)
+    verifier = "quilombo-oauth-verifier-with-more-than-forty-three-characters"
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode()
+    challenge = challenge.rstrip("=")
+
+    async def begin_authorization():
+        from quilombo.asgi import create_application
+
+        application = create_application()
+        transport = httpx2.ASGITransport(app=application)
+        async with application.router.lifespan_context(application):
+            async with httpx2.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+                follow_redirects=False,
+            ) as http_client:
+                metadata = await http_client.get("/.well-known/oauth-authorization-server")
+                registration = await http_client.post(
+                    "/register",
+                    json={
+                        "client_name": "Quilombo test client",
+                        "redirect_uris": ["http://localhost/callback"],
+                        "token_endpoint_auth_method": "none",
+                        "grant_types": ["authorization_code", "refresh_token"],
+                        "response_types": ["code"],
+                        "scope": "inventory offline_access",
+                    },
+                )
+                registered_client = registration.json()
+                authorization = await http_client.get(
+                    "/authorize",
+                    params={
+                        "response_type": "code",
+                        "client_id": registered_client["client_id"],
+                        "redirect_uri": "http://localhost/callback",
+                        "code_challenge": challenge,
+                        "code_challenge_method": "S256",
+                        "scope": "inventory offline_access",
+                        "resource": "http://localhost:8000/mcp",
+                        "state": "test-state",
+                    },
+                )
+                return metadata, registration, registered_client, authorization
+
+    metadata, registration, registered_client, authorization = asyncio.run(begin_authorization())
+
+    assert metadata.status_code == 200
+    assert metadata.json()["registration_endpoint"] == "http://localhost:8000/register"
+    assert registration.status_code == 201
+    assert authorization.status_code == 302
+
+    consent_url = urlsplit(authorization.headers["location"])
+    request_id = parse_qs(consent_url.query)["request"][0]
+    client.force_login(users[0])
+    consent = client.post(
+        consent_url.path,
+        {"request": request_id, "workspace": str(workspace.id), "action": "allow"},
+        follow=False,
+    )
+    callback = urlsplit(consent.headers["location"])
+    callback_params = parse_qs(callback.query)
+    authorization_code = callback_params["code"][0]
+    assert callback_params["state"] == ["test-state"]
+
+    async def exchange_and_use_tokens():
+        from quilombo.asgi import create_application
+
+        application = create_application()
+        transport = httpx2.ASGITransport(app=application)
+        async with application.router.lifespan_context(application):
+            async with httpx2.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as http_client:
+                token_response = await http_client.post(
+                    "/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "client_id": registered_client["client_id"],
+                        "code": authorization_code,
+                        "redirect_uri": "http://localhost/callback",
+                        "code_verifier": verifier,
+                        "resource": "http://localhost:8000/mcp",
+                    },
+                )
+                tokens = token_response.json()
+                http_client.headers["Authorization"] = f"Bearer {tokens['access_token']}"
+                mcp_transport = streamable_http_client(
+                    "http://testserver/mcp",
+                    http_client=http_client,
+                    terminate_on_close=False,
+                )
+                async with Client(mcp_transport) as mcp_client:
+                    result = await mcp_client.call_tool("find_inventory", {"query": "Gelman"})
+
+                refresh_response = await http_client.post(
+                    "/token",
+                    data={
+                        "grant_type": "refresh_token",
+                        "client_id": registered_client["client_id"],
+                        "refresh_token": tokens["refresh_token"],
+                    },
+                )
+                return token_response, tokens, result, refresh_response
+
+    token_response, tokens, result, refresh_response = asyncio.run(exchange_and_use_tokens())
+
+    assert token_response.status_code == 200
+    assert tokens["token_type"] == "Bearer"
+    assert tokens["refresh_token"].startswith("qlo_oauth_")
+    assert result.is_error is False
+    assert result.structured_content["results"][0]["location_key"] == "shelf"
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["access_token"] != tokens["access_token"]
+    assert OAuthCredential.objects.filter(
+        kind=OAuthCredential.Kind.ACCESS, revoked_at__isnull=False
+    ).exists()

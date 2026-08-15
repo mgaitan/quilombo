@@ -286,3 +286,92 @@ class ApiToken(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.prefix})"
+
+
+class OAuthClient(models.Model):
+    client_id = models.CharField(primary_key=True, max_length=128)
+    metadata = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.metadata.get("client_name") or self.client_id
+
+
+class OAuthAuthorizationRequest(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE)
+    state = models.TextField(blank=True)
+    scopes = models.JSONField(default=list)
+    code_challenge = models.CharField(max_length=160)
+    redirect_uri = models.URLField(max_length=1000)
+    redirect_uri_provided_explicitly = models.BooleanField(default=True)
+    resource = models.URLField(max_length=1000, blank=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class OAuthAuthorizationGrant(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code_prefix = models.CharField(max_length=12, unique=True)
+    code_hash = models.CharField(max_length=64)
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    scopes = models.JSONField(default=list)
+    code_challenge = models.CharField(max_length=160)
+    redirect_uri = models.URLField(max_length=1000)
+    redirect_uri_provided_explicitly = models.BooleanField(default=True)
+    resource = models.URLField(max_length=1000, blank=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def matches(self, raw_code):
+        candidate = hashlib.sha256(raw_code.encode()).hexdigest()
+        return secrets.compare_digest(candidate, self.code_hash)
+
+
+class OAuthCredential(models.Model):
+    class Kind(models.TextChoices):
+        ACCESS = "access", "Access token"
+        REFRESH = "refresh", "Refresh token"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=12, choices=Kind)
+    prefix = models.CharField(max_length=12, unique=True)
+    token_hash = models.CharField(max_length=64)
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    family_id = models.UUIDField(default=uuid.uuid4)
+    scopes = models.JSONField(default=list)
+    resource = models.URLField(max_length=1000, blank=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["kind", "prefix"])]
+
+    @classmethod
+    def issue(cls, *, kind, client, user, workspace, family_id, scopes, resource, expires_at):
+        prefix = secrets.token_hex(6)
+        secret = secrets.token_urlsafe(32)
+        raw_token = f"qlo_oauth_{prefix}_{secret}"
+        credential = cls.objects.create(
+            kind=kind,
+            prefix=prefix,
+            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+            client=client,
+            user=user,
+            workspace=workspace,
+            family_id=family_id,
+            scopes=scopes,
+            resource=resource or "",
+            expires_at=expires_at,
+        )
+        return credential, raw_token
+
+    def matches(self, raw_token):
+        candidate = hashlib.sha256(raw_token.encode()).hexdigest()
+        return secrets.compare_digest(candidate, self.token_hash)

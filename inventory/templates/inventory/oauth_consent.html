@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Autorizar acceso | Quilombo</title>
+  </head>
+  <body>
+    <main>
+      <h1>Autorizar {{ client_name }}</h1>
+      <p>Podrá buscar y actualizar el inventario del workspace que elijas.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="request" value="{{ authorization_request.id }}">
+        <label for="workspace">Workspace</label>
+        <select id="workspace" name="workspace" required>
+          {% for workspace in workspaces %}
+            <option value="{{ workspace.id }}">{{ workspace.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" name="action" value="allow">Autorizar</button>
+        <button type="submit" name="action" value="deny">Cancelar</button>
+      </form>
+    </main>
+  </body>
+</html>

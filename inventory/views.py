@@ -1,17 +1,30 @@
+from django.conf import settings
 from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.db import transaction
-from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404
+from django.http import Http404, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 from django.views.generic import FormView
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from .models import ApiToken, Holding, Item, Location, LocationRelation, Membership, Workspace
+from .models import (
+    ApiToken,
+    Holding,
+    Item,
+    Location,
+    LocationRelation,
+    Membership,
+    OAuthAuthorizationRequest,
+    Workspace,
+)
+from .oauth import create_authorization_grant
 from .serializers import (
     ApiTokenCreateSerializer,
     ApiTokenIssuedSerializer,
@@ -242,3 +255,56 @@ class SignupView(FormView):
         )
         login(self.request, user)
         return HttpResponseRedirect(reverse("workspace-list"))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def oauth_consent(request):
+    request_id = request.GET.get("request") or request.POST.get("request")
+    authorization_request = get_object_or_404(
+        OAuthAuthorizationRequest.objects.select_related("client"),
+        id=request_id,
+    )
+    if authorization_request.expires_at <= timezone.now():
+        authorization_request.delete()
+        raise Http404("Authorization request expired.")
+
+    redirect_uri = authorization_request.redirect_uri
+    redirect_params = {"state": authorization_request.state or None}
+    if request.method == "POST":
+        if request.POST.get("action") == "deny":
+            authorization_request.delete()
+            redirect_params.update(error="access_denied")
+        else:
+            workspace = get_object_or_404(
+                Workspace.objects.filter(memberships__user=request.user),
+                id=request.POST.get("workspace"),
+            )
+            with transaction.atomic():
+                raw_code = create_authorization_grant(
+                    authorization_request=authorization_request,
+                    user=request.user,
+                    workspace=workspace,
+                )
+                authorization_request.delete()
+            redirect_params.update(
+                code=raw_code,
+                iss=settings.PUBLIC_BASE_URL,
+            )
+        from mcp.server.auth.provider import construct_redirect_uri
+
+        return HttpResponseRedirect(construct_redirect_uri(redirect_uri, **redirect_params))
+
+    workspaces = Workspace.objects.filter(memberships__user=request.user).distinct()
+    if not workspaces.exists():
+        raise Http404("No workspace is available for authorization.")
+    return render(
+        request,
+        "inventory/oauth_consent.html",
+        {
+            "authorization_request": authorization_request,
+            "client_name": authorization_request.client.metadata.get("client_name")
+            or "Una aplicación",
+            "workspaces": workspaces,
+        },
+    )

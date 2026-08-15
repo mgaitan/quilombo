@@ -28,11 +28,15 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-development-only")
 # SECURITY WARNING: don't run with debug turned on in production!
 IS_PROD = os.environ.get("IS_PROD") == "1"
 DEBUG = not IS_PROD
+PUBLIC_BASE_URL = os.environ.get(
+    "PUBLIC_BASE_URL",
+    "https://quilombo-v1-mgaitan.onrender.com" if IS_PROD else "http://localhost:8000",
+).rstrip("/")
 
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
-        "ALLOWED_HOSTS", ".localhost,127.0.0.1,[::1],quilombo-i1f4.onrender.com"
+        "ALLOWED_HOSTS", ".localhost,127.0.0.1,[::1],quilombo-v1-mgaitan.onrender.com"
     ).split(",")
     if host.strip()
 ]
@@ -45,7 +49,7 @@ MCP_ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         "MCP_ALLOWED_HOSTS",
-        "localhost:*,127.0.0.1:*,testserver,quilombo-i1f4.onrender.com",
+        "localhost:*,127.0.0.1:*,testserver,quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if host.strip()
 ]
@@ -53,7 +57,7 @@ MCP_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "MCP_ALLOWED_ORIGINS",
-        "http://localhost:*,http://127.0.0.1:*,https://quilombo-i1f4.onrender.com",
+        "http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if origin.strip()
 ]

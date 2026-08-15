@@ -14,6 +14,8 @@ services:
         value: 4
       - key: IS_PROD
         value: 1
+      - key: PUBLIC_BASE_URL
+        value: https://quilombo-v1-mgaitan.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: CSRF_TRUSTED_ORIGINS

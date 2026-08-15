@@ -1,12 +1,14 @@
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from .authentication import resolve_api_token
 from .models import Holding, Location, LocationRelation
+from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import BulkUpsertSerializer, ProvenanceSerializer
 from .services import (
     BulkUpsertError,
@@ -22,6 +24,8 @@ from .services import (
     move_inventory as move_inventory_service,
 )
 
+oauth_provider = QuilomboOAuthProvider()
+
 server = MCPServer(
     name="quilombo",
     title="Quilombo physical inventory",
@@ -31,6 +35,19 @@ server = MCPServer(
         "Search before mutation. Mutating tools write immediately: apply any draft and human "
         "confirmation policy in the client before calling them. Supply a unique idempotency key "
         "and provenance for every mutation. Never claim that source media was uploaded."
+    ),
+    auth_server_provider=oauth_provider,
+    auth=AuthSettings(
+        issuer_url=settings.PUBLIC_BASE_URL.rstrip("/"),
+        resource_server_url=f"{settings.PUBLIC_BASE_URL}/mcp",
+        service_documentation_url=f"{settings.PUBLIC_BASE_URL}/connect/",
+        required_scopes=["inventory"],
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["inventory", "offline_access"],
+            default_scopes=["inventory", "offline_access"],
+        ),
+        revocation_options=RevocationOptions(enabled=True),
     ),
 )
 
@@ -55,7 +72,7 @@ def _token_from_context(ctx: Context):
     parts = authorization.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise ToolError("A Quilombo bearer token is required.")
-    token = resolve_api_token(parts[1])
+    token = resolve_inventory_token(parts[1])
     if not token:
         raise ToolError("Invalid or revoked Quilombo bearer token.")
     return token
