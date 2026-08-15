@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Ingresar | Quilombo{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+
+{% block content %}
+  <section class="auth-panel">
+    <h1>Ingresar</h1>
+    <p class="lede">Volvé a tus inventarios y conexiones.</p>
+    <form method="post" class="stacked-form">
+      {% csrf_token %}
+      {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+      {% for field in form %}
+        <div class="field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button class="button button-primary" type="submit">Ingresar</button>
+    </form>
+    <p class="auth-alternate">¿Primera vez? <a href="{% url 'signup' %}">Crear una cuenta</a></p>
+  </section>
+{% endblock %}

@@ -1,0 +1,12 @@
+interface:
+  display_name: "Manage Quilombo Inventory"
+  short_description: "Find and organize physical inventory"
+  default_prompt: "Use $manage-quilombo-inventory to locate, record, or reorganize my physical inventory safely."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "quilombo"
+      description: "Workspace-scoped physical inventory storage"
+      transport: "streamable_http"
+      url: "https://quilombo-v1-mgaitan.onrender.com/mcp"

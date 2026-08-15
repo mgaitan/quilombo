@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Crear cuenta | Quilombo{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+
+{% block content %}
+  <section class="auth-panel">
+    <h1>Crear cuenta</h1>
+    <p class="lede">Empezás con un workspace privado llamado Home.</p>
+    <form method="post" class="stacked-form">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<div class="helptext">{{ field.help_text|safe }}</div>{% endif %}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      <button class="button button-primary" type="submit">Crear cuenta</button>
+    </form>
+    <p class="auth-alternate">¿Ya tenés cuenta? <a href="{% url 'login' %}">Ingresar</a></p>
+  </section>
+{% endblock %}

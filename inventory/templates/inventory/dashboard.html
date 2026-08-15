@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Inventarios | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <h1>Inventarios</h1>
+      <p class="lede">Cada workspace es una frontera independiente de acceso y datos.</p>
+    </div>
+    <a class="button" href="{% url 'connector-guide' %}">Conectar un agente</a>
+  </div>
+
+  <ul class="workspace-list">
+    {% for workspace in workspaces %}
+      <li>
+        <a class="workspace-name" href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+        <span>{{ workspace.location_count }} ubicaciones · {{ workspace.item_count }} ítems · {{ workspace.holding_count }} existencias</span>
+      </li>
+    {% empty %}
+      <li>No hay workspaces disponibles.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

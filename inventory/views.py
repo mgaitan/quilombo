@@ -1,55 +1,383 @@
-# inventory/views.py
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
-from rest_framework import viewsets, filters
-from rest_framework.decorators import api_view
+from django.conf import settings
+from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
+from django.db import transaction
+from django.db.models import Count
+from django.http import FileResponse, Http404, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods
+from django.views.generic import FormView
+from drf_spectacular.utils import extend_schema
+from rest_framework import filters, status, viewsets
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
 
-from .models import Product, Location, Stock, StockTransaction
-from .serializers import ProductSerializer, LocationSerializer, StockSerializer, StockTransactionSerializer
+from .models import (
+    ApiToken,
+    Holding,
+    Item,
+    Location,
+    LocationRelation,
+    Membership,
+    OAuthAuthorizationRequest,
+    Workspace,
+)
+from .oauth import create_authorization_grant
+from .serializers import (
+    ApiTokenCreateSerializer,
+    ApiTokenIssuedSerializer,
+    ApiTokenSerializer,
+    BulkUpsertResultSerializer,
+    BulkUpsertSerializer,
+    HoldingSerializer,
+    ItemSerializer,
+    LocationRelationSerializer,
+    LocationSerializer,
+    SearchQuerySerializer,
+    SearchResultSerializer,
+    WorkspaceSerializer,
+)
+from .services import (
+    BulkUpsertError,
+    IdempotencyConflict,
+    bulk_upsert_inventory,
+    hash_request,
+    search_holdings,
+)
 
-class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all()
-    serializer_class = ProductSerializer
-    filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'description']
+
+def home(request):
+    return render(request, "inventory/home.html")
 
 
-class LocationViewSet(viewsets.ModelViewSet):
-    queryset = Location.objects.all()
+@login_required
+def dashboard(request):
+    workspaces = (
+        Workspace.objects.filter(memberships__user=request.user)
+        .annotate(
+            location_count=Count("locations", distinct=True),
+            item_count=Count("items", distinct=True),
+            holding_count=Count("holdings", distinct=True),
+        )
+        .distinct()
+    )
+    return render(request, "inventory/dashboard.html", {"workspaces": workspaces})
+
+
+@login_required
+def workspace_inventory(request, workspace_slug):
+    workspace = get_object_or_404(
+        Workspace.objects.filter(memberships__user=request.user),
+        slug=workspace_slug,
+    )
+    query = request.GET.get("q", "").strip()
+    location_key = request.GET.get("location", "").strip()
+    holdings = search_holdings(
+        workspace=workspace,
+        query=query,
+        location=location_key,
+        limit=200,
+    )
+    return render(
+        request,
+        "inventory/workspace.html",
+        {
+            "workspace": workspace,
+            "holdings": holdings,
+            "locations": workspace.locations.only("key", "name"),
+            "query": query,
+            "location_key": location_key,
+        },
+    )
+
+
+def connector_guide(request):
+    return render(
+        request,
+        "inventory/connect.html",
+        {"mcp_url": f"{settings.PUBLIC_BASE_URL}/mcp"},
+    )
+
+
+def download_skill(request):
+    skill_root = settings.BASE_DIR / "skills" / "manage-quilombo-inventory"
+    archive = BytesIO()
+    with ZipFile(archive, "w", ZIP_DEFLATED) as zip_file:
+        for path in sorted(skill_root.rglob("*")):
+            if path.is_file():
+                zip_file.write(path, f"manage-quilombo-inventory/{path.relative_to(skill_root)}")
+    archive.seek(0)
+    return FileResponse(
+        archive,
+        as_attachment=True,
+        filename="manage-quilombo-inventory.zip",
+        content_type="application/zip",
+    )
+
+
+class WorkspaceAccessMixin:
+    workspace = None
+
+    def get_workspace(self):
+        if self.workspace is None:
+            queryset = Workspace.objects.filter(memberships__user=self.request.user)
+            if getattr(self.request.auth, "workspace_id", None):
+                queryset = queryset.filter(pk=self.request.auth.workspace_id)
+            self.workspace = get_object_or_404(
+                queryset,
+                slug=self.kwargs["workspace_slug"],
+            )
+        return self.workspace
+
+
+class WorkspaceScopedViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
+    def get_queryset(self):
+        return super().get_queryset().filter(workspace=self.get_workspace())
+
+    def perform_create(self, serializer):
+        serializer.save(workspace=self.get_workspace())
+
+
+class LocationViewSet(WorkspaceScopedViewSet):
+    queryset = Location.objects.select_related("parent")
     serializer_class = LocationSerializer
     filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'description']
+    search_fields = ["key", "name", "description", "kind"]
 
 
-class StockViewSet(viewsets.ModelViewSet):
-    queryset = Stock.objects.all()
-    serializer_class = StockSerializer
+class LocationRelationViewSet(WorkspaceScopedViewSet):
+    queryset = LocationRelation.objects.select_related("subject", "object")
+    serializer_class = LocationRelationSerializer
 
 
-class StockTransactionViewSet(viewsets.ModelViewSet):
-    queryset = StockTransaction.objects.all()
-    serializer_class = StockTransactionSerializer
+class ItemViewSet(WorkspaceScopedViewSet):
+    queryset = Item.objects.all()
+    serializer_class = ItemSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["key", "name", "description", "category"]
 
 
-@api_view(['POST'])
-def update_stock(request):
-    product_id = request.data.get('product_id')
-    location_id = request.data.get('location_id')
-    quantity_change = float(request.data.get('quantity_change'))
-    approximate = request.data.get('approximate', False)
+class HoldingViewSet(WorkspaceScopedViewSet):
+    queryset = Holding.objects.select_related("item", "location")
+    serializer_class = HoldingSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = [
+        "item__key",
+        "item__name",
+        "item__description",
+        "item__category",
+        "location__key",
+        "location__name",
+    ]
 
-    stock = Stock.objects.filter(product_id=product_id, location_id=location_id).first()
 
-    if stock:
-        stock.quantity += quantity_change
-        stock.approximate = approximate
-        stock.save()
-        
-        StockTransaction.objects.create(
-            product_id=product_id,
-            location_id=location_id,
-            quantity_change=quantity_change
+class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = BulkUpsertSerializer
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: BulkUpsertResultSerializer,
+            status.HTTP_201_CREATED: BulkUpsertResultSerializer,
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            event, replayed = bulk_upsert_inventory(
+                workspace=self.get_workspace(),
+                actor=request.user,
+                data=serializer.validated_data,
+                request_hash=hash_request(serializer.validated_data),
+            )
+        except IdempotencyConflict as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        except BulkUpsertError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = {
+            "event_id": event.id,
+            "replayed": replayed,
+            "processed": event.summary,
+        }
+        output = BulkUpsertResultSerializer(result)
+        return Response(
+            output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
         )
 
-        return Response({'message': 'Stock updated successfully'})
-    else:
-        return Response({'error': 'Stock not found'}, status=404)
+
+class WorkspaceViewSet(viewsets.ModelViewSet):
+    queryset = Workspace.objects.all()
+    serializer_class = WorkspaceSerializer
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        queryset = Workspace.objects.filter(memberships__user=self.request.user).distinct()
+        if getattr(self.request.auth, "workspace_id", None):
+            queryset = queryset.filter(pk=self.request.auth.workspace_id)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(
+                {"detail": "Use a browser session to create workspaces."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        workspace = serializer.save()
+        Membership.objects.create(
+            workspace=workspace,
+            user=self.request.user,
+            role=Membership.Role.OWNER,
+        )
+
+
+class ApiTokenView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = ApiTokenCreateSerializer
+
+    @extend_schema(responses={status.HTTP_200_OK: ApiTokenSerializer(many=True)})
+    def get(self, request, *args, **kwargs):
+        tokens = self.get_workspace().api_tokens.filter(user=request.user)
+        return Response(ApiTokenSerializer(tokens, many=True).data)
+
+    @extend_schema(responses={status.HTTP_201_CREATED: ApiTokenIssuedSerializer})
+    def post(self, request, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(
+                {"detail": "Use a browser session to issue API tokens."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token, raw_token = ApiToken.issue(
+            workspace=self.get_workspace(),
+            user=request.user,
+            name=serializer.validated_data["name"],
+        )
+        output = ApiTokenIssuedSerializer(
+            {
+                "id": token.id,
+                "name": token.name,
+                "prefix": token.prefix,
+                "created_at": token.created_at,
+                "revoked_at": token.revoked_at,
+                "token": raw_token,
+            }
+        )
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class ApiTokenRevokeView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = ApiTokenSerializer
+
+    @extend_schema(responses={status.HTTP_204_NO_CONTENT: None})
+    def delete(self, request, token_id, *args, **kwargs):
+        if getattr(request.auth, "workspace_id", None):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        token = get_object_or_404(
+            self.get_workspace().api_tokens,
+            pk=token_id,
+            user=request.user,
+            revoked_at__isnull=True,
+        )
+        token.revoked_at = timezone.now()
+        token.save(update_fields=["revoked_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = SearchQuerySerializer
+
+    @extend_schema(parameters=[SearchQuerySerializer], responses=SearchResultSerializer)
+    def get(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        query = serializer.validated_data["q"].strip()
+        results = search_holdings(
+            workspace=self.get_workspace(),
+            query=query,
+            category=serializer.validated_data.get("category", ""),
+            location=serializer.validated_data.get("location", ""),
+            include_descendants=serializer.validated_data["include_descendants"],
+        )
+        output = SearchResultSerializer({"query": query, "count": len(results), "results": results})
+        return Response(output.data)
+
+
+class SignupView(FormView):
+    template_name = "registration/signup.html"
+    form_class = UserCreationForm
+
+    @transaction.atomic
+    def form_valid(self, form):
+        user = form.save()
+        workspace = Workspace.objects.create(name="Home", slug=f"home-{str(user.id)[:8]}")
+        Membership.objects.create(
+            workspace=workspace,
+            user=user,
+            role=Membership.Role.OWNER,
+        )
+        login(self.request, user)
+        return HttpResponseRedirect(reverse("dashboard"))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def oauth_consent(request):
+    request_id = request.GET.get("request") or request.POST.get("request")
+    authorization_request = get_object_or_404(
+        OAuthAuthorizationRequest.objects.select_related("client"),
+        id=request_id,
+    )
+    if authorization_request.expires_at <= timezone.now():
+        authorization_request.delete()
+        raise Http404("Authorization request expired.")
+
+    redirect_uri = authorization_request.redirect_uri
+    redirect_params = {"state": authorization_request.state or None}
+    if request.method == "POST":
+        if request.POST.get("action") == "deny":
+            authorization_request.delete()
+            redirect_params.update(error="access_denied")
+        else:
+            workspace = get_object_or_404(
+                Workspace.objects.filter(memberships__user=request.user),
+                id=request.POST.get("workspace"),
+            )
+            with transaction.atomic():
+                raw_code = create_authorization_grant(
+                    authorization_request=authorization_request,
+                    user=request.user,
+                    workspace=workspace,
+                )
+                authorization_request.delete()
+            redirect_params.update(
+                code=raw_code,
+                iss=settings.PUBLIC_BASE_URL,
+            )
+        from mcp.server.auth.provider import construct_redirect_uri
+
+        return HttpResponseRedirect(construct_redirect_uri(redirect_uri, **redirect_params))
+
+    workspaces = Workspace.objects.filter(memberships__user=request.user).distinct()
+    if not workspaces.exists():
+        raise Http404("No workspace is available for authorization.")
+    return render(
+        request,
+        "inventory/oauth_consent.html",
+        {
+            "authorization_request": authorization_request,
+            "client_name": authorization_request.client.metadata.get("client_name")
+            or "Una aplicación",
+            "workspaces": workspaces,
+        },
+    )

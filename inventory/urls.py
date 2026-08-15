@@ -1,14 +1,48 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from .views import ProductViewSet, LocationViewSet, StockViewSet, StockTransactionViewSet, update_stock
+
+from .views import (
+    ApiTokenRevokeView,
+    ApiTokenView,
+    BulkUpsertView,
+    HoldingViewSet,
+    InventorySearchView,
+    ItemViewSet,
+    LocationRelationViewSet,
+    LocationViewSet,
+    WorkspaceViewSet,
+)
 
 router = DefaultRouter()
-router.register(r'products', ProductViewSet)
-router.register(r'locations', LocationViewSet)
-router.register(r'stocks', StockViewSet)
-router.register(r'stocktransactions', StockTransactionViewSet)
+router.register("locations", LocationViewSet)
+router.register("location-relations", LocationRelationViewSet)
+router.register("items", ItemViewSet)
+router.register("holdings", HoldingViewSet)
+
+workspace_router = DefaultRouter()
+workspace_router.register("workspaces", WorkspaceViewSet, basename="workspace")
 
 urlpatterns = [
-    path('', include(router.urls)),
-    path('update_stock/', update_stock),
+    path("", include(workspace_router.urls)),
+    path(
+        "workspaces/<slug:workspace_slug>/search/",
+        InventorySearchView.as_view(),
+        name="inventory-search",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/tokens/",
+        ApiTokenView.as_view(),
+        name="api-token-list",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/tokens/<uuid:token_id>/",
+        ApiTokenRevokeView.as_view(),
+        name="api-token-revoke",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/bulk-upsert/",
+        BulkUpsertView.as_view(),
+        name="bulk-upsert",
+    ),
+    path("workspaces/<slug:workspace_slug>/", include(router.urls)),
 ]

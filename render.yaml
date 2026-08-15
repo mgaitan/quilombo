@@ -2,10 +2,11 @@
 services:
   - type: web
     plan: free
-    name: quilombo
+    name: quilombo-v1-mgaitan
     runtime: python
     buildCommand: "./build.sh"
-    startCommand: "python -m gunicorn quilombo.asgi:application -k uvicorn.workers.UvicornWorker"
+    startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health/
     envVars:
       - key: SECRET_KEY
         generateValue: true
@@ -13,3 +14,13 @@ services:
         value: 4
       - key: IS_PROD
         value: 1
+      - key: PUBLIC_BASE_URL
+        value: https://quilombo-v1-mgaitan.onrender.com
+      - key: DATABASE_URL
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://quilombo-v1-mgaitan.onrender.com
+      - key: MCP_ALLOWED_HOSTS
+        value: localhost:*,127.0.0.1:*,quilombo-v1-mgaitan.onrender.com
+      - key: MCP_ALLOWED_ORIGINS
+        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com
