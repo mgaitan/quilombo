@@ -221,6 +221,7 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
             query=query,
             category=serializer.validated_data.get("category", ""),
             location=serializer.validated_data.get("location", ""),
+            include_descendants=serializer.validated_data["include_descendants"],
         )
         output = SearchResultSerializer({"query": query, "count": len(results), "results": results})
         return Response(output.data)

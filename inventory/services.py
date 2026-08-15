@@ -18,7 +18,27 @@ class IdempotencyConflict(BulkUpsertError):
     pass
 
 
-def search_holdings(*, workspace, query, category="", location="", limit=100):
+def location_scope_ids(*, workspace, location_key, include_descendants=True):
+    rows = list(workspace.locations.values_list("id", "parent_id", "key"))
+    matching_ids = {location_id for location_id, _, key in rows if key == location_key}
+    if not include_descendants or not matching_ids:
+        return matching_ids
+
+    children_by_parent = {}
+    for location_id, parent_id, _ in rows:
+        children_by_parent.setdefault(parent_id, set()).add(location_id)
+
+    pending = list(matching_ids)
+    while pending:
+        children = children_by_parent.get(pending.pop(), set()) - matching_ids
+        matching_ids.update(children)
+        pending.extend(children)
+    return matching_ids
+
+
+def search_holdings(
+    *, workspace, query, category="", location="", include_descendants=True, limit=100
+):
     holdings = (
         Holding.objects.filter(workspace=workspace)
         .select_related("item", "location")
@@ -43,7 +63,13 @@ def search_holdings(*, workspace, query, category="", location="", limit=100):
     if category:
         holdings = holdings.filter(item__category__iexact=category)
     if location:
-        holdings = holdings.filter(location__key=location)
+        holdings = holdings.filter(
+            location_id__in=location_scope_ids(
+                workspace=workspace,
+                location_key=location,
+                include_descendants=include_descendants,
+            )
+        )
     return list(holdings[:limit])
 
 

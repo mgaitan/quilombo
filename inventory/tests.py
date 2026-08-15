@@ -322,6 +322,39 @@ def test_inventory_search_uses_aliases_attributes_and_locations(users, workspace
 
 
 @pytest.mark.django_db
+def test_inventory_search_scopes_to_location_descendants(users, workspaces):
+    workshop, _ = workspaces
+    workshop_location = Location.objects.create(workspace=workshop, key="taller", name="Taller")
+    drawer = Location.objects.create(
+        workspace=workshop, key="cajonera", name="Cajonera", parent=workshop_location
+    )
+    compartment = Location.objects.create(
+        workspace=workshop, key="cajonera-a1", name="Compartimiento A1", parent=drawer
+    )
+    patio = Location.objects.create(workspace=workshop, key="patio", name="Patio")
+    screws = Item.objects.create(workspace=workshop, key="screws", name="Tornillos")
+    Holding.objects.create(
+        workspace=workshop, item=screws, location=compartment, quantity=Decimal("20")
+    )
+    Holding.objects.create(workspace=workshop, item=screws, location=patio, quantity=Decimal("5"))
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    subtree = client.get(
+        "/api/workspaces/workshop/search/", {"q": "tornillos", "location": "taller"}
+    )
+    exact = client.get(
+        "/api/workspaces/workshop/search/",
+        {"q": "tornillos", "location": "taller", "include_descendants": "false"},
+    )
+
+    assert subtree.status_code == 200
+    assert [row["location_key"] for row in subtree.json()["results"]] == ["cajonera-a1"]
+    assert exact.status_code == 200
+    assert exact.json()["results"] == []
+
+
+@pytest.mark.django_db
 def test_public_signup_logs_user_in(client):
     response = client.post(
         "/accounts/signup/",

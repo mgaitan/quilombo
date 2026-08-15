@@ -242,6 +242,7 @@ class SearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(max_length=200)
     category = serializers.CharField(required=False, max_length=120)
     location = serializers.CharField(required=False, max_length=128)
+    include_descendants = serializers.BooleanField(required=False, default=True)
 
 
 class SearchResultSerializer(serializers.Serializer):

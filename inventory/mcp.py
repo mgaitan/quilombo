@@ -12,6 +12,7 @@ from .services import (
     BulkUpsertError,
     IdempotencyConflict,
     hash_request,
+    location_scope_ids,
     search_holdings,
 )
 from .services import (
@@ -89,6 +90,7 @@ def find_inventory(
     ctx: Context,
     category: str = "",
     location_key: str = "",
+    include_descendants: bool = True,
     limit: int = 100,
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
@@ -99,6 +101,7 @@ def find_inventory(
         query=query,
         category=category,
         location=location_key,
+        include_descendants=include_descendants,
         limit=min(max(limit, 1), 500),
     )
     return {
@@ -122,6 +125,7 @@ def get_inventory_snapshot(
     ctx: Context,
     location_key: str = "",
     category: str = "",
+    include_descendants: bool = True,
     limit: int = 500,
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
@@ -132,9 +136,14 @@ def get_inventory_snapshot(
         "subject", "object"
     )
     if location_key:
-        locations = locations.filter(key=location_key)
-        holdings = holdings.filter(location__key=location_key)
-        relations = relations.filter(Q(subject__key=location_key) | Q(object__key=location_key))
+        scope_ids = location_scope_ids(
+            workspace=workspace,
+            location_key=location_key,
+            include_descendants=include_descendants,
+        )
+        locations = locations.filter(id__in=scope_ids)
+        holdings = holdings.filter(location_id__in=scope_ids)
+        relations = relations.filter(Q(subject_id__in=scope_ids) | Q(object_id__in=scope_ids))
     if category:
         holdings = holdings.filter(item__category__iexact=category)
     bounded_limit = min(max(limit, 1), 2000)
