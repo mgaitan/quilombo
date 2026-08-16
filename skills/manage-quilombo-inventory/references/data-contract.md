@@ -45,8 +45,9 @@ target.
 
 For books, keep bibliographic facts under `attributes.book` and identifiers under
 `attributes.identifiers`. `lookup_book_by_isbn` returns this shape as a suggestion sourced from
-Open Library. It does not mutate inventory. Keep subjective reviews out of canonical metadata;
-store a user's own note explicitly or retain an external reference instead.
+Open Library, including a normalized `synopsis` when the provider supplies a description. It does
+not mutate inventory. Keep subjective reviews out of canonical metadata; store a user's own note
+explicitly or retain an external reference instead.
 
 ## Bulk upsert
 
