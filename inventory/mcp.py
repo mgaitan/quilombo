@@ -7,6 +7,8 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from .catalogs import CatalogLookupError
+from .catalogs import lookup_book_by_isbn as lookup_book_catalog
 from .models import Holding, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import BulkUpsertSerializer, ProvenanceSerializer
@@ -54,6 +56,7 @@ server = MCPServer(
 )
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+EXTERNAL_READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True)
 IDEMPOTENT_WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=True,
@@ -153,6 +156,23 @@ def find_inventory(
 def get_inventory_status(ctx: Context) -> dict[str, Any]:
     token = _token_from_context(ctx)
     return get_stock_status(workspace=token.workspace)
+
+
+@server.tool(
+    title="Look up book metadata by ISBN",
+    description=(
+        "Look up bibliographic metadata in Open Library and return a suggested item payload. "
+        "This never writes inventory; confirm useful fields before calling bulk_upsert_inventory."
+    ),
+    annotations=EXTERNAL_READ,
+    structured_output=True,
+)
+def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
+    _token_from_context(ctx)
+    try:
+        return lookup_book_catalog(isbn)
+    except (ValueError, CatalogLookupError) as error:
+        raise ToolError(str(error)) from error
 
 
 @server.tool(
