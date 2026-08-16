@@ -13,6 +13,8 @@ from .serializers import BulkUpsertSerializer, ProvenanceSerializer
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
+    build_holding_clue_context,
+    get_stock_status,
     hash_request,
     location_scope_ids,
     search_holdings,
@@ -78,7 +80,8 @@ def _token_from_context(ctx: Context):
     return token
 
 
-def _serialize_holding(holding):
+def _serialize_holding(holding, clue_context=None):
+    clue_context = clue_context or {}
     serialized = {
         "item_key": holding.item.key,
         "item_name": holding.item.name,
@@ -88,6 +91,8 @@ def _serialize_holding(holding):
         "attributes": holding.item.attributes,
         "location_key": holding.location.key,
         "location_name": holding.location.name,
+        "location_path": clue_context.get("location_paths", {}).get(holding.location_id, []),
+        "nearby_items": clue_context.get("nearby_by_holding", {}).get(holding.id, []),
         "quantity": str(holding.quantity),
         "unit": holding.item.unit,
         "approximate": holding.approximate,
@@ -127,12 +132,27 @@ def find_inventory(
         include_descendants=include_descendants,
         limit=min(max(limit, 1), 500),
     )
+    clue_context = build_holding_clue_context(workspace=token.workspace, holdings=results)
     return {
         "workspace": token.workspace.slug,
         "query": query,
         "count": len(results),
-        "results": [_serialize_holding(holding) for holding in results],
+        "results": [_serialize_holding(holding, clue_context) for holding in results],
     }
+
+
+@server.tool(
+    title="Get missing and low-stock items",
+    description=(
+        "Report workspace items below their configured minimum. Returns missing or low status "
+        "and the quantity needed to reach the target."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+)
+def get_inventory_status(ctx: Context) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    return get_stock_status(workspace=token.workspace)
 
 
 @server.tool(
@@ -173,6 +193,7 @@ def get_inventory_snapshot(
     location_rows = list(locations[:bounded_limit])
     holding_rows = list(holdings[:bounded_limit])
     relation_rows = list(relations[:bounded_limit])
+    clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
     return {
         "workspace": workspace.slug,
         "locations": [
@@ -194,7 +215,7 @@ def get_inventory_snapshot(
             }
             for relation in relation_rows
         ],
-        "holdings": [_serialize_holding(holding) for holding in holding_rows],
+        "holdings": [_serialize_holding(holding, clue_context) for holding in holding_rows],
         "truncated": any(
             len(rows) == bounded_limit for rows in (location_rows, holding_rows, relation_rows)
         ),

@@ -287,6 +287,94 @@ def search_holdings(
     return ranked[:limit]
 
 
+def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
+    holding_rows = list(holdings)
+    location_rows = list(workspace.locations.values("id", "parent_id", "key", "name"))
+    locations_by_id = {row["id"]: row for row in location_rows}
+
+    location_paths = {}
+    for location_id in {holding.location_id for holding in holding_rows}:
+        path = []
+        current_id = location_id
+        seen = set()
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            location = locations_by_id.get(current_id)
+            if not location:
+                break
+            path.append({"key": location["key"], "name": location["name"]})
+            current_id = location["parent_id"]
+        location_paths[location_id] = list(reversed(path))
+
+    location_ids = {holding.location_id for holding in holding_rows}
+    colocated = (
+        Holding.objects.filter(workspace=workspace, location_id__in=location_ids, quantity__gt=0)
+        .select_related("item")
+        .order_by("item__name")
+    )
+    colocated_by_location = {}
+    for holding in colocated:
+        colocated_by_location.setdefault(holding.location_id, []).append(holding)
+
+    nearby_by_holding = {}
+    for holding in holding_rows:
+        nearby_by_holding[holding.id] = [
+            {
+                "item_key": neighbor.item.key,
+                "item_name": neighbor.item.name,
+                "description": neighbor.item.description,
+                "attributes": neighbor.item.attributes,
+            }
+            for neighbor in colocated_by_location.get(holding.location_id, [])
+            if neighbor.item_id != holding.item_id
+        ][:nearby_limit]
+
+    return {
+        "location_paths": location_paths,
+        "nearby_by_holding": nearby_by_holding,
+    }
+
+
+def get_stock_status(*, workspace):
+    items = workspace.items.filter(minimum_quantity__isnull=False).prefetch_related(
+        "holdings__location"
+    )
+    attention = []
+    for item in items:
+        holdings = list(item.holdings.all())
+        current = sum((holding.quantity for holding in holdings), Decimal("0"))
+        if current >= item.minimum_quantity:
+            continue
+        target = item.target_quantity or item.minimum_quantity
+        attention.append(
+            {
+                "item_key": item.key,
+                "item_name": item.name,
+                "status": "missing" if current == 0 else "low",
+                "current_quantity": current,
+                "minimum_quantity": item.minimum_quantity,
+                "target_quantity": target,
+                "recommended_add_quantity": max(target - current, Decimal("0")),
+                "unit": item.unit,
+                "locations": [
+                    {
+                        "location_key": holding.location.key,
+                        "location_name": holding.location.name,
+                        "quantity": str(holding.quantity),
+                    }
+                    for holding in holdings
+                    if holding.quantity > 0
+                ],
+            }
+        )
+    attention.sort(key=lambda row: (row["status"] != "missing", row["item_name"].lower()))
+    return {
+        "workspace": workspace.slug,
+        "count": len(attention),
+        "items": attention,
+    }
+
+
 def hash_request(payload):
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -383,6 +471,8 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             attributes=row.get("attributes", {}),
             tracking_mode=row.get("tracking_mode", Item.TrackingMode.BULK),
             unit=row.get("unit", "unit"),
+            minimum_quantity=row.get("minimum_quantity"),
+            target_quantity=row.get("target_quantity"),
             updated_at=now,
         )
         for row in item_rows
@@ -400,6 +490,8 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
                 "attributes",
                 "tracking_mode",
                 "unit",
+                "minimum_quantity",
+                "target_quantity",
                 "updated_at",
             ],
         )
