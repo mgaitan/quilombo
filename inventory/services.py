@@ -96,6 +96,7 @@ def _candidate_terms(terms):
     for raw_term, normalized_term in terms:
         values.add(raw_term)
         values.add(normalized_term)
+        values.update(_token_variants(normalized_term))
     return {value for value in values if value}
 
 
