@@ -5,6 +5,8 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models import Q, TextField
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
@@ -49,6 +51,7 @@ SEARCH_FIELD_LABELS = {
     "holding_notes": "holding notes",
     "location_metadata": "location metadata",
 }
+SEARCH_MAX_CANDIDATES = 5000
 
 
 def normalize_search_text(value):
@@ -74,6 +77,58 @@ def normalize_aliases(values):
 
 def _search_tokens(value):
     return normalize_search_text(value).split()
+
+
+def _query_terms(query):
+    """Tokenize punctuation-separated terms while retaining useful display labels."""
+    terms = []
+    for raw_chunk in str(query or "").split():
+        normalized_tokens = _search_tokens(raw_chunk)
+        if len(normalized_tokens) == 1:
+            terms.append((raw_chunk, normalized_tokens[0]))
+        else:
+            terms.extend((token, token) for token in normalized_tokens)
+    return terms
+
+
+def _candidate_terms(terms):
+    values = set()
+    for raw_term, normalized_term in terms:
+        values.add(raw_term)
+        values.add(normalized_term)
+    return {value for value in values if value}
+
+
+def _candidate_holdings(queryset, terms, limit):
+    """Use PostgreSQL as a coarse prefilter before Python normalization and ranking."""
+    candidate_filter = Q()
+    fields = (
+        "item__key",
+        "item__name",
+        "item__description",
+        "item__category",
+        "item_aliases_text",
+        "item_attributes_text",
+        "location__key",
+        "location__name",
+        "location__description",
+        "location__kind",
+        "location_aliases_text",
+        "location_metadata_text",
+        "notes",
+    )
+    annotated = queryset.annotate(
+        item_aliases_text=Cast("item__aliases", TextField()),
+        item_attributes_text=Cast("item__attributes", TextField()),
+        location_aliases_text=Cast("location__aliases", TextField()),
+        location_metadata_text=Cast("location__metadata", TextField()),
+    )
+    for term in _candidate_terms(terms):
+        for field in fields:
+            candidate_filter |= Q(**{f"{field}__icontains": term})
+    return list(
+        annotated.filter(candidate_filter).order_by("item__name", "location__name", "id")[:limit]
+    )
 
 
 def _is_exact_token(term):
@@ -193,11 +248,18 @@ def search_holdings(
                 include_descendants=include_descendants,
             )
         )
-    holdings = list(holdings_query)
-    terms = [(raw_term, normalize_search_text(raw_term)) for raw_term in query.split()]
-    terms = [(raw_term, term) for raw_term, term in terms if term]
+    terms = _query_terms(query)
     if not terms:
-        return holdings[:limit]
+        return list(holdings_query.order_by("item__name", "location__name", "id")[:limit])
+
+    candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
+    holdings = _candidate_holdings(holdings_query, terms, candidate_limit)
+    if not holdings:
+        # A database-side substring search cannot remove accents without the optional
+        # PostgreSQL unaccent extension. Keep this bounded fallback for accent-only misses.
+        holdings = list(
+            holdings_query.order_by("item__name", "location__name", "id")[:candidate_limit]
+        )
 
     ranked = []
     for holding in holdings:

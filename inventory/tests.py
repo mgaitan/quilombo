@@ -374,6 +374,26 @@ def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(use
 
 
 @pytest.mark.django_db
+def test_inventory_search_tokenizes_hyphenated_keys(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    item = Item.objects.create(
+        workspace=workshop,
+        key="fix-screw-35mm",
+        name="Fix screws 35mm",
+        category="fastener",
+    )
+    Holding.objects.create(workspace=workshop, item=item, location=location, quantity=10)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get("/api/workspaces/workshop/search/", {"q": "fix-screw-35mm"})
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["item_key"] == "fix-screw-35mm"
+
+
+@pytest.mark.django_db
 def test_bulk_upsert_normalizes_duplicate_aliases(users, workspaces):
     client = APIClient()
     client.force_authenticate(users[0])
