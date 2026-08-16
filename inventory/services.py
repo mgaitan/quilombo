@@ -287,6 +287,54 @@ def search_holdings(
     return ranked[:limit]
 
 
+def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
+    holding_rows = list(holdings)
+    location_rows = list(workspace.locations.values("id", "parent_id", "key", "name"))
+    locations_by_id = {row["id"]: row for row in location_rows}
+
+    location_paths = {}
+    for location_id in {holding.location_id for holding in holding_rows}:
+        path = []
+        current_id = location_id
+        seen = set()
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            location = locations_by_id.get(current_id)
+            if not location:
+                break
+            path.append({"key": location["key"], "name": location["name"]})
+            current_id = location["parent_id"]
+        location_paths[location_id] = list(reversed(path))
+
+    location_ids = {holding.location_id for holding in holding_rows}
+    colocated = (
+        Holding.objects.filter(workspace=workspace, location_id__in=location_ids, quantity__gt=0)
+        .select_related("item")
+        .order_by("item__name")
+    )
+    colocated_by_location = {}
+    for holding in colocated:
+        colocated_by_location.setdefault(holding.location_id, []).append(holding)
+
+    nearby_by_holding = {}
+    for holding in holding_rows:
+        nearby_by_holding[holding.id] = [
+            {
+                "item_key": neighbor.item.key,
+                "item_name": neighbor.item.name,
+                "description": neighbor.item.description,
+                "attributes": neighbor.item.attributes,
+            }
+            for neighbor in colocated_by_location.get(holding.location_id, [])
+            if neighbor.item_id != holding.item_id
+        ][:nearby_limit]
+
+    return {
+        "location_paths": location_paths,
+        "nearby_by_holding": nearby_by_holding,
+    }
+
+
 def hash_request(payload):
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()

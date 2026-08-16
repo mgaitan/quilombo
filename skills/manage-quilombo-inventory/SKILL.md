@@ -29,13 +29,17 @@ relative locations.
 
 1. Call `find_inventory` with the user's concise wording; include category or location only when known.
 2. Report item name, precise recorded location, quantity, unit, and whether it is approximate.
-3. Distinguish "not recorded" from "not present" when no result matches.
-4. Read the result's `search` diagnostics. A partial result can be useful; state which terms
+3. Include useful identification clues when present: description, appearance attributes, the full
+   location path, copy-specific notes, and a few recorded items nearby.
+4. Distinguish "not recorded" from "not present" when no result matches.
+5. Read the result's `search` diagnostics. A partial result can be useful; state which terms
    matched and which did not.
-5. If the first search misses, try concise synonyms or translations in separate searches. Never
+6. If the user cannot find an item at the recorded location, offer the stored clues and nearby
+   items, then propose re-checking that location. Do not treat the stale record as physical truth.
+7. If the first search misses, try concise synonyms or translations in separate searches. Never
    concatenate unrelated alternatives into one query, and never claim semantic matching came from
    Quilombo.
-6. Call `get_inventory_snapshot` when the question depends on spatial relations, a full location,
+8. Call `get_inventory_snapshot` when the question depends on spatial relations, a full location,
    or several scattered holdings.
 
 ## Record observations

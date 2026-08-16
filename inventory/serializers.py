@@ -263,7 +263,29 @@ class SearchHoldingSerializer(HoldingSerializer):
         return getattr(holding, "_search_match", None)
 
 
+class HoldingClueSerializer(SearchHoldingSerializer):
+    item_attributes = serializers.JSONField(source="item.attributes", read_only=True)
+    location_path = serializers.SerializerMethodField()
+    nearby_items = serializers.SerializerMethodField()
+
+    class Meta(SearchHoldingSerializer.Meta):
+        fields = [
+            *SearchHoldingSerializer.Meta.fields,
+            "item_attributes",
+            "location_path",
+            "nearby_items",
+        ]
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_location_path(self, holding):
+        return self.context.get("location_paths", {}).get(holding.location_id, [])
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_nearby_items(self, holding):
+        return self.context.get("nearby_by_holding", {}).get(holding.id, [])
+
+
 class SearchResultSerializer(serializers.Serializer):
     query = serializers.CharField()
     count = serializers.IntegerField()
-    results = SearchHoldingSerializer(many=True)
+    results = HoldingClueSerializer(many=True)

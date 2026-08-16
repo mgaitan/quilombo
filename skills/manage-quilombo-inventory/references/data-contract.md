@@ -14,6 +14,30 @@
 Use concise, stable ASCII keys such as `drawer-1-cell-b4` and `fix-screw-35mm`. Put human wording,
 accents, synonyms, brands, authors, and common misspellings in names or aliases.
 
+Use `Item.description` for a short identification sentence. Put reusable structured traits in
+`Item.attributes`; for visual identification prefer an `appearance` object with explicit keys such
+as `spine_color`, `lettering_color`, `width`, `material`, or `distinctive_marks`. Put facts about a
+particular physical copy, such as a torn cover or handwritten dedication, in `Holding.notes`.
+
+Example for a book:
+
+```json
+{
+  "description": "Edición ancha con lomo rojo y letras blancas",
+  "attributes": {
+    "schema": "book",
+    "appearance": {
+      "spine_color": "red",
+      "lettering_color": "white",
+      "width": "wide"
+    }
+  }
+}
+```
+
+Search results include the full containment path and a bounded list of other recorded items at the
+same location. These are finding clues, not proof that the physical arrangement is still current.
+
 ## Bulk upsert
 
 `bulk_upsert_inventory` accepts optional lists and commits all of them in one transaction:
