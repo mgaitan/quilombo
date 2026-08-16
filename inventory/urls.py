@@ -5,7 +5,6 @@ from .views import (
     ApiTokenRevokeView,
     ApiTokenView,
     BookLookupView,
-    BookLookupView,
     BulkUpsertView,
     HoldingViewSet,
     InventorySearchView,
