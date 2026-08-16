@@ -1,5 +1,7 @@
 import hashlib
 import json
+import re
+import unicodedata
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -16,6 +18,203 @@ class BulkUpsertError(Exception):
 
 class IdempotencyConflict(BulkUpsertError):
     pass
+
+
+SEARCH_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
+SEARCH_FIELD_WEIGHTS = {
+    "item_key": 10,
+    "item_name": 9,
+    "item_aliases": 8,
+    "item_category": 7,
+    "item_attributes": 6,
+    "item_description": 5,
+    "location_key": 4,
+    "location_name": 3,
+    "location_aliases": 2,
+    "location_description": 2,
+    "location_kind": 2,
+    "holding_notes": 1,
+    "location_metadata": 1,
+}
+SEARCH_FIELD_LABELS = {
+    "item_key": "item key",
+    "item_name": "item name",
+    "item_aliases": "item alias",
+    "item_category": "category",
+    "item_attributes": "attribute",
+    "item_description": "item description",
+    "location_key": "location key",
+    "location_name": "location name",
+    "location_aliases": "location alias",
+    "location_description": "location description",
+    "location_kind": "location kind",
+    "holding_notes": "holding notes",
+    "location_metadata": "location metadata",
+}
+SEARCH_MAX_CANDIDATES = 5000
+
+
+def normalize_search_text(value):
+    """Fold accents and punctuation while keeping compact technical codes searchable."""
+    folded = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = "".join(char for char in folded if not unicodedata.combining(char))
+    return " ".join(SEARCH_TOKEN_RE.findall(ascii_text.casefold()))
+
+
+def normalize_aliases(values):
+    """Trim and de-duplicate aliases without losing the user's original spelling."""
+    aliases = []
+    seen = set()
+    for value in values or []:
+        alias = str(value).strip()
+        normalized = normalize_search_text(alias)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        aliases.append(alias)
+    return aliases
+
+
+def _search_tokens(value):
+    return normalize_search_text(value).split()
+
+
+def _query_terms(query):
+    """Tokenize punctuation-separated terms while retaining useful display labels."""
+    terms = []
+    for raw_chunk in str(query or "").split():
+        normalized_tokens = _search_tokens(raw_chunk)
+        if len(normalized_tokens) == 1:
+            terms.append((raw_chunk, normalized_tokens[0]))
+        else:
+            terms.extend((token, token) for token in normalized_tokens)
+    return terms
+
+
+def _candidate_terms(terms):
+    values = set()
+    for raw_term, normalized_term in terms:
+        values.add(raw_term)
+        values.add(normalized_term)
+        values.update(_token_variants(normalized_term))
+    return {value for value in values if value}
+
+
+def _candidate_holdings(queryset, terms, limit):
+    """Use PostgreSQL as a coarse prefilter before Python normalization and ranking."""
+    candidate_filter = Q()
+    fields = (
+        "item__key",
+        "item__name",
+        "item__description",
+        "item__category",
+        "item_aliases_text",
+        "item_attributes_text",
+        "location__key",
+        "location__name",
+        "location__description",
+        "location__kind",
+        "location_aliases_text",
+        "location_metadata_text",
+        "notes",
+    )
+    annotated = queryset.annotate(
+        item_aliases_text=Cast("item__aliases", TextField()),
+        item_attributes_text=Cast("item__attributes", TextField()),
+        location_aliases_text=Cast("location__aliases", TextField()),
+        location_metadata_text=Cast("location__metadata", TextField()),
+    )
+    for term in _candidate_terms(terms):
+        for field in fields:
+            candidate_filter |= Q(**{f"{field}__icontains": term})
+    return list(
+        annotated.filter(candidate_filter).order_by("item__name", "location__name", "id")[:limit]
+    )
+
+
+def _is_exact_token(term):
+    """Avoid treating AA as a substring of AAA or 35 as a substring of 35mm."""
+    return len(term) <= 3 or any(character.isdigit() for character in term)
+
+
+def _token_variants(term):
+    variants = {term}
+    if len(term) > 3 and term.endswith("y"):
+        variants.add(f"{term[:-1]}ies")
+    if len(term) > 4 and term.endswith("ies"):
+        variants.add(f"{term[:-3]}y")
+    if len(term) > 3 and term.endswith("s"):
+        variants.add(term[:-1])
+    if len(term) > 3 and term.endswith(("a", "e", "o")):
+        variants.add(f"{term}s")
+    return variants
+
+
+def _term_matches(term, candidate_tokens):
+    if _is_exact_token(term):
+        return term in candidate_tokens
+    variants = _token_variants(term)
+    return any(
+        candidate == variant or candidate.startswith(variant) or variant.startswith(candidate)
+        for candidate in candidate_tokens
+        for variant in variants
+    )
+
+
+def _search_fields(holding):
+    item = holding.item
+    location = holding.location
+    return {
+        "item_key": item.key,
+        "item_name": item.name,
+        "item_aliases": " ".join(item.aliases or []),
+        "item_category": item.category,
+        "item_attributes": json.dumps(item.attributes or {}, ensure_ascii=False, sort_keys=True),
+        "item_description": item.description,
+        "location_key": location.key,
+        "location_name": location.name,
+        "location_aliases": " ".join(location.aliases or []),
+        "location_description": location.description,
+        "location_kind": location.kind,
+        "holding_notes": holding.notes,
+        "location_metadata": json.dumps(
+            location.metadata or {}, ensure_ascii=False, sort_keys=True
+        ),
+    }
+
+
+def _score_holding(holding, query, terms):
+    fields = _search_fields(holding)
+    field_tokens = {field: _search_tokens(value) for field, value in fields.items()}
+    matched_terms = []
+    matched_fields = {}
+    score = 0
+    for raw_term, term in terms:
+        matching_fields = [
+            field for field, tokens in field_tokens.items() if _term_matches(term, tokens)
+        ]
+        if matching_fields:
+            matched_terms.append(raw_term)
+            matched_fields[raw_term] = [SEARCH_FIELD_LABELS[field] for field in matching_fields]
+            score += max(SEARCH_FIELD_WEIGHTS[field] for field in matching_fields)
+
+    normalized_query = normalize_search_text(query)
+    normalized_fields = [normalize_search_text(value) for value in fields.values()]
+    exact_phrase = bool(
+        normalized_query and any(normalized_query in value for value in normalized_fields)
+    )
+    if exact_phrase:
+        score += 15
+
+    coverage = len(matched_terms) / len(terms) if terms else 1
+    details = {
+        "score": round(coverage * 100 + score, 2),
+        "matched_terms": matched_terms,
+        "unmatched_terms": [raw_term for raw_term, _ in terms if raw_term not in matched_terms],
+        "matched_fields": matched_fields,
+        "match_type": "complete" if len(matched_terms) == len(terms) else "partial",
+    }
+    return details
 
 
 def location_scope_ids(*, workspace, location_key, include_descendants=True):
@@ -39,38 +238,53 @@ def location_scope_ids(*, workspace, location_key, include_descendants=True):
 def search_holdings(
     *, workspace, query, category="", location="", include_descendants=True, limit=100
 ):
-    holdings = (
-        Holding.objects.filter(workspace=workspace)
-        .select_related("item", "location")
-        .annotate(
-            item_aliases_text=Cast("item__aliases", TextField()),
-            item_attributes_text=Cast("item__attributes", TextField()),
-            location_aliases_text=Cast("location__aliases", TextField()),
-        )
-    )
-    for term in query.strip().split():
-        holdings = holdings.filter(
-            Q(item__key__icontains=term)
-            | Q(item__name__icontains=term)
-            | Q(item__description__icontains=term)
-            | Q(item__category__icontains=term)
-            | Q(item_aliases_text__icontains=term)
-            | Q(item_attributes_text__icontains=term)
-            | Q(location__key__icontains=term)
-            | Q(location__name__icontains=term)
-            | Q(location_aliases_text__icontains=term)
-        )
+    holdings_query = Holding.objects.filter(workspace=workspace).select_related("item", "location")
     if category:
-        holdings = holdings.filter(item__category__iexact=category)
+        holdings_query = holdings_query.filter(item__category__iexact=category)
     if location:
-        holdings = holdings.filter(
+        holdings_query = holdings_query.filter(
             location_id__in=location_scope_ids(
                 workspace=workspace,
                 location_key=location,
                 include_descendants=include_descendants,
             )
         )
-    return list(holdings[:limit])
+    terms = _query_terms(query)
+    if not terms:
+        return list(holdings_query.order_by("item__name", "location__name", "id")[:limit])
+
+    candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
+    holdings = _candidate_holdings(holdings_query, terms, candidate_limit)
+    if not holdings:
+        # A database-side substring search cannot remove accents without the optional
+        # PostgreSQL unaccent extension. Keep this bounded fallback for accent-only misses.
+        holdings = list(
+            holdings_query.order_by("item__name", "location__name", "id")[:candidate_limit]
+        )
+
+    ranked = []
+    for holding in holdings:
+        details = _score_holding(holding, query, terms)
+        if details["matched_terms"]:
+            holding._search_match = details
+            ranked.append(holding)
+
+    has_complete_matches = any(
+        holding._search_match["match_type"] == "complete" for holding in ranked
+    )
+    if has_complete_matches:
+        ranked = [
+            holding for holding in ranked if holding._search_match["match_type"] == "complete"
+        ]
+    ranked.sort(
+        key=lambda holding: (
+            -int(holding._search_match["match_type"] != "complete"),
+            -holding._search_match["score"],
+            holding.item.name.casefold(),
+            holding.location.name.casefold(),
+        )
+    )
+    return ranked[:limit]
 
 
 def hash_request(payload):
@@ -114,7 +328,7 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             name=row["name"],
             description=row.get("description", ""),
             kind=row.get("kind", ""),
-            aliases=row.get("aliases", []),
+            aliases=normalize_aliases(row.get("aliases", [])),
             metadata=row.get("metadata", {}),
             updated_at=now,
         )
@@ -165,7 +379,7 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             name=row["name"],
             description=row.get("description", ""),
             category=row.get("category", ""),
-            aliases=row.get("aliases", []),
+            aliases=normalize_aliases(row.get("aliases", [])),
             attributes=row.get("attributes", {}),
             tracking_mode=row.get("tracking_mode", Item.TrackingMode.BULK),
             unit=row.get("unit", "unit"),

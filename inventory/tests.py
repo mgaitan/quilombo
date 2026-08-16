@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import io
+from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
@@ -12,6 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from rest_framework.test import APIClient
@@ -23,6 +25,8 @@ from .models import (
     Item,
     Location,
     Membership,
+    OAuthAuthorizationRequest,
+    OAuthClient,
     OAuthCredential,
     Workspace,
 )
@@ -336,6 +340,87 @@ def test_inventory_search_uses_aliases_attributes_and_locations(users, workspace
 
 
 @pytest.mark.django_db
+def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    batteries = Item.objects.create(
+        workspace=workshop,
+        key="aaa-batteries",
+        name="Pilas AAA",
+        category="pilas",
+        aliases=["pilas triple A", "baterías AAA", "AAA batteries"],
+        attributes={"size": "AAA"},
+    )
+    Holding.objects.create(workspace=workshop, item=batteries, location=location, quantity=1)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    partial = client.get(
+        "/api/workspaces/workshop/search/",
+        {"q": "¿Hay PILAS baterías AAA AA?"},
+    )
+    exact_code = client.get("/api/workspaces/workshop/search/", {"q": "AA"})
+    english = client.get("/api/workspaces/workshop/search/", {"q": "battery"})
+
+    assert partial.status_code == 200
+    result = partial.json()["results"][0]
+    assert result["item_key"] == "aaa-batteries"
+    assert result["search"]["match_type"] == "partial"
+    assert "PILAS" in result["search"]["matched_terms"]
+    assert "baterías" in result["search"]["matched_terms"]
+    assert "AA?" in result["search"]["unmatched_terms"]
+    assert exact_code.json()["results"] == []
+    assert english.json()["results"][0]["item_key"] == "aaa-batteries"
+
+
+@pytest.mark.django_db
+def test_inventory_search_tokenizes_hyphenated_keys(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    item = Item.objects.create(
+        workspace=workshop,
+        key="fix-screw-35mm",
+        name="Fix screws 35mm",
+        category="fastener",
+    )
+    Holding.objects.create(workspace=workshop, item=item, location=location, quantity=10)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get("/api/workspaces/workshop/search/", {"q": "fix-screw-35mm"})
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["item_key"] == "fix-screw-35mm"
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_normalizes_duplicate_aliases(users, workspaces):
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/bulk-upsert/",
+        {
+            "idempotency_key": "normalize-aliases",
+            "items": [
+                {
+                    "key": "aaa-batteries",
+                    "name": "Pilas AAA",
+                    "aliases": [" Baterías ", "baterías", "AAA batteries"],
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert Workspace.objects.get(slug="workshop").items.get(key="aaa-batteries").aliases == [
+        "Baterías",
+        "AAA batteries",
+    ]
+
+
+@pytest.mark.django_db
 def test_inventory_search_scopes_to_location_descendants(users, workspaces):
     workshop, _ = workspaces
     workshop_location = Location.objects.create(workspace=workshop, key="taller", name="Taller")
@@ -404,6 +489,26 @@ def test_public_home_and_connector_guide(client):
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_oauth_consent_explains_missing_workspace(client, users):
+    oauth_client = OAuthClient.objects.create(
+        client_id="consent-test-client",
+        metadata={"client_name": "Consent test", "redirect_uris": ["https://example.com/cb"]},
+    )
+    authorization_request = OAuthAuthorizationRequest.objects.create(
+        client=oauth_client,
+        code_challenge="challenge",
+        redirect_uri="https://example.com/cb",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    client.force_login(users[0])
+
+    response = client.get("/oauth/consent/", {"request": authorization_request.id})
+
+    assert response.status_code == 400
+    assert "no tiene un inventario" in response.content.decode()
 
 
 def test_skill_zip_is_downloadable(client):
@@ -556,6 +661,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert result.is_error is False
     assert result.structured_content["results"][0]["location_key"] == "drawer-1-a"
+    assert result.structured_content["results"][0]["search"]["match_type"] == "complete"
 
 
 @pytest.mark.django_db(transaction=True)

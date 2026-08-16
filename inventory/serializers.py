@@ -1,10 +1,15 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import ApiToken, Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
+from .services import normalize_aliases
 
 
 class StringListField(serializers.ListField):
     child = serializers.CharField(max_length=200)
+
+    def to_internal_value(self, data):
+        return normalize_aliases(super().to_internal_value(data))
 
 
 class LocationSerializer(serializers.ModelSerializer):
@@ -245,7 +250,20 @@ class SearchQuerySerializer(serializers.Serializer):
     include_descendants = serializers.BooleanField(required=False, default=True)
 
 
+class SearchHoldingSerializer(HoldingSerializer):
+    item_description = serializers.CharField(source="item.description", read_only=True)
+    item_aliases = serializers.ListField(source="item.aliases", read_only=True)
+    search = serializers.SerializerMethodField()
+
+    class Meta(HoldingSerializer.Meta):
+        fields = [*HoldingSerializer.Meta.fields, "item_description", "item_aliases", "search"]
+
+    @extend_schema_field(serializers.DictField())
+    def get_search(self, holding):
+        return getattr(holding, "_search_match", None)
+
+
 class SearchResultSerializer(serializers.Serializer):
     query = serializers.CharField()
     count = serializers.IntegerField()
-    results = HoldingSerializer(many=True)
+    results = SearchHoldingSerializer(many=True)
