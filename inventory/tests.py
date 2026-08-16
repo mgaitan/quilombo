@@ -624,6 +624,7 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
         "ISBN:9780140328721": {
             "url": "https://openlibrary.org/books/OL7353617M/Matilda",
             "title": "Matilda",
+            "description": {"value": "A clever girl outwits a cruel headmistress."},
             "authors": [{"name": "Roald Dahl"}],
             "publishers": [{"name": "Puffin"}],
             "publish_date": "1988",
@@ -648,6 +649,13 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
     result = response.json()
     assert result["provider"] == "open_library"
     assert result["suggested_item"]["name"] == "Matilda"
+    assert result["suggested_item"]["description"] == (
+        "A clever girl outwits a cruel headmistress."
+    )
+    assert result["suggested_item"]["attributes"]["book"]["synopsis"] == (
+        "A clever girl outwits a cruel headmistress."
+    )
+    assert result["retrieved_at"]
     assert result["suggested_item"]["attributes"]["book"]["authors"] == ["Roald Dahl"]
 
     inaccessible = client.get("/api/workspaces/library/catalog/books/9780140328721/")

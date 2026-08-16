@@ -41,6 +41,14 @@ def _names(rows):
     return [row["name"] for row in rows or [] if row.get("name")]
 
 
+def _text(value):
+    if isinstance(value, dict):
+        value = value.get("value")
+    if isinstance(value, list):
+        value = " ".join(str(part) for part in value if part)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def lookup_book_by_isbn(value):
     isbn = normalize_isbn(value)
     cache_key = f"book-catalog:open-library:{isbn}"
@@ -65,12 +73,15 @@ def lookup_book_by_isbn(value):
 
     identifiers = {key: values for key, values in (book.get("identifiers") or {}).items() if values}
     identifiers.setdefault("isbn", [isbn])
+    description = _text(book.get("description") or book.get("notes"))
+    description = description or book.get("subtitle", "")
     attributes = {
         "schema": "book",
         "identifiers": identifiers,
         "book": {
             "title": book.get("title", ""),
             "subtitle": book.get("subtitle", ""),
+            "synopsis": description,
             "authors": _names(book.get("authors")),
             "publishers": _names(book.get("publishers")),
             "publish_date": book.get("publish_date", ""),
@@ -86,7 +97,7 @@ def lookup_book_by_isbn(value):
         "retrieved_at": timezone.now().isoformat(),
         "suggested_item": {
             "name": book.get("title", ""),
-            "description": book.get("subtitle", ""),
+            "description": description,
             "category": "books",
             "aliases": [],
             "attributes": attributes,
