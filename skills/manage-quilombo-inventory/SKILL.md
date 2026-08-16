@@ -30,8 +30,8 @@ relative locations.
 When the workspace is empty, or the user says they want to start organizing a physical area, make
 the first session feel like a conversation rather than data entry:
 
-1. Ask what physical area they want to organize and use their name for it, such as `Taller` or
-   `Biblioteca`.
+1. Ask what physical area they want to organize and use their name for it, such as `Workshop` or
+   `Library`.
 2. Explain that you will work through one zone at a time. Ask for the first zone only: a drawer,
    shelf, box, or other clearly bounded place. The client may provide a description or interpret a
    photo/video; Quilombo receives only the resulting facts and a short provenance reference.
