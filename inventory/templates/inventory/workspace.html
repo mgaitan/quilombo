@@ -32,6 +32,37 @@
     <button class="button button-primary" type="submit">Buscar</button>
   </form>
 
+  {% if stock_status.items %}
+    <div class="page-heading section-heading">
+      <div>
+        <h2>Requieren atención</h2>
+        <p class="lede">Faltantes y cantidades por debajo del mínimo configurado.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Objeto</th>
+            <th>Estado</th>
+            <th>Actual / mínimo</th>
+            <th>Reponer</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in stock_status.items %}
+            <tr>
+              <td><strong>{{ item.item_name }}</strong><span class="row-detail">{{ item.item_key }}</span></td>
+              <td>{% if item.status == "missing" %}Falta{% else %}Stock bajo{% endif %}</td>
+              <td>{{ item.current_quantity|floatformat:"-6" }} / {{ item.minimum_quantity|floatformat:"-6" }} {{ item.unit }}</td>
+              <td>{{ item.recommended_add_quantity|floatformat:"-6" }} {{ item.unit }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   <div class="result-summary">{{ holdings|length }} resultado{{ holdings|length|pluralize }}</div>
   <div class="table-wrap">
     <table>

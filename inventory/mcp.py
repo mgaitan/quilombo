@@ -14,6 +14,7 @@ from .services import (
     BulkUpsertError,
     IdempotencyConflict,
     build_holding_clue_context,
+    get_stock_status,
     hash_request,
     location_scope_ids,
     search_holdings,
@@ -138,6 +139,20 @@ def find_inventory(
         "count": len(results),
         "results": [_serialize_holding(holding, clue_context) for holding in results],
     }
+
+
+@server.tool(
+    title="Get missing and low-stock items",
+    description=(
+        "Report workspace items below their configured minimum. Returns missing or low status "
+        "and the quantity needed to reach the target."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+)
+def get_inventory_status(ctx: Context) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    return get_stock_status(workspace=token.workspace)
 
 
 @server.tool(

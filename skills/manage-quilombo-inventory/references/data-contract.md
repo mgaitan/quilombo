@@ -38,6 +38,11 @@ Example for a book:
 Search results include the full containment path and a bounded list of other recorded items at the
 same location. These are finding clues, not proof that the physical arrangement is still current.
 
+Set `minimum_quantity` on an item to include it in missing/low-stock reports. Optionally set
+`target_quantity` to the desired quantity after replenishment; it must be at least the minimum.
+These thresholds use the item's `unit`. Without a target, the minimum is also the replenishment
+target.
+
 ## Bulk upsert
 
 `bulk_upsert_inventory` accepts optional lists and commits all of them in one transaction:

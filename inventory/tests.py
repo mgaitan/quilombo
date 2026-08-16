@@ -162,6 +162,8 @@ def test_bulk_upsert_creates_workshop_inventory_with_provenance(users, workspace
                 "category": "wood screws",
                 "aliases": ["tornillos para madera"],
                 "unit": "piece",
+                "minimum_quantity": "25",
+                "target_quantity": "100",
             }
         ],
         "holdings": [
@@ -188,6 +190,8 @@ def test_bulk_upsert_creates_workshop_inventory_with_provenance(users, workspace
     }
     assert workspace.locations.get(key="drawer-1").parent.key == "drawer"
     assert workspace.holdings.get().quantity == Decimal("100")
+    assert workspace.items.get().minimum_quantity == Decimal("25")
+    assert workspace.items.get().target_quantity == Decimal("100")
     event = workspace.inventory_events.get()
     assert event.source_kind == InventoryEvent.SourceKind.PHOTO
     assert event.source_reference == "Processed a workshop photo on 2026-08-14"
@@ -517,6 +521,100 @@ def test_inventory_search_returns_physical_and_neighboring_clues(users, workspac
 
 
 @pytest.mark.django_db
+def test_stock_status_reports_missing_and_low_items_within_location(users, workspaces):
+    workshop, library = workspaces
+    root = Location.objects.create(workspace=workshop, key="taller", name="Taller")
+    drawer = Location.objects.create(workspace=workshop, parent=root, key="cajon", name="Cajón")
+    screws = Item.objects.create(
+        workspace=workshop,
+        key="tornillos",
+        name="Tornillos",
+        unit="units",
+        minimum_quantity=Decimal("10"),
+        target_quantity=Decimal("25"),
+    )
+    Item.objects.create(
+        workspace=workshop,
+        key="guantes",
+        name="Guantes",
+        unit="pairs",
+        minimum_quantity=Decimal("2"),
+    )
+    batteries = Item.objects.create(
+        workspace=workshop,
+        key="pilas",
+        name="Pilas",
+        minimum_quantity=Decimal("1"),
+    )
+    Item.objects.create(
+        workspace=library,
+        key="papel",
+        name="Papel",
+        minimum_quantity=Decimal("100"),
+    )
+    Holding.objects.create(workspace=workshop, item=screws, location=drawer, quantity=Decimal("3"))
+    Holding.objects.create(
+        workspace=workshop, item=batteries, location=drawer, quantity=Decimal("5")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get("/api/workspaces/workshop/stock-status/")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {
+            "item_key": "guantes",
+            "item_name": "Guantes",
+            "status": "missing",
+            "current_quantity": "0.000000",
+            "minimum_quantity": "2.000000",
+            "target_quantity": "2.000000",
+            "recommended_add_quantity": "2.000000",
+            "unit": "pairs",
+            "locations": [],
+        },
+        {
+            "item_key": "tornillos",
+            "item_name": "Tornillos",
+            "status": "low",
+            "current_quantity": "3.000000",
+            "minimum_quantity": "10.000000",
+            "target_quantity": "25.000000",
+            "recommended_add_quantity": "22.000000",
+            "unit": "units",
+            "locations": [
+                {
+                    "location_key": "cajon",
+                    "location_name": "Cajón",
+                    "quantity": "3.000000",
+                }
+            ],
+        },
+    ]
+    assert client.get("/api/workspaces/library/stock-status/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_item_rejects_target_below_minimum(users, workspaces):
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/items/",
+        {
+            "key": "guantes",
+            "name": "Guantes",
+            "minimum_quantity": "5",
+            "target_quantity": "2",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "target_quantity" in response.json()
+
+
+@pytest.mark.django_db
 def test_public_signup_logs_user_in(client):
     response = client.post(
         "/accounts/signup/",
@@ -693,6 +791,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         description="Red box with white lettering",
         aliases=["tornillos para madera"],
         attributes={"appearance": {"color": "red"}},
+        minimum_quantity=Decimal("20"),
+        target_quantity=Decimal("30"),
     )
     Holding.objects.create(
         workspace=workspace, item=item, location=location, quantity=Decimal("12")
@@ -731,13 +831,15 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     result = await mcp_client.call_tool(
                         "find_inventory", {"query": "tornillos madera"}
                     )
-                    return tools, result
+                    status_result = await mcp_client.call_tool("get_inventory_status", {})
+                    return tools, result, status_result
 
-    tools, result = asyncio.run(exercise_mcp())
+    tools, result, status_result = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
         "find_inventory",
+        "get_inventory_status",
         "get_inventory_snapshot",
         "move_inventory",
     }
@@ -751,6 +853,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "drawer-1-a",
     ]
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
+    assert status_result.is_error is False
+    assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
 
 
 @pytest.mark.django_db(transaction=True)

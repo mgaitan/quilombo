@@ -151,12 +151,45 @@ class Item(models.Model):
     attributes = models.JSONField(default=dict, blank=True)
     tracking_mode = models.CharField(max_length=12, choices=TrackingMode, default=TrackingMode.BULK)
     unit = models.CharField(max_length=32, default="unit")
+    minimum_quantity = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    target_quantity = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]
-        constraints = [models.UniqueConstraint(fields=["workspace", "key"], name="unique_item_key")]
+        constraints = [
+            models.UniqueConstraint(fields=["workspace", "key"], name="unique_item_key"),
+            models.CheckConstraint(
+                condition=Q(minimum_quantity__isnull=True) | Q(minimum_quantity__gte=0),
+                name="item_minimum_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(target_quantity__isnull=True) | Q(target_quantity__gte=0),
+                name="item_target_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(minimum_quantity__isnull=True)
+                    | Q(target_quantity__isnull=True)
+                    | Q(target_quantity__gte=models.F("minimum_quantity"))
+                ),
+                name="item_target_reaches_minimum",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.minimum_quantity is not None and self.minimum_quantity < 0:
+            raise ValidationError({"minimum_quantity": "Minimum quantity cannot be negative."})
+        if self.target_quantity is not None and self.target_quantity < 0:
+            raise ValidationError({"target_quantity": "Target quantity cannot be negative."})
+        if (
+            self.minimum_quantity is not None
+            and self.target_quantity is not None
+            and self.target_quantity < self.minimum_quantity
+        ):
+            raise ValidationError({"target_quantity": "Target quantity must reach the minimum."})
 
     def __str__(self):
         return f"{self.name} [{self.key}]"
