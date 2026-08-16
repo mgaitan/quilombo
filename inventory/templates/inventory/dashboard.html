@@ -15,8 +15,13 @@
   <ul class="workspace-list">
     {% for workspace in workspaces %}
       <li>
-        <a class="workspace-name" href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
-        <span>{{ workspace.location_count }} ubicaciones · {{ workspace.item_count }} ítems · {{ workspace.holding_count }} existencias</span>
+        <div>
+          <a class="workspace-name" href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+          <span>{{ workspace.location_count }} ubicaciones · {{ workspace.item_count }} ítems · {{ workspace.holding_count }} existencias</span>
+        </div>
+        {% if not workspace.location_count and not workspace.item_count and not workspace.holding_count %}
+          <a class="button" href="{% url 'first-inventory' workspace.slug %}">Empezar</a>
+        {% endif %}
       </li>
     {% empty %}
       <li>No hay workspaces disponibles.</li>

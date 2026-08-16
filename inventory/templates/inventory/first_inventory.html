@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Empezar {{ workspace.name }} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="Migas de pan">
+    <a href="{% url 'dashboard' %}">Inventarios</a>
+    <span aria-hidden="true">/</span>
+    <span>{{ workspace.name }}</span>
+  </nav>
+
+  <section class="onboarding" aria-labelledby="onboarding-title">
+    <p class="eyebrow">Primera vez</p>
+    <h1 id="onboarding-title">Empecemos por un espacio</h1>
+    <p class="lede">No hace falta preparar nada. Contale a tu agente qué querés ordenar y avanzá de a una zona.</p>
+
+    <ol class="onboarding-steps">
+      <li><strong>Nombrá el lugar.</strong> Por ejemplo: “Quiero ordenar mi taller” o “Esta es mi biblioteca”.</li>
+      <li><strong>Mostrá una zona por vez.</strong> Podés describirla o compartir una foto/video con tu agente; Quilombo recibe solo los datos interpretados.</li>
+      <li><strong>Revisá el borrador.</strong> El agente te resume ubicaciones, objetos y cantidades antes de guardar.</li>
+      <li><strong>Confirmá.</strong> Recién entonces se registra la zona y seguimos con la siguiente.</li>
+    </ol>
+
+    <div class="onboarding-example">
+      <p class="quiet-link">Podés empezar diciendo:</p>
+      <p class="prompt">&quot;Quiero ordenar mi taller. Guiame una zona por vez y preguntame antes de guardar cada cambio.&quot;</p>
+    </div>
+
+    <div class="actions">
+      <a class="button button-primary" href="{% url 'connector-guide' %}">Conectar un agente</a>
+      <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">Ver inventario</a>
+    </div>
+  </section>
+{% endblock %}
