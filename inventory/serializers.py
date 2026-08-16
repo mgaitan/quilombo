@@ -276,9 +276,11 @@ class HoldingClueSerializer(SearchHoldingSerializer):
             "nearby_items",
         ]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_location_path(self, holding):
         return self.context.get("location_paths", {}).get(holding.location_id, [])
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_nearby_items(self, holding):
         return self.context.get("nearby_by_holding", {}).get(holding.id, [])
 
