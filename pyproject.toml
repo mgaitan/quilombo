@@ -20,6 +20,12 @@ dev = [
     "pytest-django>=4.11,<5",
     "ruff>=0.12,<0.13",
 ]
+docs = [
+    "myst-parser>=5.1",
+    "sphinx>=8.2",
+    "sphinx-book-theme>=1.2",
+    "sphinxcontrib-mermaid>=2.1",
+]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "quilombo.settings"

@@ -28,6 +28,13 @@ uv run ruff check .
 uv run python manage.py check
 ```
 
+Build the Sphinx/MyST documentation locally:
+
+```bash
+uv sync --group docs
+uv run --group docs sphinx-build -W --keep-going docs docs/_build/html
+```
+
 ## Use the API
 
 1. Create an account; it automatically gets a private `Home` workspace. Additional workspaces can
