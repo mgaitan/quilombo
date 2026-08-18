@@ -38,11 +38,4 @@ mcp.md
 development.md
 ```
 
-```{toctree}
-:maxdepth: 1
-:caption: Project notes
-
-marketing-plan.md
-```
-
 The generated REST schema is available from a running installation at `/api/docs/`.
