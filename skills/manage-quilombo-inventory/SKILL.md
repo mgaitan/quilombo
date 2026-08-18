@@ -33,8 +33,8 @@ the first session feel like a conversation rather than data entry:
 1. Ask what physical area they want to organize and use their name for it, such as `Workshop` or
    `Library`.
 2. Explain that you will work through one zone at a time. Ask for the first zone only: a drawer,
-   shelf, box, or other clearly bounded place. The client may provide a description or interpret a
-   photo/video; Quilombo receives only the resulting facts and a short provenance reference.
+   shelf, box, or other clearly bounded place. The agent or client may interpret a photo/video;
+   Quilombo receives only the resulting facts and a short provenance reference.
 3. Ask what is in that zone. Preserve mixed contents as separate items, reuse existing names and
    aliases, and keep unknown quantities approximate instead of inventing counts.
 4. Show a compact draft in everyday language: the area, zone, objects, quantities, and any
@@ -44,9 +44,11 @@ the first session feel like a conversation rather than data entry:
 6. Report what was saved, then ask whether to continue with the next zone. Do not turn the first
    session into a full questionnaire or require the user to understand workspaces, keys, or JSON.
 
-If the user sends a photo or video, never ask Quilombo to receive the media. Ask the client to
-describe the observed facts, keep uncertainty in `approximate` and `notes`, and record provenance
-such as `Processed a workshop photo on 2026-08-14`.
+If the user sends a photo or video, interpret it in the agent or client when vision is available,
+then send Quilombo only the resulting facts and provenance. If vision is unavailable, ask the user
+or client to provide a structured description instead. Never upload the media to Quilombo. Keep
+uncertainty in `approximate` and `notes`, and record provenance such as `Processed a workshop photo
+on 2026-08-14`.
 
 ## Locate objects
 
