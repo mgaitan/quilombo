@@ -101,7 +101,7 @@ Probar tres ofertas manualmente:
 | --- | ---: | --- | --- |
 | Personal | Gratis | Oscar, maker, biblioteca propia | 1 workspace, uso agentico completo, exportación |
 | Plus | USD 5/mes o 45/año | Coleccionista o familia | varios espacios, préstamos, alertas e historial |
-| Taller | USD 15-25/mes | equipo pequeño | colaboradores, roles, auditoría, soporte y webhooks |
+| Workshop | USD 15-25/mes | equipo pequeño | colaboradores, roles, auditoría, soporte y webhooks |
 
 No implementar pagos hasta conseguir al menos cinco compromisos explícitos del tipo «lo usaría a
 USD X cuando tenga Y». Una encuesta de “¿pagarías?” no alcanza. Ofrecer un piloto y pedir tarjeta,
@@ -144,7 +144,7 @@ Onboarding ideal:
 
 1. Crear cuenta; `Home` ya existe.
 2. Conectar ChatGPT o Claude mediante OAuth.
-3. Elegir `Taller`, `Biblioteca` u `Otro` como plantilla conversacional, sin imponer esquema.
+3. Elegir `Workshop`, `Library` u `Other` como plantilla conversacional, sin imponer esquema.
 4. Inventariar un único cajón o estante, no todo el mundo físico.
 5. Hacer una pregunta de recuperación inmediatamente.
 6. Volver otro día para registrar un movimiento o corrección.
@@ -227,7 +227,7 @@ Objetivo: obtener evidencia de precio.
 Acciones:
 
 1. Mostrar límites y precios hipotéticos a usuarios activos, no a audiencia general.
-2. Ofrecer diez cupos de `Taller fundador` con onboarding personal y precio garantizado por un año.
+2. Ofrecer diez cupos de `Workshop founder` con onboarding personal y precio garantizado por un año.
 3. Pedir cinco compromisos de pago antes de integrar Stripe.
 4. Conseguir tres testimonios específicos con resultado medible: tiempo ahorrado, compra evitada o
    préstamo recuperado.

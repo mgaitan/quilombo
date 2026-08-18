@@ -23,7 +23,7 @@ Example for a book:
 
 ```json
 {
-  "description": "Edición ancha con lomo rojo y letras blancas",
+  "description": "Wide edition with a red spine and white lettering",
   "attributes": {
     "schema": "book",
     "appearance": {
@@ -69,7 +69,7 @@ explicitly or retain an external reference instead.
       "name": "Drawer 1, compartment B4",
       "parent_key": "drawer-1",
       "kind": "compartment",
-      "aliases": ["cajon 1 B4"],
+      "aliases": ["drawer 1 B4"],
       "metadata": {}
     }
   ],
@@ -79,7 +79,7 @@ explicitly or retain an external reference instead.
       "name": "FIX 35 mm screw",
       "description": "",
       "category": "wood screws",
-      "aliases": ["tornillo para madera", "tornillo fix de 35mm"],
+      "aliases": ["wood screw", "FIX 35 mm screw"],
       "attributes": {"length_mm": 35, "brand": "FIX"},
       "tracking_mode": "bulk",
       "unit": "piece"

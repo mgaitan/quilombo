@@ -76,6 +76,15 @@ def dashboard(request):
 
 
 @login_required
+def first_inventory(request, workspace_slug):
+    workspace = get_object_or_404(
+        Workspace.objects.filter(memberships__user=request.user),
+        slug=workspace_slug,
+    )
+    return render(request, "inventory/first_inventory.html", {"workspace": workspace})
+
+
+@login_required
 def workspace_inventory(request, workspace_slug):
     workspace = get_object_or_404(
         Workspace.objects.filter(memberships__user=request.user),

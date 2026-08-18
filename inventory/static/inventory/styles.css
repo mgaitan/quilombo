@@ -71,6 +71,7 @@ h2 {
 p { margin: 0 0 18px; }
 .lede { color: #636965; font-size: 19px; }
 .quiet-link, .note, .status, .result-summary, .breadcrumb { color: #6c726e; font-size: 14px; }
+.eyebrow { margin-bottom: 10px; color: #6c726e; font: 600 12px system-ui, sans-serif; text-transform: uppercase; }
 
 .intro {
   display: grid;
@@ -158,6 +159,17 @@ p { margin: 0 0 18px; }
 
 .workspace-name { font-size: 21px; }
 .workspace-list span { color: #6c726e; font-size: 14px; text-align: right; }
+
+.onboarding {
+  max-width: 700px;
+  border-top: 1px solid #303532;
+  padding-top: 30px;
+}
+
+.onboarding-steps { margin: 34px 0 0; padding-left: 24px; }
+.onboarding-steps li { margin: 0 0 18px; padding-left: 6px; }
+.onboarding-example { margin-top: 34px; border-block: 1px solid #e3e6e3; padding: 20px 0 4px; }
+.prompt { max-width: 620px; color: #303532; font-size: 20px; }
 
 .breadcrumb {
   display: flex;
@@ -268,7 +280,7 @@ code {
   .band { margin-top: 58px; }
   .page-heading { display: block; }
   .page-heading > .button { margin-top: 20px; }
-  .workspace-list li { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .workspace-list li { align-items: flex-start; flex-direction: column; gap: 14px; }
   .workspace-list span { text-align: left; }
   .search-form { grid-template-columns: 1fr; }
 }

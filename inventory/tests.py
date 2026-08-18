@@ -745,6 +745,14 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
     assert authenticated.status_code == 200
     assert workshop.name in authenticated.content.decode()
     assert library.name not in authenticated.content.decode()
+    assert f"/app/{workshop.slug}/first-inventory/" in authenticated.content.decode()
+
+    guide = client.get(f"/app/{workshop.slug}/first-inventory/")
+    other_workspace = client.get(f"/app/{library.slug}/first-inventory/")
+
+    assert guide.status_code == 200
+    assert "una zona por vez" in guide.content.decode()
+    assert other_workspace.status_code == 404
 
 
 @pytest.mark.django_db

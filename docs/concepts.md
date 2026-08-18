@@ -31,7 +31,7 @@ For a book, a useful record might look like:
 
 ```json
 {
-  "name": "Crónicas del ángel gris",
+  "name": "The Gray Angel Chronicles",
   "category": "book",
   "attributes": {
     "author": "Alejandro Dolina",

@@ -50,9 +50,9 @@ values.
   "items": [
     {
       "key": "aaa-batteries",
-      "name": "Pilas AAA",
+      "name": "AAA batteries",
       "category": "battery",
-      "aliases": ["baterías AAA", "AAA batteries"],
+      "aliases": ["AAA cells", "AAA battery"],
       "attributes": {"size": "AAA"},
       "unit": "lot"
     }
@@ -68,5 +68,5 @@ values.
 }
 ```
 
-Then search with `GET /api/workspaces/{workspace-slug}/search/?q=pilas` or use the MCP
+Then search with `GET /api/workspaces/{workspace-slug}/search/?q=AAA%20batteries` or use the MCP
 `find_inventory` tool.

@@ -10,6 +10,7 @@ from inventory.views import (
     connector_guide,
     dashboard,
     download_skill,
+    first_inventory,
     home,
     oauth_consent,
     workspace_inventory,
@@ -26,6 +27,11 @@ def health_check(request):
 urlpatterns = [
     path("", home, name="home"),
     path("app/", dashboard, name="dashboard"),
+    path(
+        "app/<slug:workspace_slug>/first-inventory/",
+        first_inventory,
+        name="first-inventory",
+    ),
     path("app/<slug:workspace_slug>/", workspace_inventory, name="workspace-inventory"),
     path("connect/", connector_guide, name="connector-guide"),
     path("skills/manage-quilombo-inventory.zip", download_skill, name="skill-download"),
