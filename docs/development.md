@@ -16,6 +16,17 @@ uv run ruff check .
 uv run python manage.py check
 ```
 
+The repository `Makefile` provides the same common entry points:
+
+```bash
+make install
+make qa
+make docs-open
+```
+
+Use `make help` to list all targets. The release workflow uses `make docs` to build the published
+site with warnings treated as errors.
+
 ## Build the documentation
 
 ```bash
