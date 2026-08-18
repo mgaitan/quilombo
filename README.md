@@ -9,7 +9,7 @@ transactional, idempotent bulk command, while reads and ordinary CRUD remain sim
 
 ## Run locally
 
-Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
