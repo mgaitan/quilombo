@@ -32,6 +32,13 @@ mcp.md
 ```
 
 ```{toctree}
+:maxdepth: 1
+:caption: Architecture
+
+architecture.md
+```
+
+```{toctree}
 :maxdepth: 2
 :caption: Contribute
 
