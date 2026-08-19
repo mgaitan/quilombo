@@ -12,10 +12,9 @@ installed on the machine generating the image.
 from pathlib import Path
 
 from diagrams import Cluster, Diagram, Edge
-from diagrams.generic.blank import Blank
 from diagrams.generic.network import Router
 from diagrams.onprem.auth import Oauth2Proxy
-from diagrams.onprem.client import User
+from diagrams.onprem.client import Client, User
 from diagrams.onprem.database import PostgreSQL
 from diagrams.programming.framework import Django
 
@@ -49,7 +48,7 @@ def build_diagram() -> None:
         graph_attr=graph_attrs,
         node_attr=node_attrs,
     ):
-        agent = Blank("Agent\nChatGPT / Claude\nreasoning + vision")
+        agent = Client("Agent\nChatGPT / Claude\nreasoning + vision")
         person = User("Person\nbrowser consent")
 
         with Cluster("Quilombo hosted service"):
