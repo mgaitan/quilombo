@@ -14,7 +14,12 @@
       <h1>{{ workspace.name }}</h1>
       <p class="lede">{% translate "Search by item, category, description, or location." %}</p>
     </div>
-    {% if can_manage %}<a class="button" href="{% url 'workspace-settings' workspace.slug %}">{% translate "Settings" %}</a>{% endif %}
+    <div class="actions page-actions">
+      {% if can_write %}<a class="button button-primary" href="{% url 'web-item-create' workspace.slug %}">{% translate "New item" %}</a>{% endif %}
+      <a class="button" href="{% url 'web-item-list' workspace.slug %}">{% translate "Items" %}</a>
+      <a class="button" href="{% url 'web-location-list' workspace.slug %}">{% translate "Locations" %}</a>
+      {% if can_manage %}<a class="button" href="{% url 'workspace-settings' workspace.slug %}">{% translate "Settings" %}</a>{% endif %}
+    </div>
   </div>
 
   <form class="search-form" method="get">
@@ -86,10 +91,10 @@
         {% for holding in holdings %}
           <tr>
             <td>
-              <strong>{{ holding.item.name }}</strong>
+              <strong><a href="{% url 'web-item-detail' workspace.slug holding.item_id %}">{{ holding.item.name }}</a></strong>
               <span class="row-detail">{{ holding.item.key }}{% if holding.item.category %} · {{ holding.item.category }}{% endif %}</span>
             </td>
-            <td>{{ holding.location.name }}<span class="row-detail">{{ holding.location.key }}</span></td>
+            <td>{{ holding.location_path }}<span class="row-detail">{{ holding.location.key }}</span></td>
             <td>{% if holding.approximate %}≈{% endif %}{{ holding.quantity|floatformat:"-6" }} {{ holding.item.unit }}</td>
             <td>{{ holding.notes|default:_("No notes") }}</td>
           </tr>

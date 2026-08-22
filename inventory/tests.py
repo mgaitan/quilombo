@@ -39,6 +39,7 @@ from .models import (
 )
 from .services import (
     BulkUpsertError,
+    create_item_with_holding,
     delete_inventory_item,
     hash_request,
     move_inventory,
@@ -1477,6 +1478,252 @@ def test_human_location_filter_renders_depth_first_tree(client, users, workspace
         {"key": "fiction", "label": "Ficción"},
         {"key": "latin-america", "label": "\u00a0\u00a0⤷ Latinoamérica"},
     ]
+
+
+@pytest.mark.django_db
+def test_web_crud_manages_workshop_item_holdings_and_locations(client, users, workspaces):
+    workshop, _ = workspaces
+    client.force_login(users[0])
+
+    parent_response = client.post(
+        "/app/workshop/locations/new/",
+        {
+            "key": "cabinet",
+            "name": "Tool cabinet",
+            "description": "Against the north wall",
+            "kind": "cabinet",
+            "aliases": "storage, tools",
+        },
+    )
+    assert parent_response.status_code == 302, parent_response.context["location_form"].errors
+    parent = workshop.locations.get(key="cabinet")
+    child_response = client.post(
+        "/app/workshop/locations/new/",
+        {
+            "key": "drawer-1",
+            "name": "Drawer 1",
+            "kind": "drawer",
+            "parent": parent.id,
+            "aliases": "",
+        },
+    )
+    assert child_response.status_code == 302, child_response.context["location_form"].errors
+    drawer = workshop.locations.get(key="drawer-1")
+
+    cycle = client.post(
+        f"/app/workshop/locations/{parent.id}/edit/",
+        {
+            "key": "cabinet",
+            "name": "Tool cabinet",
+            "kind": "cabinet",
+            "parent": drawer.id,
+            "aliases": "storage, tools",
+        },
+    )
+    parent.refresh_from_db()
+    assert cycle.status_code == 200
+    assert parent.parent is None
+
+    new_item_page = client.get("/app/workshop/items/new/")
+    assert "Tool cabinet → Drawer 1" in new_item_page.content.decode()
+
+    created = client.post(
+        "/app/workshop/items/new/",
+        {
+            "key": "fix-35",
+            "name": "FIX screws",
+            "description": "Red box",
+            "category": "fasteners",
+            "aliases": "wood screws, screws",
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": "piece",
+            "minimum_quantity": "10",
+            "target_quantity": "20",
+            "holding-location": drawer.id,
+            "holding-quantity": "12.5",
+            "holding-approximate": "on",
+            "holding-notes": "Opened box",
+        },
+    )
+    item = workshop.items.get(key="fix-35")
+    holding = item.holdings.get()
+    detail = client.get(f"/app/workshop/items/{item.id}/")
+
+    assert parent_response.status_code == 302
+    assert child_response.status_code == 302
+    assert created.status_code == 302
+    assert created.url == f"/app/workshop/items/{item.id}/"
+    assert item.aliases == ["wood screws", "screws"]
+    assert holding.quantity == Decimal("12.5")
+    assert "Tool cabinet → Drawer 1" in detail.content.decode()
+
+    invalid_tracking = client.post(
+        f"/app/workshop/items/{item.id}/edit/",
+        {
+            "key": "fix-35",
+            "name": "FIX screws",
+            "description": "Red box",
+            "category": "fasteners",
+            "aliases": "wood screws, screws",
+            "tracking_mode": Item.TrackingMode.DISCRETE,
+            "unit": "piece",
+            "minimum_quantity": "10",
+            "target_quantity": "20",
+        },
+    )
+    item.refresh_from_db()
+    assert invalid_tracking.status_code == 200
+    assert item.tracking_mode == Item.TrackingMode.BULK
+
+    edited = client.post(
+        f"/app/workshop/items/{item.id}/edit/",
+        {
+            "key": "fix-35",
+            "name": "FIX 35 mm screws",
+            "description": "Red and white box",
+            "category": "fasteners",
+            "aliases": "wood screws",
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": "piece",
+            "minimum_quantity": "10",
+            "target_quantity": "25",
+        },
+    )
+    holding_edited = client.post(
+        f"/app/workshop/items/{item.id}/holdings/{holding.id}/edit/",
+        {
+            "location": drawer.id,
+            "quantity": "15",
+            "notes": "Counted",
+        },
+    )
+    location_edited = client.post(
+        f"/app/workshop/locations/{drawer.id}/edit/",
+        {
+            "key": "drawer-1",
+            "name": "Top drawer",
+            "kind": "drawer",
+            "parent": parent.id,
+            "aliases": "",
+        },
+    )
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    drawer.refresh_from_db()
+
+    assert edited.status_code == 302
+    assert holding_edited.status_code == 302
+    assert location_edited.status_code == 302
+    assert item.name == "FIX 35 mm screws"
+    assert holding.quantity == Decimal("15")
+    assert drawer.name == "Top drawer"
+
+    assert (
+        client.get(f"/app/workshop/items/{item.id}/holdings/{holding.id}/delete/").status_code
+        == 200
+    )
+    assert (
+        client.post(f"/app/workshop/items/{item.id}/holdings/{holding.id}/delete/").status_code
+        == 302
+    )
+    assert not Holding.objects.filter(id=holding.id).exists()
+    item_list_response = client.get("/app/workshop/items/")
+    assert item_list_response.status_code == 200
+    assert "FIX 35 mm screws" in item_list_response.content.decode()
+    assert client.post(f"/app/workshop/items/{item.id}/delete/").status_code == 302
+    assert not Item.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_web_crud_renders_library_paths(client, users, workspaces):
+    _, library = workspaces
+    bookcase = Location.objects.create(workspace=library, key="bookcase", name="Bookcase")
+    shelf = Location.objects.create(
+        workspace=library,
+        key="shelf-2",
+        name="Shelf 2",
+        parent=bookcase,
+    )
+    book = Item.objects.create(
+        workspace=library,
+        key="gelman",
+        name="Interrupciones I",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+    )
+    Holding.objects.create(workspace=library, item=book, location=shelf, quantity=1)
+    client.force_login(users[1])
+
+    locations = client.get("/app/library/locations/")
+    detail = client.get(f"/app/library/items/{book.id}/")
+
+    assert locations.status_code == 200
+    assert detail.status_code == 200
+    assert "Bookcase → Shelf 2" in locations.content.decode()
+    assert "Bookcase → Shelf 2" in detail.content.decode()
+    assert "Ubicaciones" in locations.content.decode()
+
+    client.post("/i18n/setlang/", {"language": "en", "next": "/app/library/locations/"})
+    english_locations = client.get("/app/library/locations/")
+    assert "Locations" in english_locations.content.decode()
+
+
+@pytest.mark.django_db
+def test_web_crud_rejects_read_only_and_cross_workspace_writes(client, users, workspaces):
+    workshop, library = workspaces
+    own_location = Location.objects.create(workspace=workshop, key="bench", name="Bench")
+    other_location = Location.objects.create(workspace=library, key="shelf", name="Shelf")
+    item = Item.objects.create(workspace=workshop, key="hammer", name="Hammer")
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+
+    client.force_login(users[1])
+    assert client.get(f"/app/workshop/items/{item.id}/").status_code == 200
+    denied = client.post(
+        "/app/workshop/items/new/",
+        {
+            "key": "intrusion",
+            "name": "Intrusion",
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": "unit",
+            "holding-location": own_location.id,
+            "holding-quantity": "1",
+        },
+    )
+    assert denied.status_code == 403
+    assert not workshop.items.filter(key="intrusion").exists()
+
+    client.force_login(users[0])
+    cross_parent = client.post(
+        "/app/workshop/locations/new/",
+        {
+            "key": "cross-parent",
+            "name": "Cross parent",
+            "parent": other_location.id,
+            "aliases": "",
+        },
+    )
+    cross_holding = client.post(
+        f"/app/workshop/items/{item.id}/holdings/new/",
+        {"location": other_location.id, "quantity": "1"},
+    )
+
+    assert cross_parent.status_code == 200
+    assert cross_holding.status_code == 200
+    assert not workshop.locations.filter(key="cross-parent").exists()
+    assert not item.holdings.exists()
+
+    with pytest.raises(ValidationError, match="another workspace"):
+        create_item_with_holding(
+            workspace=workshop,
+            item_data={
+                "key": "rolled-back",
+                "name": "Rolled back",
+                "tracking_mode": Item.TrackingMode.BULK,
+                "unit": "unit",
+            },
+            holding_data={"location": other_location, "quantity": Decimal("1")},
+        )
+    assert not workshop.items.filter(key="rolled-back").exists()
 
 
 @pytest.mark.django_db

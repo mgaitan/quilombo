@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ item.name }} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{{ item.name }}</span>
+  </nav>
+  <div class="page-heading">
+    <div>
+      <h1>{{ item.name }}</h1>
+      <p class="lede">{{ item.key }}{% if item.category %} · {{ item.category }}{% endif %}</p>
+    </div>
+    {% if can_write %}
+      <div class="actions page-actions">
+        <a class="button" href="{% url 'web-item-edit' workspace.slug item.id %}">{% translate "Edit" %}</a>
+        <a class="button button-danger" href="{% url 'web-item-delete' workspace.slug item.id %}">{% translate "Delete" %}</a>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if item.description %}<p class="item-description">{{ item.description }}</p>{% endif %}
+  <dl class="item-metadata">
+    <div><dt>{% translate "Unit" %}</dt><dd>{{ item.unit }}</dd></div>
+    <div><dt>{% translate "Tracking mode" %}</dt><dd>{{ item.get_tracking_mode_display }}</dd></div>
+    {% if item.aliases %}<div><dt>{% translate "Aliases" %}</dt><dd>{{ item.aliases|join:", " }}</dd></div>{% endif %}
+  </dl>
+
+  <div class="page-heading section-heading">
+    <div><h2>{% translate "Holdings" %}</h2></div>
+    {% if can_write %}<a class="button button-primary" href="{% url 'web-holding-create' workspace.slug item.id %}">{% translate "Add holding" %}</a>{% endif %}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{% translate "Location" %}</th><th>{% translate "Quantity" %}</th><th>{% translate "Notes" %}</th>{% if can_write %}<th>{% translate "Actions" %}</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for holding in holdings %}
+          <tr>
+            <td>{{ holding.location_path }}<span class="row-detail">{{ holding.location.key }}</span></td>
+            <td>{% if holding.approximate %}≈{% endif %}{{ holding.quantity|floatformat:"-6" }} {{ item.unit }}</td>
+            <td>{{ holding.notes|default:_("No notes") }}</td>
+            {% if can_write %}<td><a href="{% url 'web-holding-edit' workspace.slug item.id holding.id %}">{% translate "Edit" %}</a> · <a class="danger-link" href="{% url 'web-holding-delete' workspace.slug item.id holding.id %}">{% translate "Delete" %}</a></td>{% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">{% translate "This item has no holdings." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

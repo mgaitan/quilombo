@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 
 
 class Workspace(models.Model):
@@ -139,8 +140,8 @@ class LocationRelation(models.Model):
 
 class Item(models.Model):
     class TrackingMode(models.TextChoices):
-        BULK = "bulk", "Bulk quantity"
-        DISCRETE = "discrete", "Discrete count"
+        BULK = "bulk", _("Bulk quantity")
+        DISCRETE = "discrete", _("Discrete count")
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="items")
@@ -218,6 +219,8 @@ class Holding(models.Model):
     def clean(self):
         super().clean()
         for field in ("item", "location"):
+            if not getattr(self, f"{field}_id"):
+                continue
             related = getattr(self, field)
             if related.workspace_id != self.workspace_id:
                 raise ValidationError({field: "Object belongs to another workspace."})

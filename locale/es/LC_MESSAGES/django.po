@@ -358,3 +358,138 @@ msgstr "Administrador"
 
 msgid "Member"
 msgstr "Miembro"
+
+msgid "Aliases"
+msgstr "Alias"
+
+msgid "Separate aliases with commas."
+msgstr "Separá los alias con comas."
+
+msgid "Key"
+msgstr "Clave"
+
+msgid "Description"
+msgstr "Descripción"
+
+msgid "Category"
+msgstr "Categoría"
+
+msgid "Tracking mode"
+msgstr "Modo de seguimiento"
+
+msgid "Unit"
+msgstr "Unidad"
+
+msgid "Minimum quantity"
+msgstr "Cantidad mínima"
+
+msgid "Target quantity"
+msgstr "Cantidad objetivo"
+
+msgid "An item with this key already exists."
+msgstr "Ya existe un objeto con esta clave."
+
+msgid "Kind"
+msgstr "Tipo"
+
+msgid "Inside"
+msgstr "Dentro de"
+
+msgid "Top level"
+msgstr "Nivel principal"
+
+msgid "A location with this key already exists."
+msgstr "Ya existe una ubicación con esta clave."
+
+msgid "A location cannot be inside itself."
+msgstr "Una ubicación no puede estar dentro de sí misma."
+
+msgid "Approximate"
+msgstr "Aproximada"
+
+msgid "Discrete items require a whole quantity."
+msgstr "Los objetos discretos requieren una cantidad entera."
+
+msgid "All holdings must have whole quantities before using discrete tracking."
+msgstr "Todas las existencias deben tener cantidades enteras antes de usar seguimiento discreto."
+
+msgid "This inventory is shared as read-only."
+msgstr "Este inventario está compartido como solo lectura."
+
+msgid "New item"
+msgstr "Nuevo objeto"
+
+msgid "Create item"
+msgstr "Crear objeto"
+
+msgid "Edit item"
+msgstr "Editar objeto"
+
+msgid "Save changes"
+msgstr "Guardar cambios"
+
+msgid "Add holding"
+msgstr "Agregar existencia"
+
+msgid "Edit holding"
+msgstr "Editar existencia"
+
+msgid "New location"
+msgstr "Nueva ubicación"
+
+msgid "Create location"
+msgstr "Crear ubicación"
+
+msgid "Edit location"
+msgstr "Editar ubicación"
+
+msgid "Locations"
+msgstr "Ubicaciones"
+
+msgid "First holding"
+msgstr "Primera existencia"
+
+msgid "Edit"
+msgstr "Editar"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Holdings"
+msgstr "Existencias"
+
+msgid "Actions"
+msgstr "Acciones"
+
+msgid "This item has no holdings."
+msgstr "Este objeto no tiene existencias."
+
+msgid "No locations recorded yet."
+msgstr "Todavía no hay ubicaciones registradas."
+
+msgid "Confirm deletion"
+msgstr "Confirmar eliminación"
+
+msgid "Delete “%(object_name)s”?"
+msgstr "¿Eliminar «%(object_name)s»?"
+
+msgid "Create first location"
+msgstr "Crear primera ubicación"
+
+msgid "Bulk quantity"
+msgstr "Cantidad fraccionable"
+
+msgid "Discrete count"
+msgstr "Conteo discreto"
+
+msgid "Items"
+msgstr "Objetos"
+
+msgid "No items recorded yet."
+msgstr "Todavía no hay objetos registrados."
+
+msgid "All holdings for this item will also be deleted."
+msgstr "También se eliminarán todas las existencias de este objeto."
+
+msgid "The item itself will remain."
+msgstr "El objeto seguirá existiendo."

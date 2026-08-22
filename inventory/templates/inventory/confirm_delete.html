@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Confirm deletion" %} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Confirm deletion" %}</span>
+  </nav>
+  <h1>{% translate "Confirm deletion" %}</h1>
+  <p class="lede">{% blocktranslate %}Delete “{{ object_name }}”?{% endblocktranslate %}</p>
+  <p>{{ detail }}</p>
+  <form method="post" class="actions">
+    {% csrf_token %}
+    <button class="button button-primary danger-action" type="submit">{% translate "Delete" %}</button>
+    <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">{% translate "Cancel" %}</a>
+  </form>
+{% endblock %}

@@ -5,6 +5,7 @@ import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField
 from django.db.models.functions import Cast
@@ -80,6 +81,94 @@ def remove_workspace_member(*, workspace, user_id):
         return False
     membership.delete()
     return True
+
+
+@transaction.atomic
+def create_location(*, workspace, data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    location = Location(workspace=workspace, **data)
+    location.full_clean()
+    location.save()
+    return location
+
+
+@transaction.atomic
+def update_location(*, workspace, location, data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    location = Location.objects.select_for_update().get(pk=location.pk, workspace=workspace)
+    for field, value in data.items():
+        setattr(location, field, value)
+    location.full_clean()
+    location.save()
+    return location
+
+
+@transaction.atomic
+def create_item_with_holding(*, workspace, item_data, holding_data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    item = Item(workspace=workspace, **item_data)
+    item.full_clean()
+    item.save()
+    holding = Holding(workspace=workspace, item=item, **holding_data)
+    holding.full_clean()
+    holding.save()
+    return item
+
+
+@transaction.atomic
+def update_item(*, workspace, item, data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
+    if data.get("tracking_mode", item.tracking_mode) == Item.TrackingMode.DISCRETE:
+        quantities = (
+            Holding.objects.select_for_update()
+            .filter(workspace=workspace, item=item)
+            .values_list("quantity", flat=True)
+        )
+        if any(quantity != quantity.to_integral_value() for quantity in quantities):
+            raise ValidationError(
+                "All holdings must have whole quantities before using discrete tracking."
+            )
+    for field, value in data.items():
+        setattr(item, field, value)
+    item.full_clean()
+    item.save()
+    return item
+
+
+@transaction.atomic
+def remove_item(*, workspace, item):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
+    item.delete()
+
+
+@transaction.atomic
+def create_holding(*, workspace, item, data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
+    holding = Holding(workspace=workspace, item=item, **data)
+    holding.full_clean()
+    holding.save()
+    return holding
+
+
+@transaction.atomic
+def update_holding(*, workspace, item, holding, data):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    holding = Holding.objects.select_for_update().get(pk=holding.pk, workspace=workspace, item=item)
+    for field, value in data.items():
+        setattr(holding, field, value)
+    holding.full_clean()
+    holding.save()
+    return holding
+
+
+@transaction.atomic
+def remove_holding(*, workspace, item, holding):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    holding = Holding.objects.select_for_update().get(pk=holding.pk, workspace=workspace, item=item)
+    holding.delete()
 
 
 SEARCH_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
