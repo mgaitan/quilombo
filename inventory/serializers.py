@@ -343,6 +343,8 @@ class SearchQuerySerializer(serializers.Serializer):
     category = serializers.CharField(required=False, max_length=120)
     location = serializers.CharField(required=False, max_length=128)
     include_descendants = serializers.BooleanField(required=False, default=True)
+    page = serializers.IntegerField(required=False, min_value=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=200)
 
 
 class SearchHoldingSerializer(HoldingSerializer):
@@ -380,9 +382,20 @@ class HoldingClueSerializer(SearchHoldingSerializer):
         return self.context.get("nearby_by_holding", {}).get(holding.id, [])
 
 
+class PaginationMetadataSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    total_pages = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+
+
 class SearchResultSerializer(serializers.Serializer):
     query = serializers.CharField()
     count = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    pagination = PaginationMetadataSerializer()
     results = HoldingClueSerializer(many=True)
 
 

@@ -48,6 +48,25 @@ supplied current values. Every mutation should carry a unique idempotency key an
 short provenance reference such as “processed from a workshop photo on 2026-08-14”; source media is
 not uploaded or retained.
 
+REST collection responses use a stable paginated envelope:
+
+```json
+{
+  "pagination": {
+    "count": 123,
+    "page": 1,
+    "page_size": 50,
+    "total_pages": 3,
+    "next": "http://localhost:8000/api/workspaces/?page=2",
+    "previous": null
+  },
+  "results": []
+}
+```
+
+Use `page` and `page_size`; page sizes are bounded to 200. Inventory search returns the same
+metadata alongside its query diagnostics and reports when its bounded candidate set was truncated.
+
 ## Connect an MCP client
 
 The hosted v0.1 app is available at

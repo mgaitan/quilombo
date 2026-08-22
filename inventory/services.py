@@ -282,6 +282,7 @@ def search_holdings(
             -holding._search_match["score"],
             holding.item.name.casefold(),
             holding.location.name.casefold(),
+            str(holding.id),
         )
     )
     return ranked[:limit]
