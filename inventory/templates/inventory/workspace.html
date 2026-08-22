@@ -65,7 +65,11 @@
   {% endif %}
 
   <div class="result-summary">
-    {% blocktranslate count count=holdings|length %}{{ count }} result{% plural %}{{ count }} results{% endblocktranslate %}
+    {% if truncated %}
+      {% translate "More than 1000 results" %}
+    {% else %}
+      {% blocktranslate count count=page_obj.paginator.count %}{{ count }} result{% plural %}{{ count }} results{% endblocktranslate %}
+    {% endif %}
   </div>
   <div class="table-wrap">
     <table>
@@ -94,4 +98,5 @@
       </tbody>
     </table>
   </div>
+  {% include "inventory/_pagination.html" %}
 {% endblock %}

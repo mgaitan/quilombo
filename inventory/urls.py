@@ -6,6 +6,8 @@ from .views import (
     ApiTokenView,
     BulkUpsertView,
     HoldingViewSet,
+    InventoryExportView,
+    InventoryImportView,
     InventorySearchView,
     ItemViewSet,
     LocationRelationViewSet,
@@ -25,6 +27,16 @@ workspace_router.register("workspaces", WorkspaceViewSet, basename="workspace")
 
 urlpatterns = [
     path("", include(workspace_router.urls)),
+    path(
+        "workspaces/<slug:workspace_slug>/export/",
+        InventoryExportView.as_view(),
+        name="inventory-export",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/import/",
+        InventoryImportView.as_view(),
+        name="inventory-import",
+    ),
     path(
         "workspaces/<slug:workspace_slug>/stock-status/",
         StockStatusView.as_view(),

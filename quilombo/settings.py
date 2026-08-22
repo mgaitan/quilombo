@@ -198,6 +198,9 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "URL_FORMAT_OVERRIDE": None,
+    "DEFAULT_PAGINATION_CLASS": "inventory.pagination.InventoryPagination",
+    "PAGE_SIZE": 50,
 }
 
 SPECTACULAR_SETTINGS = {

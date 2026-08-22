@@ -7,9 +7,14 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from .models import Holding, Location, LocationRelation
+from .models import Holding, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
-from .serializers import BulkUpsertSerializer, ProvenanceSerializer
+from .serializers import (
+    BulkUpsertSerializer,
+    ItemDeleteSerializer,
+    ItemRepairSerializer,
+    ProvenanceSerializer,
+)
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
@@ -23,7 +28,13 @@ from .services import (
     bulk_upsert_inventory as bulk_upsert_service,
 )
 from .services import (
+    delete_inventory_item as delete_inventory_item_service,
+)
+from .services import (
     move_inventory as move_inventory_service,
+)
+from .services import (
+    update_inventory_item as update_inventory_item_service,
 )
 
 oauth_provider = QuilomboOAuthProvider()
@@ -83,6 +94,8 @@ def _token_from_context(ctx: Context):
 def _serialize_holding(holding, clue_context=None):
     clue_context = clue_context or {}
     serialized = {
+        "holding_id": str(holding.id),
+        "item_id": str(holding.item.id),
         "item_key": holding.item.key,
         "item_name": holding.item.name,
         "item_description": holding.item.description,
@@ -90,6 +103,7 @@ def _serialize_holding(holding, clue_context=None):
         "category": holding.item.category,
         "attributes": holding.item.attributes,
         "location_key": holding.location.key,
+        "location_id": str(holding.location.id),
         "location_name": holding.location.name,
         "location_path": clue_context.get("location_paths", {}).get(holding.location_id, []),
         "nearby_items": clue_context.get("nearby_by_holding", {}).get(holding.id, []),
@@ -124,19 +138,23 @@ def find_inventory(
     token = _token_from_context(ctx)
     if not query.strip():
         raise ToolError("Query cannot be empty.")
+    bounded_limit = min(max(limit, 1), 500)
     results = search_holdings(
         workspace=token.workspace,
         query=query,
         category=category,
         location=location_key,
         include_descendants=include_descendants,
-        limit=min(max(limit, 1), 500),
+        limit=bounded_limit + 1,
     )
+    truncated = len(results) > bounded_limit
+    results = results[:bounded_limit]
     clue_context = build_holding_clue_context(workspace=token.workspace, holdings=results)
     return {
         "workspace": token.workspace.slug,
         "query": query,
         "count": len(results),
+        "truncated": truncated,
         "results": [_serialize_holding(holding, clue_context) for holding in results],
     }
 
@@ -174,6 +192,7 @@ def get_inventory_snapshot(
     token = _token_from_context(ctx)
     workspace = token.workspace
     locations = Location.objects.filter(workspace=workspace).select_related("parent")
+    items = Item.objects.filter(workspace=workspace)
     holdings = Holding.objects.filter(workspace=workspace).select_related("item", "location")
     relations = LocationRelation.objects.filter(workspace=workspace).select_related(
         "subject", "object"
@@ -185,19 +204,33 @@ def get_inventory_snapshot(
             include_descendants=include_descendants,
         )
         locations = locations.filter(id__in=scope_ids)
+        items = items.filter(holdings__location_id__in=scope_ids).distinct()
         holdings = holdings.filter(location_id__in=scope_ids)
         relations = relations.filter(Q(subject_id__in=scope_ids) | Q(object_id__in=scope_ids))
     if category:
+        items = items.filter(category__iexact=category)
         holdings = holdings.filter(item__category__iexact=category)
     bounded_limit = min(max(limit, 1), 2000)
-    location_rows = list(locations[:bounded_limit])
-    holding_rows = list(holdings[:bounded_limit])
-    relation_rows = list(relations[:bounded_limit])
+    location_rows = list(locations[: bounded_limit + 1])
+    item_rows = list(items[: bounded_limit + 1])
+    holding_rows = list(holdings[: bounded_limit + 1])
+    relation_rows = list(relations[: bounded_limit + 1])
+    truncated = {
+        "locations": len(location_rows) > bounded_limit,
+        "items": len(item_rows) > bounded_limit,
+        "holdings": len(holding_rows) > bounded_limit,
+        "location_relations": len(relation_rows) > bounded_limit,
+    }
+    location_rows = location_rows[:bounded_limit]
+    item_rows = item_rows[:bounded_limit]
+    holding_rows = holding_rows[:bounded_limit]
+    relation_rows = relation_rows[:bounded_limit]
     clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
     return {
         "workspace": workspace.slug,
         "locations": [
             {
+                "id": str(location.id),
                 "key": location.key,
                 "name": location.name,
                 "kind": location.kind,
@@ -206,6 +239,20 @@ def get_inventory_snapshot(
                 "metadata": location.metadata,
             }
             for location in location_rows
+        ],
+        "items": [
+            {
+                "id": str(item.id),
+                "key": item.key,
+                "name": item.name,
+                "description": item.description,
+                "category": item.category,
+                "aliases": item.aliases,
+                "attributes": item.attributes,
+                "tracking_mode": item.tracking_mode,
+                "unit": item.unit,
+            }
+            for item in item_rows
         ],
         "location_relations": [
             {
@@ -216,9 +263,8 @@ def get_inventory_snapshot(
             for relation in relation_rows
         ],
         "holdings": [_serialize_holding(holding, clue_context) for holding in holding_rows],
-        "truncated": any(
-            len(rows) == bounded_limit for rows in (location_rows, holding_rows, relation_rows)
-        ),
+        "truncated": any(truncated.values()),
+        "truncated_collections": truncated,
     }
 
 
@@ -309,3 +355,80 @@ def move_inventory(
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error
     return {"event_id": str(event.id), "replayed": replayed, "move": event.summary}
+
+
+@server.tool(
+    title="Update an inventory item",
+    description=(
+        "Correct a known item and optionally its known holdings by stable UUID. Search first and "
+        "supply only confirmed fields. Holding location_id moves that complete holding; quantity "
+        "replaces its current quantity. This writes immediately."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def update_inventory_item(
+    item_id: str,
+    idempotency_key: str,
+    ctx: Context,
+    item: dict[str, Any] | None = None,
+    holdings: list[dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    payload = {
+        "item_id": item_id,
+        "idempotency_key": idempotency_key,
+        "item": item or {},
+        "holdings": holdings or [],
+        "provenance": provenance or {},
+    }
+    serializer = ItemRepairSerializer(data=payload)
+    if not serializer.is_valid():
+        raise ToolError(f"Invalid item update: {serializer.errors}")
+    try:
+        event, replayed = update_inventory_item_service(
+            workspace=token.workspace,
+            actor=token.user,
+            data=serializer.validated_data,
+            request_hash=hash_request(serializer.validated_data),
+        )
+    except (BulkUpsertError, IdempotencyConflict) as error:
+        raise ToolError(str(error)) from error
+    return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}
+
+
+@server.tool(
+    title="Delete an erroneous inventory item",
+    description=(
+        "Delete a known erroneous or duplicate item and its holdings by stable UUID. Search first "
+        "and use only after the client has enough evidence and applies its confirmation policy."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def delete_inventory_item(
+    item_id: str,
+    idempotency_key: str,
+    ctx: Context,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    payload = {
+        "item_id": item_id,
+        "idempotency_key": idempotency_key,
+        "provenance": provenance or {},
+    }
+    serializer = ItemDeleteSerializer(data=payload)
+    if not serializer.is_valid():
+        raise ToolError(f"Invalid item deletion: {serializer.errors}")
+    try:
+        event, replayed = delete_inventory_item_service(
+            workspace=token.workspace,
+            actor=token.user,
+            data=serializer.validated_data,
+            request_hash=hash_request(serializer.validated_data),
+        )
+    except (BulkUpsertError, IdempotencyConflict) as error:
+        raise ToolError(str(error)) from error
+    return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}

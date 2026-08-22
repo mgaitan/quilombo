@@ -18,10 +18,20 @@ header.
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
 | `bulk_upsert_inventory` | Transactionally create or replace related inventory facts. |
 | `move_inventory` | Move a holding between locations. |
+| `update_inventory_item` | Correct a known item and its holdings by stable UUID. |
+| `delete_inventory_item` | Remove a confirmed erroneous or duplicate item by stable UUID. |
 
 The mutation tools write immediately. Drafts, human confirmation, and interpretation of photos or
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
+
+Read tools keep caller-provided limits within documented bounds. `find_inventory` returns
+`truncated`; snapshots return both `truncated` and `truncated_collections`, so clients can tell
+whether another narrower read is needed without treating an exactly-full page as truncated.
+
+Search and snapshot results expose stable item, holding, and location UUIDs for repair operations.
+Prefer `update_inventory_item` when the intended item is known. Delete only after the client has
+enough evidence that the record is erroneous or duplicated and has applied its confirmation policy.
 
 ## ChatGPT and Claude
 

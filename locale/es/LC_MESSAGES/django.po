@@ -289,3 +289,6 @@ msgstr "Tu cuenta empieza con un inventario privado llamado Home."
 
 msgid "Already have an account?"
 msgstr "¿Ya tenés cuenta?"
+
+msgid "More than 1000 results"
+msgstr "Más de 1000 resultados"
