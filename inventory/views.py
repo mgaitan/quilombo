@@ -109,6 +109,24 @@ def first_inventory(request, workspace_slug):
     return render(request, "inventory/first_inventory.html", {"workspace": workspace})
 
 
+def _location_tree_options(locations):
+    locations = list(locations)
+    children = {}
+    for location in locations:
+        children.setdefault(location.parent_id, []).append(location)
+    for siblings in children.values():
+        siblings.sort(key=lambda location: (location.name.casefold(), location.id))
+
+    options = []
+    stack = [(location, 0) for location in reversed(children.get(None, []))]
+    while stack:
+        location, depth = stack.pop()
+        prefix = "\u00a0\u00a0" * depth + ("⤷ " if depth else "")
+        options.append({"key": location.key, "label": f"{prefix}{location.name}"})
+        stack.extend((child, depth + 1) for child in reversed(children.get(location.id, [])))
+    return options
+
+
 @login_required
 def workspace_inventory(request, workspace_slug):
     workspace = get_object_or_404(
@@ -137,7 +155,9 @@ def workspace_inventory(request, workspace_slug):
             "page_obj": page_obj,
             "truncated": truncated,
             "preserved_query": preserved_query.urlencode(),
-            "locations": workspace.locations.only("key", "name"),
+            "location_options": _location_tree_options(
+                workspace.locations.only("id", "parent_id", "key", "name")
+            ),
             "query": query,
             "location_key": location_key,
             "stock_status": stock_status,
