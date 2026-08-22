@@ -124,19 +124,23 @@ def find_inventory(
     token = _token_from_context(ctx)
     if not query.strip():
         raise ToolError("Query cannot be empty.")
+    bounded_limit = min(max(limit, 1), 500)
     results = search_holdings(
         workspace=token.workspace,
         query=query,
         category=category,
         location=location_key,
         include_descendants=include_descendants,
-        limit=min(max(limit, 1), 500),
+        limit=bounded_limit + 1,
     )
+    truncated = len(results) > bounded_limit
+    results = results[:bounded_limit]
     clue_context = build_holding_clue_context(workspace=token.workspace, holdings=results)
     return {
         "workspace": token.workspace.slug,
         "query": query,
         "count": len(results),
+        "truncated": truncated,
         "results": [_serialize_holding(holding, clue_context) for holding in results],
     }
 
@@ -190,9 +194,17 @@ def get_inventory_snapshot(
     if category:
         holdings = holdings.filter(item__category__iexact=category)
     bounded_limit = min(max(limit, 1), 2000)
-    location_rows = list(locations[:bounded_limit])
-    holding_rows = list(holdings[:bounded_limit])
-    relation_rows = list(relations[:bounded_limit])
+    location_rows = list(locations[: bounded_limit + 1])
+    holding_rows = list(holdings[: bounded_limit + 1])
+    relation_rows = list(relations[: bounded_limit + 1])
+    truncated = {
+        "locations": len(location_rows) > bounded_limit,
+        "holdings": len(holding_rows) > bounded_limit,
+        "location_relations": len(relation_rows) > bounded_limit,
+    }
+    location_rows = location_rows[:bounded_limit]
+    holding_rows = holding_rows[:bounded_limit]
+    relation_rows = relation_rows[:bounded_limit]
     clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
     return {
         "workspace": workspace.slug,
@@ -216,9 +228,8 @@ def get_inventory_snapshot(
             for relation in relation_rows
         ],
         "holdings": [_serialize_holding(holding, clue_context) for holding in holding_rows],
-        "truncated": any(
-            len(rows) == bounded_limit for rows in (location_rows, holding_rows, relation_rows)
-        ),
+        "truncated": any(truncated.values()),
+        "truncated_collections": truncated,
     }
 
 

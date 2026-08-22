@@ -209,6 +209,16 @@ input:focus,
 select:focus { border-color: #303532; outline: 2px solid #d9e8df; outline-offset: 1px; }
 
 .result-summary { margin: 24px 0 10px; }
+.pagination {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  font-size: 14px;
+}
+.pagination > :last-child { text-align: right; }
+.pagination span { color: #747a76; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th { color: #626863; font: 600 12px system-ui, sans-serif; text-align: left; text-transform: uppercase; }

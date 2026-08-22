@@ -63,7 +63,9 @@
     </div>
   {% endif %}
 
-  <div class="result-summary">{{ holdings|length }} resultado{{ holdings|length|pluralize }}</div>
+  <div class="result-summary">
+    {% if truncated %}Más de 1000 resultados{% else %}{{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }}{% endif %}
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -91,4 +93,5 @@
       </tbody>
     </table>
   </div>
+  {% include "inventory/_pagination.html" %}
 {% endblock %}

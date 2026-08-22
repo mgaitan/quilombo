@@ -112,7 +112,7 @@ def test_api_isolates_workspaces(users, workspaces):
     other_response = client.get("/api/workspaces/library/locations/")
 
     assert own_response.status_code == 200
-    assert own_response.json()[0]["key"] == "a1"
+    assert own_response.json()["results"][0]["key"] == "a1"
     assert other_response.status_code == 404
 
 
@@ -136,6 +136,81 @@ def test_api_rejects_cross_workspace_holding(users, workspaces):
 
     assert response.status_code == 400
     assert "another workspace" in str(response.json())
+
+
+@pytest.mark.django_db
+def test_api_collections_paginate_stably_and_handle_last_and_empty_pages(users, workspaces):
+    workshop, library = workspaces
+    for name in ["Echo", "Alpha", "Delta", "Bravo", "Charlie"]:
+        Item.objects.create(workspace=workshop, key=name.lower(), name=name)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    first_page = client.get("/api/workspaces/workshop/items/", {"page": 1, "page_size": 2})
+    last_page = client.get("/api/workspaces/workshop/items/", {"page": 3, "page_size": 2})
+
+    assert first_page.status_code == 200
+    assert [row["name"] for row in first_page.json()["results"]] == ["Alpha", "Bravo"]
+    assert first_page.json()["pagination"] == {
+        "count": 5,
+        "page": 1,
+        "page_size": 2,
+        "total_pages": 3,
+        "next": "http://testserver/api/workspaces/workshop/items/?page=2&page_size=2",
+        "previous": None,
+    }
+    assert [row["name"] for row in last_page.json()["results"]] == ["Echo"]
+    assert last_page.json()["pagination"]["next"] is None
+
+    client.force_authenticate(users[1])
+    empty_page = client.get("/api/workspaces/library/items/", {"page_size": 2})
+    assert empty_page.status_code == 200
+    assert empty_page.json()["results"] == []
+    assert empty_page.json()["pagination"]["count"] == 0
+
+
+@pytest.mark.django_db
+def test_search_pagination_preserves_filters_and_tenant_scope(users, workspaces):
+    workshop, library = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    other_location = Location.objects.create(workspace=library, key="drawer", name="Other drawer")
+    for index in range(3):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"bolt-{index}",
+            name=f"Bolt {index}",
+            category="fasteners",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=drawer, quantity=Decimal("1")
+        )
+    other_item = Item.objects.create(workspace=library, key="bolt-secret", name="Bolt secret")
+    Holding.objects.create(
+        workspace=library, item=other_item, location=other_location, quantity=Decimal("1")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get(
+        "/api/workspaces/workshop/search/",
+        {
+            "q": "bolt",
+            "category": "fasteners",
+            "location": "drawer",
+            "page": 2,
+            "page_size": 1,
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["count"] == 3
+    assert body["truncated"] is False
+    assert body["pagination"]["page"] == 2
+    assert len(body["results"]) == 1
+    assert "category=fasteners" in body["pagination"]["next"]
+    assert "location=drawer" in body["pagination"]["previous"]
+    assert all(row["item_key"] != "bolt-secret" for row in body["results"])
 
 
 @pytest.mark.django_db
@@ -294,7 +369,7 @@ def test_api_token_is_returned_once_and_scoped_to_workspace(users, workspaces):
     token_client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
     assert token_client.get("/api/workspaces/workshop/locations/").status_code == 200
     assert token_client.get("/api/workspaces/library/locations/").status_code == 404
-    assert token_client.get("/api/workspaces/").json()[0]["slug"] == "workshop"
+    assert token_client.get("/api/workspaces/").json()["results"][0]["slug"] == "workshop"
 
 
 @pytest.mark.django_db
@@ -706,6 +781,31 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
 
 
 @pytest.mark.django_db
+def test_dashboard_workspace_pagination_is_stable(client, users, workspaces):
+    extra_workspaces = [
+        Workspace(name=f"Workspace {index:02}", slug=f"workspace-{index:02}") for index in range(26)
+    ]
+    Workspace.objects.bulk_create(extra_workspaces)
+    Membership.objects.bulk_create(
+        [
+            Membership(workspace=workspace, user=users[0], role=Membership.Role.MEMBER)
+            for workspace in extra_workspaces
+        ]
+    )
+    client.force_login(users[0])
+
+    response = client.get("/app/", {"page": 2})
+
+    assert response.status_code == 200
+    assert response.context["page_obj"].number == 2
+    assert response.context["page_obj"].paginator.count == 27
+    assert [workspace.name for workspace in response.context["workspaces"]] == [
+        "Workspace 24",
+        "Workspace 25",
+    ]
+
+
+@pytest.mark.django_db
 def test_human_inventory_search_scopes_to_location_subtree(client, users, workspaces):
     workshop, _ = workspaces
     root = Location.objects.create(workspace=workshop, key="taller", name="Taller")
@@ -730,6 +830,33 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
     assert response.status_code == 200
     assert "Cajón 1" in content
     assert [holding.location.key for holding in response.context["holdings"]] == ["cajon-1"]
+
+
+@pytest.mark.django_db
+def test_human_inventory_pagination_preserves_search_and_location(client, users, workspaces):
+    workshop, _ = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index in range(26):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"screw-{index:02}",
+            name=f"Screw {index:02}",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=drawer, quantity=Decimal("1")
+        )
+    client.force_login(users[0])
+
+    response = client.get(
+        "/app/workshop/",
+        {"q": "screw", "location": "drawer", "page": 2},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert response.context["page_obj"].paginator.count == 26
+    assert [holding.item.key for holding in response.context["holdings"]] == ["screw-25"]
+    assert "q=screw&amp;location=drawer&amp;page=1" in content
 
 
 @pytest.mark.django_db
@@ -837,7 +964,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                 async with Client(mcp_transport) as mcp_client:
                     tools = await mcp_client.list_tools()
                     result = await mcp_client.call_tool(
-                        "find_inventory", {"query": "tornillos madera"}
+                        "find_inventory", {"query": "tornillos madera", "limit": 1}
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     return tools, result, status_result
@@ -854,6 +981,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert result.is_error is False
     first_result = result.structured_content["results"][0]
     assert first_result["location_key"] == "drawer-1-a"
+    assert result.structured_content["truncated"] is False
     assert first_result["search"]["match_type"] == "complete"
     assert first_result["item_description"] == "Red box with white lettering"
     assert [place["key"] for place in first_result["location_path"]] == [
