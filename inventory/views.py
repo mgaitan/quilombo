@@ -165,7 +165,20 @@ class WorkspaceScopedViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(workspace=self.get_workspace())
 
     def perform_create(self, serializer):
-        serializer.save(workspace=self.get_workspace())
+        with transaction.atomic():
+            workspace = self.get_workspace()
+            Workspace.objects.select_for_update().get(pk=workspace.pk)
+            serializer.save(workspace=workspace)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            instance.delete()
 
 
 class LocationViewSet(WorkspaceScopedViewSet):

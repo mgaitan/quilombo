@@ -208,6 +208,11 @@ class ProvenanceSerializer(serializers.Serializer):
     observed_at = serializers.DateTimeField(required=False, allow_null=True)
     metadata = serializers.JSONField(required=False)
 
+    def validate_metadata(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Metadata must be a JSON object.")
+        return value
+
 
 class BulkUpsertSerializer(serializers.Serializer):
     idempotency_key = serializers.CharField(max_length=160)

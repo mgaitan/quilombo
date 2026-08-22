@@ -6,6 +6,7 @@ import json
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -528,6 +529,84 @@ def test_inventory_dry_run_rejects_duplicate_holding_identity(users, workspaces)
     assert "duplicate item and location" in response.json()["detail"]
     assert not workshop.locations.exists()
     assert not workshop.items.exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_does_not_reassign_uuid_created_by_another_workspace(users, workspaces):
+    workshop, library = workspaces
+    location_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [
+            {
+                "id": str(location_id),
+                "key": "imported",
+                "name": "Imported",
+                "parent_id": None,
+            }
+        ],
+        "items": [],
+        "holdings": [],
+        "location_relations": [],
+    }
+    from .transfers import _validate_target
+
+    def create_competing_location(workspace, candidate):
+        _validate_target(workspace, candidate)
+        Location.objects.create(
+            id=location_id,
+            workspace=library,
+            key="competing",
+            name="Competing",
+        )
+
+    client = APIClient()
+    client.force_authenticate(users[0])
+    with patch(
+        "inventory.transfers._validate_target",
+        side_effect=create_competing_location,
+    ):
+        response = client.post(
+            "/api/workspaces/workshop/import/",
+            {
+                "format": "json",
+                "document": document,
+                "idempotency_key": "competing-uuid",
+            },
+            format="json",
+        )
+
+    assert response.status_code == 400
+    assert "constraint" in response.json()["detail"]
+    assert not workshop.locations.filter(id=location_id).exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_non_object_provenance_metadata(users, workspaces):
+    workshop, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "document": {
+                "format_version": "1.0",
+                "locations": [],
+                "items": [],
+                "holdings": [],
+                "location_relations": [],
+            },
+            "idempotency_key": "invalid-provenance",
+            "provenance": {"metadata": ["camera"]},
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "Metadata must be a JSON object" in str(response.json())
+    assert not workshop.inventory_events.exists()
 
 
 @pytest.mark.django_db

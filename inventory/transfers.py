@@ -40,7 +40,9 @@ class InventoryTransferError(Exception):
     pass
 
 
+@transaction.atomic
 def export_inventory_document(workspace):
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     return {
         "format_version": FORMAT_VERSION,
         "workspace": {
@@ -322,7 +324,9 @@ def import_inventory_document(
         for row in document["locations"]:
             values = {key: value for key, value in row.items() if key not in {"id", "parent_id"}}
             location, _ = Location.objects.update_or_create(
-                id=row["id"], defaults={"workspace": workspace, "parent": None, **values}
+                id=row["id"],
+                workspace=workspace,
+                defaults={"parent": None, **values},
             )
             locations[location.id] = location
         for row in document["locations"]:
@@ -334,15 +338,17 @@ def import_inventory_document(
         for row in document["items"]:
             values = {key: value for key, value in row.items() if key != "id"}
             item, _ = Item.objects.update_or_create(
-                id=row["id"], defaults={"workspace": workspace, **values}
+                id=row["id"],
+                workspace=workspace,
+                defaults=values,
             )
             items[item.id] = item
 
         for row in document["holdings"]:
             Holding.objects.update_or_create(
                 id=row["id"],
+                workspace=workspace,
                 defaults={
-                    "workspace": workspace,
                     "item": items[row["item_id"]],
                     "location": locations[row["location_id"]],
                     "quantity": row["quantity"],
@@ -354,8 +360,8 @@ def import_inventory_document(
         for row in document["location_relations"]:
             LocationRelation.objects.update_or_create(
                 id=row["id"],
+                workspace=workspace,
                 defaults={
-                    "workspace": workspace,
                     "subject": locations[row["subject_id"]],
                     "relation": row["relation"],
                     "object": locations[row["object_id"]],
