@@ -110,7 +110,7 @@ The health endpoint at `/health/` verifies both the app and database connection.
 `main` is the development branch. Create a release after merging a verified change:
 
 ```bash
-gh release create v0.1.1 --generate-notes
+gh release create v0.2.0 --generate-notes
 ```
 
 The release workflow builds and publishes the technical documentation to GitHub Pages.
