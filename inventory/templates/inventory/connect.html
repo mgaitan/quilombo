@@ -1,17 +1,18 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Conectar un agente | Quilombo{% endblock %}
+{% block title %}{% translate "Connect an agent" %} | Quilombo{% endblock %}
 {% block page_class %}narrow{% endblock %}
 
 {% block content %}
-  <h1>Conectar un agente</h1>
-  <p class="lede">Quilombo expone un MCP remoto con OAuth. Al conectarlo, elegís qué workspace puede consultar y actualizar.</p>
+  <h1>{% translate "Connect an agent" %}</h1>
+  <p class="lede">{% translate "Add Quilombo as an MCP server, sign in, and choose the inventory this connection can read and update." %}</p>
 
   <section class="endpoint" aria-labelledby="endpoint-title">
-    <h2 id="endpoint-title">URL del servidor</h2>
+    <h2 id="endpoint-title">{% translate "Server URL" %}</h2>
     <div class="copy-row">
       <code id="mcp-url">{{ mcp_url }}</code>
-      <button class="button" id="copy-mcp" type="button">Copiar</button>
+      <button class="button" id="copy-mcp" type="button">{% translate "Copy" %}</button>
     </div>
     <p class="status" id="copy-status" role="status"></p>
   </section>
@@ -19,32 +20,32 @@
   <section class="connector-section" aria-labelledby="chatgpt-title">
     <h2 id="chatgpt-title">ChatGPT</h2>
     <ol>
-      <li>Activá el modo desarrollador desde Configuración → Apps y conectores → Configuración avanzada.</li>
-      <li>Creá una app, elegí URL del servidor y pegá la URL de arriba.</li>
-      <li>Elegí OAuth como autenticación. ChatGPT abrirá Quilombo para ingresar y autorizar un workspace.</li>
-      <li>Subí la skill de Quilombo para que el agente use correctamente las herramientas.</li>
+      <li>{% translate "Open Settings, then Apps & Connectors, Advanced settings, and enable Developer mode." %}</li>
+      <li>{% translate "Create an app, choose Server URL, and paste the URL above." %}</li>
+      <li>{% translate "Choose OAuth authentication. ChatGPT will open Quilombo so you can sign in and select an inventory." %}</li>
+      <li>{% translate "Upload the Quilombo skill so the agent follows the recommended inventory workflow." %}</li>
     </ol>
     <div class="actions">
-      <a class="button button-primary" href="https://chatgpt.com/">Abrir ChatGPT</a>
-      <a class="button" href="{% url 'skill-download' %}">Descargar skill</a>
-      <a class="quiet-link" href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">Guía oficial</a>
+      <a class="button button-primary" href="https://chatgpt.com/">{% translate "Open ChatGPT" %}</a>
+      <a class="button" href="{% url 'skill-download' %}">{% translate "Download skill" %}</a>
+      <a class="quiet-link" href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">{% translate "Official guide" %}</a>
     </div>
   </section>
 
   <section class="connector-section" aria-labelledby="claude-title">
     <h2 id="claude-title">Claude</h2>
     <ol>
-      <li>Abrí Personalizar → Conectores y elegí agregar un conector personalizado.</li>
-      <li>Ingresá “Quilombo” y pegá la URL del servidor.</li>
-      <li>Completá el ingreso y elegí el workspace cuando se abra la autorización OAuth.</li>
+      <li>{% translate "Open Customize, then Connectors, and add a custom connector." %}</li>
+      <li>{% translate "Enter Quilombo as the name and paste the server URL." %}</li>
+      <li>{% translate "Sign in to Quilombo and choose an inventory when the authorization page opens." %}</li>
     </ol>
     <div class="actions">
-      <a class="button button-primary" href="https://claude.ai/">Abrir Claude</a>
-      <a class="quiet-link" href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Guía oficial</a>
+      <a class="button button-primary" href="https://claude.ai/">{% translate "Open Claude" %}</a>
+      <a class="quiet-link" href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">{% translate "Official guide" %}</a>
     </div>
   </section>
 
-  <p class="note">No existe hoy un enlace universal y documentado que instale un MCP personalizado con un clic. La conexión se crea dentro de cada cliente.</p>
+  <p class="note">{% translate "Custom MCP servers are added from each client's settings. There is no shared installation link." %}</p>
 {% endblock %}
 
 {% block scripts %}
@@ -53,7 +54,7 @@
     const status = document.querySelector("#copy-status");
     copyButton.addEventListener("click", async () => {
       await navigator.clipboard.writeText(document.querySelector("#mcp-url").textContent.trim());
-      status.textContent = "URL copiada";
+      status.textContent = "{% translate "URL copied" %}";
     });
   </script>
 {% endblock %}

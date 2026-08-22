@@ -1,15 +1,16 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Inventarios | Quilombo{% endblock %}
+{% block title %}{% translate "Inventories" %} | Quilombo{% endblock %}
 {% block page_class %}narrow{% endblock %}
 
 {% block content %}
   <div class="page-heading">
     <div>
-      <h1>Inventarios</h1>
-      <p class="lede">Cada workspace es una frontera independiente de acceso y datos.</p>
+      <h1>{% translate "Inventories" %}</h1>
+      <p class="lede">{% translate "Open an inventory to search what you recorded or start with a new place." %}</p>
     </div>
-    <a class="button" href="{% url 'connector-guide' %}">Conectar un agente</a>
+    <a class="button" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %}</a>
   </div>
 
   <ul class="workspace-list">
@@ -17,14 +18,21 @@
       <li>
         <div>
           <a class="workspace-name" href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
-          <span>{{ workspace.location_count }} ubicaciones · {{ workspace.item_count }} ítems · {{ workspace.holding_count }} existencias</span>
+          <span>
+            {% blocktranslate count count=workspace.location_count %}{{ count }} location{% plural %}{{ count }} locations{% endblocktranslate %}
+            ·
+            {% blocktranslate count count=workspace.item_count %}{{ count }} item{% plural %}{{ count }} items{% endblocktranslate %}
+            ·
+            {% blocktranslate count count=workspace.holding_count %}{{ count }} holding{% plural %}{{ count }} holdings{% endblocktranslate %}
+          </span>
         </div>
         {% if not workspace.location_count and not workspace.item_count and not workspace.holding_count %}
-          <a class="button" href="{% url 'first-inventory' workspace.slug %}">Empezar</a>
+          <a class="button" href="{% url 'first-inventory' workspace.slug %}">{% translate "Start" %}</a>
         {% endif %}
       </li>
     {% empty %}
-      <li>No hay workspaces disponibles.</li>
+      <li>{% translate "You do not have any inventories yet." %}</li>
     {% endfor %}
   </ul>
+  {% include "inventory/_pagination.html" %}
 {% endblock %}

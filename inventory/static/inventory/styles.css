@@ -41,6 +41,26 @@ button, input, select { font: inherit; }
 .nav a { text-decoration: none; }
 .nav form { margin: 0; }
 
+.language-switch {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #cfd3d0;
+  border-radius: 4px;
+}
+
+.language-switch button {
+  min-width: 32px;
+  border: 0;
+  padding: 4px 6px;
+  color: #626863;
+  background: #fff;
+  font: 600 11px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.language-switch button + button { border-left: 1px solid #cfd3d0; }
+.language-switch button[aria-current="true"] { color: #fff; background: #303532; }
+
 .page {
   min-height: calc(100vh - 148px);
   padding: 64px 0 88px;
@@ -209,6 +229,16 @@ input:focus,
 select:focus { border-color: #303532; outline: 2px solid #d9e8df; outline-offset: 1px; }
 
 .result-summary { margin: 24px 0 10px; }
+.pagination {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  font-size: 14px;
+}
+.pagination > :last-child { text-align: right; }
+.pagination span { color: #747a76; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th { color: #626863; font: 600 12px system-ui, sans-serif; text-align: left; text-transform: uppercase; }
@@ -268,7 +298,7 @@ code {
   font-size: 13px;
 }
 
-.footer span { margin-right: auto; }
+.footer a:first-child { margin-right: auto; }
 
 @media (max-width: 760px) {
   .masthead, .page, .footer { width: min(100% - 32px, 980px); }

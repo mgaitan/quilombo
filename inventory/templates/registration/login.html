@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Ingresar | Quilombo{% endblock %}
+{% block title %}{% translate "Sign in" %} | Quilombo{% endblock %}
 {% block page_class %}auth-page{% endblock %}
 
 {% block content %}
   <section class="auth-panel">
-    <h1>Ingresar</h1>
-    <p class="lede">Volvé a tus inventarios y conexiones.</p>
+    <h1>{% translate "Sign in" %}</h1>
+    <p class="lede">{% translate "Use your Quilombo account." %}</p>
     <form method="post" class="stacked-form">
       {% csrf_token %}
       {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
@@ -18,8 +19,8 @@
         </div>
       {% endfor %}
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-      <button class="button button-primary" type="submit">Ingresar</button>
+      <button class="button button-primary" type="submit">{% translate "Sign in" %}</button>
     </form>
-    <p class="auth-alternate">¿Primera vez? <a href="{% url 'signup' %}">Crear una cuenta</a></p>
+    <p class="auth-alternate">{% translate "New to Quilombo?" %} <a href="{% url 'signup' %}">{% translate "Create an account" %}</a></p>
   </section>
 {% endblock %}

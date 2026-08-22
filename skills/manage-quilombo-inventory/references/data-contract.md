@@ -139,3 +139,13 @@ when the physical state was observed; omit it when unknown rather than inventing
 The source and destination must already exist. The source must contain enough quantity. A zero
 source holding is removed. A repeated identical request with the same key returns the prior event
 without moving twice.
+
+## Repair and delete
+
+Inventory reads return stable `item_id`, `holding_id`, and `location_id` UUIDs. Use
+`update_inventory_item` to correct an item's fields or replace a known holding's quantity, notes,
+approximation flag, or location. Each holding update requires its `holding_id`; changing
+`location_id` moves the complete holding and fails if that item already exists at the destination.
+
+Use `delete_inventory_item` only for a confirmed erroneous or duplicate item. Deleting an item also
+deletes its holdings. Both commands require a unique idempotency key and accept provenance.

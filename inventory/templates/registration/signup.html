@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Crear cuenta | Quilombo{% endblock %}
+{% block title %}{% translate "Create account" %} | Quilombo{% endblock %}
 {% block page_class %}auth-page{% endblock %}
 
 {% block content %}
   <section class="auth-panel">
-    <h1>Crear cuenta</h1>
-    <p class="lede">Empezás con un workspace privado llamado Home.</p>
+    <h1>{% translate "Create account" %}</h1>
+    <p class="lede">{% translate "Your account starts with a private inventory named Home." %}</p>
     <form method="post" class="stacked-form">
       {% csrf_token %}
       {% for field in form %}
@@ -17,8 +18,8 @@
           {{ field.errors }}
         </div>
       {% endfor %}
-      <button class="button button-primary" type="submit">Crear cuenta</button>
+      <button class="button button-primary" type="submit">{% translate "Create account" %}</button>
     </form>
-    <p class="auth-alternate">¿Ya tenés cuenta? <a href="{% url 'login' %}">Ingresar</a></p>
+    <p class="auth-alternate">{% translate "Already have an account?" %} <a href="{% url 'login' %}">{% translate "Sign in" %}</a></p>
   </section>
 {% endblock %}

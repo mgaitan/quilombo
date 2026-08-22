@@ -3,6 +3,7 @@ import base64
 import hashlib
 import io
 import json
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -27,13 +28,20 @@ from .models import (
     InventoryEvent,
     Item,
     Location,
+    LocationRelation,
     Membership,
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
     Workspace,
 )
-from .services import hash_request, move_inventory
+from .services import (
+    BulkUpsertError,
+    delete_inventory_item,
+    hash_request,
+    move_inventory,
+    update_inventory_item,
+)
 
 
 @pytest.fixture
@@ -115,7 +123,7 @@ def test_api_isolates_workspaces(users, workspaces):
     other_response = client.get("/api/workspaces/library/locations/")
 
     assert own_response.status_code == 200
-    assert own_response.json()[0]["key"] == "a1"
+    assert own_response.json()["results"][0]["key"] == "a1"
     assert other_response.status_code == 404
 
 
@@ -139,6 +147,108 @@ def test_api_rejects_cross_workspace_holding(users, workspaces):
 
     assert response.status_code == 400
     assert "another workspace" in str(response.json())
+
+
+@pytest.mark.django_db
+def test_api_collections_paginate_stably_and_handle_last_and_empty_pages(users, workspaces):
+    workshop, library = workspaces
+    for name in ["Echo", "Alpha", "Delta", "Bravo", "Charlie"]:
+        Item.objects.create(workspace=workshop, key=name.lower(), name=name)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    first_page = client.get("/api/workspaces/workshop/items/", {"page": 1, "page_size": 2})
+    last_page = client.get("/api/workspaces/workshop/items/", {"page": 3, "page_size": 2})
+
+    assert first_page.status_code == 200
+    assert [row["name"] for row in first_page.json()["results"]] == ["Alpha", "Bravo"]
+    assert first_page.json()["pagination"] == {
+        "count": 5,
+        "page": 1,
+        "page_size": 2,
+        "total_pages": 3,
+        "next": "http://testserver/api/workspaces/workshop/items/?page=2&page_size=2",
+        "previous": None,
+    }
+    assert [row["name"] for row in last_page.json()["results"]] == ["Echo"]
+    assert last_page.json()["pagination"]["next"] is None
+
+    client.force_authenticate(users[1])
+    empty_page = client.get("/api/workspaces/library/items/", {"page_size": 2})
+    assert empty_page.status_code == 200
+    assert empty_page.json()["results"] == []
+    assert empty_page.json()["pagination"]["count"] == 0
+
+
+@pytest.mark.django_db
+def test_workspace_api_pagination_uses_id_to_break_name_ties(users, workspaces):
+    workshop, _ = workspaces
+    same_named = [
+        Workspace.objects.create(name="Shared", slug=f"shared-{index}") for index in range(3)
+    ]
+    Membership.objects.bulk_create(
+        [
+            Membership(workspace=workspace, user=users[0], role=Membership.Role.MEMBER)
+            for workspace in same_named
+        ]
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    first = client.get("/api/workspaces/", {"page": 1, "page_size": 2}).json()
+    second = client.get("/api/workspaces/", {"page": 2, "page_size": 2}).json()
+
+    returned_ids = [row["id"] for row in [*first["results"], *second["results"]]]
+    expected_ids = [
+        str(workspace.id)
+        for workspace in sorted([workshop, *same_named], key=lambda row: (row.name, row.id))
+    ]
+    assert returned_ids == expected_ids
+    assert len(returned_ids) == len(set(returned_ids))
+
+
+@pytest.mark.django_db
+def test_search_pagination_preserves_filters_and_tenant_scope(users, workspaces):
+    workshop, library = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    other_location = Location.objects.create(workspace=library, key="drawer", name="Other drawer")
+    for index in range(3):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"bolt-{index}",
+            name=f"Bolt {index}",
+            category="fasteners",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=drawer, quantity=Decimal("1")
+        )
+    other_item = Item.objects.create(workspace=library, key="bolt-secret", name="Bolt secret")
+    Holding.objects.create(
+        workspace=library, item=other_item, location=other_location, quantity=Decimal("1")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get(
+        "/api/workspaces/workshop/search/",
+        {
+            "q": "bolt",
+            "category": "fasteners",
+            "location": "drawer",
+            "page": 2,
+            "page_size": 1,
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["count"] == 3
+    assert body["truncated"] is False
+    assert body["pagination"]["page"] == 2
+    assert len(body["results"]) == 1
+    assert "category=fasteners" in body["pagination"]["next"]
+    assert "location=drawer" in body["pagination"]["previous"]
+    assert all(row["item_key"] != "bolt-secret" for row in body["results"])
 
 
 @pytest.mark.django_db
@@ -267,6 +377,348 @@ def test_bulk_upsert_query_count_is_constant_for_large_batch(users, workspaces):
 
 
 @pytest.mark.django_db
+def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, workspaces):
+    workshop, _ = workspaces
+    root = Location.objects.create(workspace=workshop, key="workshop", name="Workshop")
+    drawer = Location.objects.create(
+        workspace=workshop,
+        key="drawer",
+        name="Drawer",
+        parent=root,
+        aliases=["cajón"],
+        metadata={"zone": 1},
+    )
+    item = Item.objects.create(
+        workspace=workshop,
+        key="screws",
+        name="Screws",
+        attributes={"material": "steel"},
+        unit="piece",
+        minimum_quantity=Decimal("5"),
+        target_quantity=Decimal("10"),
+    )
+    holding = Holding.objects.create(
+        workspace=workshop,
+        item=item,
+        location=drawer,
+        quantity=Decimal("8"),
+        approximate=True,
+        notes="Counted by hand",
+    )
+    relation = LocationRelation.objects.create(
+        workspace=workshop,
+        subject=drawer,
+        relation=LocationRelation.Relation.NEAR,
+        object=root,
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    exported = client.get("/api/workspaces/workshop/export/", {"format": "json"})
+    document = exported.json()
+
+    assert exported.status_code == 200
+    assert "workshop-inventory.json" in exported.headers["Content-Disposition"]
+    assert document["format_version"] == "1.0"
+    assert document["holdings"][0]["id"] == str(holding.id)
+
+    drawer_id = drawer.id
+    item_id = item.id
+    holding_id = holding.id
+    relation.delete()
+    holding.delete()
+    item.delete()
+    drawer.delete()
+    root.delete()
+    payload = {
+        "format": "json",
+        "document": document,
+        "dry_run": True,
+        "idempotency_key": "json-import-001",
+        "provenance": {
+            "client_actor": "test-importer",
+            "source_reference": "Round-trip fixture",
+        },
+    }
+    preview = client.post("/api/workspaces/workshop/import/", payload, format="json")
+
+    assert preview.status_code == 200
+    assert preview.json()["event_id"] is None
+    assert preview.json()["summary"]["locations"] == {"created": 2, "updated": 0}
+    assert workshop.locations.count() == 0
+    assert not workshop.inventory_events.filter(idempotency_key="json-import-001").exists()
+
+    payload["dry_run"] = False
+    imported = client.post("/api/workspaces/workshop/import/", payload, format="json")
+    replayed = client.post("/api/workspaces/workshop/import/", payload, format="json")
+
+    assert imported.status_code == 200
+    assert imported.json()["replayed"] is False
+    assert replayed.json()["replayed"] is True
+    assert workshop.locations.get(id=drawer_id).aliases == ["cajón"]
+    assert workshop.items.get(id=item_id).attributes == {"material": "steel"}
+    assert workshop.holdings.get(id=holding_id).quantity == Decimal("8")
+    event = workshop.inventory_events.get(idempotency_key="json-import-001")
+    assert event.source_kind == InventoryEvent.SourceKind.IMPORT
+    assert event.client_actor == "test-importer"
+    assert event.metadata["transfer_format_version"] == "1.0"
+
+
+@pytest.mark.django_db
+def test_csv_inventory_round_trip_covers_library_records(users, workspaces):
+    _, library = workspaces
+    shelf = Location.objects.create(
+        workspace=library,
+        key="poetry",
+        name="Poesía",
+        metadata={"floor": 2},
+    )
+    book = Item.objects.create(
+        workspace=library,
+        key="gelman",
+        name="Interrupciones I",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+        attributes={"author": "Juan Gelman"},
+    )
+    holding = Holding.objects.create(
+        workspace=library,
+        item=book,
+        location=shelf,
+        quantity=Decimal("1"),
+        notes="Firmado",
+    )
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    exported = client.get("/api/workspaces/library/export/", {"format": "csv"})
+    content = exported.content.decode()
+
+    assert exported.status_code == 200
+    assert exported.headers["Content-Type"].startswith("text/csv")
+    assert content.splitlines()[0].startswith("record_type,id,key,name")
+    assert "Poesía" in content
+
+    shelf_id = shelf.id
+    book_id = book.id
+    holding_id = holding.id
+    holding.delete()
+    book.delete()
+    shelf.delete()
+    imported = client.post(
+        "/api/workspaces/library/import/",
+        {
+            "format": "csv",
+            "content": content,
+            "idempotency_key": "csv-import-001",
+        },
+        format="json",
+    )
+
+    assert imported.status_code == 200
+    assert library.locations.get(id=shelf_id).metadata == {"floor": 2}
+    assert library.items.get(id=book_id).attributes == {"author": "Juan Gelman"}
+    assert library.holdings.get(id=holding_id).notes == "Firmado"
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_foreign_ids_without_partial_writes(users, workspaces):
+    workshop, library = workspaces
+    foreign_location = Location.objects.create(
+        workspace=library, key="private", name="Private shelf"
+    )
+    new_item_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [
+            {
+                "id": str(foreign_location.id),
+                "key": "intrusion",
+                "name": "Intrusion",
+                "parent_id": None,
+            }
+        ],
+        "items": [
+            {
+                "id": str(new_item_id),
+                "key": "new-item",
+                "name": "New item",
+                "tracking_mode": "bulk",
+                "unit": "unit",
+                "minimum_quantity": None,
+                "target_quantity": None,
+            }
+        ],
+        "holdings": [],
+        "location_relations": [],
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "content": json.dumps(document),
+            "idempotency_key": "foreign-import",
+        },
+        format="json",
+    )
+    inaccessible_export = client.get("/api/workspaces/library/export/")
+    inaccessible_import = client.post(
+        "/api/workspaces/library/import/",
+        {
+            "format": "json",
+            "document": document,
+            "idempotency_key": "inaccessible",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "another workspace" in response.json()["detail"]
+    assert not workshop.locations.exists()
+    assert not workshop.items.filter(id=new_item_id).exists()
+    assert not workshop.inventory_events.filter(idempotency_key="foreign-import").exists()
+    assert foreign_location.workspace == library
+    assert inaccessible_export.status_code == 404
+    assert inaccessible_import.status_code == 404
+
+
+@pytest.mark.django_db
+def test_inventory_dry_run_rejects_duplicate_holding_identity(users, workspaces):
+    workshop, _ = workspaces
+    location_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [{"id": str(location_id), "key": "box", "name": "Box", "parent_id": None}],
+        "items": [
+            {
+                "id": str(item_id),
+                "key": "part",
+                "name": "Part",
+                "tracking_mode": "bulk",
+                "unit": "unit",
+                "minimum_quantity": None,
+                "target_quantity": None,
+            }
+        ],
+        "holdings": [
+            {
+                "id": str(uuid.uuid4()),
+                "item_id": str(item_id),
+                "location_id": str(location_id),
+                "quantity": "1",
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "item_id": str(item_id),
+                "location_id": str(location_id),
+                "quantity": "2",
+            },
+        ],
+        "location_relations": [],
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "document": document,
+            "dry_run": True,
+            "idempotency_key": "duplicate-holding",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "duplicate item and location" in response.json()["detail"]
+    assert not workshop.locations.exists()
+    assert not workshop.items.exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_does_not_reassign_uuid_created_by_another_workspace(users, workspaces):
+    workshop, library = workspaces
+    location_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [
+            {
+                "id": str(location_id),
+                "key": "imported",
+                "name": "Imported",
+                "parent_id": None,
+            }
+        ],
+        "items": [],
+        "holdings": [],
+        "location_relations": [],
+    }
+    from .transfers import _validate_target
+
+    def create_competing_location(workspace, candidate):
+        _validate_target(workspace, candidate)
+        Location.objects.create(
+            id=location_id,
+            workspace=library,
+            key="competing",
+            name="Competing",
+        )
+
+    client = APIClient()
+    client.force_authenticate(users[0])
+    with patch(
+        "inventory.transfers._validate_target",
+        side_effect=create_competing_location,
+    ):
+        response = client.post(
+            "/api/workspaces/workshop/import/",
+            {
+                "format": "json",
+                "document": document,
+                "idempotency_key": "competing-uuid",
+            },
+            format="json",
+        )
+
+    assert response.status_code == 400
+    assert "constraint" in response.json()["detail"]
+    assert not workshop.locations.filter(id=location_id).exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_non_object_provenance_metadata(users, workspaces):
+    workshop, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "document": {
+                "format_version": "1.0",
+                "locations": [],
+                "items": [],
+                "holdings": [],
+                "location_relations": [],
+            },
+            "idempotency_key": "invalid-provenance",
+            "provenance": {"metadata": ["camera"]},
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "Metadata must be a JSON object" in str(response.json())
+    assert not workshop.inventory_events.exists()
+
+
+@pytest.mark.django_db
 def test_user_can_create_workspace_and_becomes_owner(users):
     client = APIClient()
     client.force_authenticate(users[0])
@@ -297,7 +749,7 @@ def test_api_token_is_returned_once_and_scoped_to_workspace(users, workspaces):
     token_client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
     assert token_client.get("/api/workspaces/workshop/locations/").status_code == 200
     assert token_client.get("/api/workspaces/library/locations/").status_code == 404
-    assert token_client.get("/api/workspaces/").json()[0]["slug"] == "workshop"
+    assert token_client.get("/api/workspaces/").json()["results"][0]["slug"] == "workshop"
 
 
 @pytest.mark.django_db
@@ -693,13 +1145,51 @@ def test_public_home_and_connector_guide(client):
     signup_response = client.get("/accounts/signup/")
 
     assert home_response.status_code == 200
-    assert "organizar el mundo físico" in home_response.content.decode()
+    assert "Una memoria para las cosas que te rodean." in home_response.content.decode()
+    assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
     assert "ChatGPT" in connector_response.content.decode()
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_web_detects_english_and_spanish_from_accept_language(client):
+    english = client.get("/", HTTP_ACCEPT_LANGUAGE="en-US,en;q=0.9")
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="es-AR,es;q=0.9")
+
+    english_content = english.content.decode()
+    spanish_content = spanish.content.decode()
+    assert '<html lang="en">' in english_content
+    assert "A memory for the things around you." in english_content
+    assert "Create account" in english_content
+    assert '<html lang="es">' in spanish_content
+    assert "Una memoria para las cosas que te rodean." in spanish_content
+    assert "Crear cuenta" in spanish_content
+
+
+@pytest.mark.django_db
+def test_manual_language_switch_persists_choice(client):
+    switched = client.post(
+        "/i18n/setlang/",
+        {"language": "en", "next": "/connect/"},
+    )
+
+    assert switched.status_code == 302
+    assert switched.url == "/connect/"
+    assert switched.cookies["django_language"].value == "en"
+
+    english = client.get("/connect/", HTTP_ACCEPT_LANGUAGE="es")
+    content = english.content.decode()
+    assert '<html lang="en">' in content
+    assert "Connect an agent" in content
+    assert 'value="en" aria-current="true"' in content
+
+    client.post("/i18n/setlang/", {"language": "es", "next": "/"})
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="en")
+    assert "Una memoria para las cosas que te rodean." in spanish.content.decode()
 
 
 @pytest.mark.django_db
@@ -751,8 +1241,33 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
     other_workspace = client.get(f"/app/{library.slug}/first-inventory/")
 
     assert guide.status_code == 200
-    assert "una zona por vez" in guide.content.decode()
+    assert "una zona a la vez" in guide.content.decode()
     assert other_workspace.status_code == 404
+
+
+@pytest.mark.django_db
+def test_dashboard_workspace_pagination_is_stable(client, users, workspaces):
+    extra_workspaces = [
+        Workspace(name=f"Workspace {index:02}", slug=f"workspace-{index:02}") for index in range(26)
+    ]
+    Workspace.objects.bulk_create(extra_workspaces)
+    Membership.objects.bulk_create(
+        [
+            Membership(workspace=workspace, user=users[0], role=Membership.Role.MEMBER)
+            for workspace in extra_workspaces
+        ]
+    )
+    client.force_login(users[0])
+
+    response = client.get("/app/", {"page": 2})
+
+    assert response.status_code == 200
+    assert response.context["page_obj"].number == 2
+    assert response.context["page_obj"].paginator.count == 27
+    assert [workspace.name for workspace in response.context["workspaces"]] == [
+        "Workspace 24",
+        "Workspace 25",
+    ]
 
 
 @pytest.mark.django_db
@@ -780,6 +1295,33 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
     assert response.status_code == 200
     assert "Cajón 1" in content
     assert [holding.location.key for holding in response.context["holdings"]] == ["cajon-1"]
+
+
+@pytest.mark.django_db
+def test_human_inventory_pagination_preserves_search_and_location(client, users, workspaces):
+    workshop, _ = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index in range(26):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"screw-{index:02}",
+            name=f"Screw {index:02}",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=drawer, quantity=Decimal("1")
+        )
+    client.force_login(users[0])
+
+    response = client.get(
+        "/app/workshop/",
+        {"q": "screw", "location": "drawer", "page": 2},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert response.context["page_obj"].paginator.count == 26
+    assert [holding.item.key for holding in response.context["holdings"]] == ["screw-25"]
+    assert "q=screw&amp;location=drawer&amp;page=1" in content
 
 
 @pytest.mark.django_db
@@ -832,6 +1374,204 @@ def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
     assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.MOVE).count() == 1
 
 
+@pytest.mark.django_db
+def test_update_inventory_item_repairs_fields_and_holding_idempotently(users, workspaces):
+    workspace, _ = workspaces
+    source = Location.objects.create(workspace=workspace, key="wrong", name="Wrong shelf")
+    destination = Location.objects.create(workspace=workspace, key="right", name="Right shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="wrong-key",
+        name="Wrong name",
+        description="Incorrect description",
+    )
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=source,
+        quantity=Decimal("2"),
+    )
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "repair-item-001",
+        "provenance": {"client_actor": "test-agent"},
+        "item": {
+            "key": "correct-key",
+            "name": "Correct name",
+            "description": "Correct description",
+            "attributes": {"color": "green"},
+        },
+        "holdings": [
+            {
+                "id": holding.id,
+                "location_id": destination.id,
+                "quantity": Decimal("3"),
+                "notes": "Confirmed correction",
+            }
+        ],
+    }
+
+    event, replayed = update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert item.key == "correct-key"
+    assert item.attributes == {"color": "green"}
+    assert holding.location == destination
+    assert holding.quantity == Decimal("3")
+    assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.ITEM_UPDATE).count() == 1
+
+
+@pytest.mark.django_db
+def test_update_inventory_item_is_tenant_scoped_and_rolls_back(users, workspaces):
+    workspace, other_workspace = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    other_location = Location.objects.create(
+        workspace=other_workspace, key="other-shelf", name="Other shelf"
+    )
+    item = Item.objects.create(workspace=workspace, key="item", name="Original")
+    other_item = Item.objects.create(workspace=other_workspace, key="other", name="Other")
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("1")
+    )
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "repair-item-rollback",
+        "item": {"name": "Changed"},
+        "holdings": [{"id": holding.id, "location_id": other_location.id}],
+    }
+
+    with pytest.raises(BulkUpsertError, match="destination location"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+    with pytest.raises(BulkUpsertError, match="not found"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data={
+                "item_id": other_item.id,
+                "idempotency_key": "repair-other-item",
+                "item": {"name": "Intrusion"},
+            },
+            request_hash="other",
+        )
+
+    item.refresh_from_db()
+    other_item.refresh_from_db()
+    assert item.name == "Original"
+    assert other_item.name == "Other"
+    assert not workspace.inventory_events.filter(idempotency_key="repair-item-rollback").exists()
+
+
+@pytest.mark.django_db
+def test_update_inventory_item_requires_whole_holdings_when_switching_to_discrete(
+    users, workspaces
+):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="bin", name="Bin")
+    item = Item.objects.create(workspace=workspace, key="parts", name="Parts")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1.5"),
+    )
+    invalid = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-invalid",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+    }
+
+    with pytest.raises(BulkUpsertError, match="whole quantities"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data=invalid,
+            request_hash=hash_request(invalid),
+        )
+
+    item.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.BULK
+
+    corrected = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-corrected",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+        "holdings": [{"id": holding.id, "quantity": Decimal("2")}],
+    }
+    update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=corrected,
+        request_hash=hash_request(corrected),
+    )
+
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert holding.quantity == Decimal("2")
+
+
+@pytest.mark.django_db
+def test_delete_inventory_item_is_tenant_scoped_and_idempotent(users, workspaces):
+    workspace, other_workspace = workspaces
+    item = Item.objects.create(workspace=workspace, key="duplicate", name="Duplicate")
+    other_item = Item.objects.create(workspace=other_workspace, key="kept", name="Kept")
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "delete-duplicate-001",
+        "provenance": {"source_reference": "Confirmed duplicate"},
+    }
+
+    event, replayed = delete_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = delete_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    with pytest.raises(BulkUpsertError, match="not found"):
+        delete_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data={
+                "item_id": other_item.id,
+                "idempotency_key": "delete-other-item",
+            },
+            request_hash="other",
+        )
+
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert not workspace.items.filter(id=item.id).exists()
+    assert other_workspace.items.filter(id=other_item.id).exists()
+    assert event.summary["item_id"] == str(item.id)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     workspace, _ = workspaces
@@ -866,6 +1606,16 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         location=location,
         quantity=Decimal("8"),
     )
+    empty_location = Location.objects.create(
+        workspace=workspace,
+        key="empty-shelf",
+        name="Empty shelf",
+    )
+    empty_item = Item.objects.create(
+        workspace=workspace,
+        key="unplaced-tool",
+        name="Unplaced tool",
+    )
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
 
     async def exercise_mcp():
@@ -887,24 +1637,28 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                 async with Client(mcp_transport) as mcp_client:
                     tools = await mcp_client.list_tools()
                     result = await mcp_client.call_tool(
-                        "find_inventory", {"query": "tornillos madera"}
+                        "find_inventory", {"query": "tornillos madera", "limit": 1}
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
-                    return tools, result, status_result
+                    snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
+                    return tools, result, status_result, snapshot_result
 
-    tools, result, status_result = asyncio.run(exercise_mcp())
+    tools, result, status_result, snapshot_result = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
+        "delete_inventory_item",
         "find_inventory",
         "get_inventory_status",
         "get_inventory_snapshot",
         "lookup_book_by_isbn",
         "move_inventory",
+        "update_inventory_item",
     }
     assert result.is_error is False
     first_result = result.structured_content["results"][0]
     assert first_result["location_key"] == "drawer-1-a"
+    assert result.structured_content["truncated"] is False
     assert first_result["search"]["match_type"] == "complete"
     assert first_result["item_description"] == "Red box with white lettering"
     assert [place["key"] for place in first_result["location_path"]] == [
@@ -914,6 +1668,13 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
+    snapshot = snapshot_result.structured_content
+    assert next(row for row in snapshot["locations"] if row["key"] == "empty-shelf")["id"] == str(
+        empty_location.id
+    )
+    assert next(row for row in snapshot["items"] if row["key"] == "unplaced-tool")["id"] == str(
+        empty_item.id
+    )
 
 
 @pytest.mark.django_db(transaction=True)

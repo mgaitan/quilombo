@@ -1,35 +1,36 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Empezar {{ workspace.name }} | Quilombo{% endblock %}
+{% block title %}{% blocktranslate with name=workspace.name %}Start {{ name }}{% endblocktranslate %} | Quilombo{% endblock %}
 {% block page_class %}narrow{% endblock %}
 
 {% block content %}
-  <nav class="breadcrumb" aria-label="Migas de pan">
-    <a href="{% url 'dashboard' %}">Inventarios</a>
+  <nav class="breadcrumb" aria-label="{% translate "Breadcrumb" %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
     <span aria-hidden="true">/</span>
     <span>{{ workspace.name }}</span>
   </nav>
 
   <section class="onboarding" aria-labelledby="onboarding-title">
-    <p class="eyebrow">Primera vez</p>
-    <h1 id="onboarding-title">Empecemos por un espacio</h1>
-    <p class="lede">No hace falta preparar nada. Contale a tu agente qué querés ordenar y avanzá de a una zona.</p>
+    <p class="eyebrow">{% translate "First inventory" %}</p>
+    <h1 id="onboarding-title">{% translate "Start with one place" %}</h1>
+    <p class="lede">{% translate "Choose a drawer, shelf, box, or room you can describe now. You can add more detail later." %}</p>
 
     <ol class="onboarding-steps">
-      <li><strong>Nombrá el lugar.</strong> Por ejemplo: “Quiero ordenar mi taller” o “Esta es mi biblioteca”.</li>
-      <li><strong>Mostrá una zona por vez.</strong> Podés describirla o compartir una foto/video con tu agente; Quilombo recibe solo los datos interpretados.</li>
-      <li><strong>Revisá el borrador.</strong> El agente te resume ubicaciones, objetos y cantidades antes de guardar.</li>
-      <li><strong>Confirmá.</strong> Recién entonces se registra la zona y seguimos con la siguiente.</li>
+      <li>{% translate "Tell your agent which place you want to inventory, such as your workshop or library." %}</li>
+      <li>{% translate "Describe one area at a time. If your agent supports images, you can show it a photo instead." %}</li>
+      <li>{% translate "Check the locations, items, and quantities the agent proposes." %}</li>
+      <li>{% translate "Confirm the change, then continue with another area when you are ready." %}</li>
     </ol>
 
     <div class="onboarding-example">
-      <p class="quiet-link">Podés empezar diciendo:</p>
-      <p class="prompt">&quot;Quiero ordenar mi taller. Guiame una zona por vez y preguntame antes de guardar cada cambio.&quot;</p>
+      <p class="quiet-link">{% translate "Try this:" %}</p>
+      <p class="prompt">{% translate "I want to inventory my workshop. Ask me about one area at a time and let me review each change before saving it." %}</p>
     </div>
 
     <div class="actions">
-      <a class="button button-primary" href="{% url 'connector-guide' %}">Conectar un agente</a>
-      <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">Ver inventario</a>
+      <a class="button button-primary" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %}</a>
+      <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">{% translate "Open inventory" %}</a>
     </div>
   </section>
 {% endblock %}

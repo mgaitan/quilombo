@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -5,15 +6,17 @@ from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count
-from django.http import FileResponse, Http404, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from django.views.decorators.http import require_http_methods
 from django.views.generic import FormView
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
@@ -30,6 +33,7 @@ from .models import (
     Workspace,
 )
 from .oauth import create_authorization_grant
+from .pagination import InventoryPagination
 from .serializers import (
     ApiTokenCreateSerializer,
     ApiTokenIssuedSerializer,
@@ -38,6 +42,8 @@ from .serializers import (
     BulkUpsertResultSerializer,
     BulkUpsertSerializer,
     HoldingSerializer,
+    InventoryImportResultSerializer,
+    InventoryImportSerializer,
     ItemSerializer,
     LocationRelationSerializer,
     LocationSerializer,
@@ -55,6 +61,13 @@ from .services import (
     hash_request,
     search_holdings,
 )
+from .transfers import (
+    InventoryTransferError,
+    export_inventory_csv,
+    export_inventory_document,
+    import_inventory_document,
+    parse_inventory_document,
+)
 
 
 def home(request):
@@ -71,8 +84,20 @@ def dashboard(request):
             holding_count=Count("holdings", distinct=True),
         )
         .distinct()
+        .order_by("name", "id")
     )
-    return render(request, "inventory/dashboard.html", {"workspaces": workspaces})
+    page_obj = Paginator(workspaces, 25).get_page(request.GET.get("page"))
+    preserved_query = request.GET.copy()
+    preserved_query.pop("page", None)
+    return render(
+        request,
+        "inventory/dashboard.html",
+        {
+            "workspaces": page_obj,
+            "page_obj": page_obj,
+            "preserved_query": preserved_query.urlencode(),
+        },
+    )
 
 
 @login_required
@@ -92,19 +117,26 @@ def workspace_inventory(request, workspace_slug):
     )
     query = request.GET.get("q", "").strip()
     location_key = request.GET.get("location", "").strip()
-    holdings = search_holdings(
+    matching_holdings = search_holdings(
         workspace=workspace,
         query=query,
         location=location_key,
-        limit=200,
+        limit=1001,
     )
+    truncated = len(matching_holdings) > 1000
+    page_obj = Paginator(matching_holdings[:1000], 25).get_page(request.GET.get("page"))
+    preserved_query = request.GET.copy()
+    preserved_query.pop("page", None)
     stock_status = get_stock_status(workspace=workspace)
     return render(
         request,
         "inventory/workspace.html",
         {
             "workspace": workspace,
-            "holdings": holdings,
+            "holdings": page_obj,
+            "page_obj": page_obj,
+            "truncated": truncated,
+            "preserved_query": preserved_query.urlencode(),
             "locations": workspace.locations.only("key", "name"),
             "query": query,
             "location_key": location_key,
@@ -157,30 +189,47 @@ class WorkspaceScopedViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(workspace=self.get_workspace())
 
     def perform_create(self, serializer):
-        serializer.save(workspace=self.get_workspace())
+        with transaction.atomic():
+            workspace = self.get_workspace()
+            Workspace.objects.select_for_update().get(pk=workspace.pk)
+            serializer.save(workspace=workspace)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            instance.delete()
 
 
 class LocationViewSet(WorkspaceScopedViewSet):
-    queryset = Location.objects.select_related("parent")
+    queryset = Location.objects.select_related("parent").order_by("name", "id")
     serializer_class = LocationSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["key", "name", "description", "kind"]
 
 
 class LocationRelationViewSet(WorkspaceScopedViewSet):
-    queryset = LocationRelation.objects.select_related("subject", "object")
+    queryset = LocationRelation.objects.select_related("subject", "object").order_by(
+        "subject__name", "relation", "object__name", "id"
+    )
     serializer_class = LocationRelationSerializer
 
 
 class ItemViewSet(WorkspaceScopedViewSet):
-    queryset = Item.objects.all()
+    queryset = Item.objects.order_by("name", "id")
     serializer_class = ItemSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["key", "name", "description", "category"]
 
 
 class HoldingViewSet(WorkspaceScopedViewSet):
-    queryset = Holding.objects.select_related("item", "location")
+    queryset = Holding.objects.select_related("item", "location").order_by(
+        "item__name", "location__name", "id"
+    )
     serializer_class = HoldingSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = [
@@ -228,6 +277,96 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
         )
 
 
+class InventoryExportView(WorkspaceAccessMixin, GenericAPIView):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="format",
+                type=str,
+                enum=["json", "csv"],
+                default="json",
+                description="Portable inventory document format.",
+            )
+        ],
+        responses={(200, "application/json"): bytes, (200, "text/csv"): bytes},
+    )
+    def get(self, request, *args, **kwargs):
+        format_name = request.query_params.get("format", "json").casefold()
+        if format_name not in {"json", "csv"}:
+            return Response(
+                {"detail": "format must be json or csv."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        workspace = self.get_workspace()
+        document = export_inventory_document(workspace)
+        if format_name == "csv":
+            response = HttpResponse(
+                export_inventory_csv(document),
+                content_type="text/csv; charset=utf-8",
+            )
+        else:
+            response = HttpResponse(
+                json.dumps(document, ensure_ascii=False, indent=2),
+                content_type="application/json",
+            )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{workspace.slug}-inventory.{format_name}"'
+        )
+        return response
+
+
+class InventoryImportView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = InventoryImportSerializer
+
+    @extend_schema(responses={status.HTTP_200_OK: InventoryImportResultSerializer})
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        content = data.get("content")
+        if uploaded_file := data.get("file"):
+            try:
+                content = uploaded_file.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                return Response(
+                    {"detail": "Import files must be UTF-8 encoded."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        try:
+            document = parse_inventory_document(
+                format_name=data["format"],
+                document=data.get("document"),
+                content=content,
+            )
+            summary, event, replayed = import_inventory_document(
+                workspace=self.get_workspace(),
+                actor=request.user,
+                document=document,
+                dry_run=data["dry_run"],
+                idempotency_key=data["idempotency_key"],
+                provenance=data.get("provenance", {}),
+                request_hash=hash_request(
+                    {
+                        "document": document,
+                        "idempotency_key": data["idempotency_key"],
+                        "provenance": data.get("provenance", {}),
+                    }
+                ),
+            )
+        except InventoryTransferError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        output = InventoryImportResultSerializer(
+            {
+                "event_id": event.id if event else None,
+                "replayed": replayed,
+                "dry_run": data["dry_run"],
+                "summary": summary,
+            }
+        )
+        return Response(output.data)
+
+
 class BookLookupView(WorkspaceAccessMixin, GenericAPIView):
     serializer_class = BookLookupResultSerializer
 
@@ -246,12 +385,16 @@ class BookLookupView(WorkspaceAccessMixin, GenericAPIView):
 
 
 class WorkspaceViewSet(viewsets.ModelViewSet):
-    queryset = Workspace.objects.all()
+    queryset = Workspace.objects.order_by("name", "id")
     serializer_class = WorkspaceSerializer
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
-        queryset = Workspace.objects.filter(memberships__user=self.request.user).distinct()
+        queryset = (
+            Workspace.objects.filter(memberships__user=self.request.user)
+            .distinct()
+            .order_by("name", "id")
+        )
         if getattr(self.request.auth, "workspace_id", None):
             queryset = queryset.filter(pk=self.request.auth.workspace_id)
         return queryset
@@ -341,10 +484,23 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
             category=serializer.validated_data.get("category", ""),
             location=serializer.validated_data.get("location", ""),
             include_descendants=serializer.validated_data["include_descendants"],
+            limit=1001,
         )
-        clue_context = build_holding_clue_context(workspace=self.get_workspace(), holdings=results)
+        truncated = len(results) > 1000
+        results = results[:1000]
+        paginator = InventoryPagination()
+        page_results = paginator.paginate_queryset(results, request, view=self)
+        clue_context = build_holding_clue_context(
+            workspace=self.get_workspace(), holdings=page_results
+        )
         output = SearchResultSerializer(
-            {"query": query, "count": len(results), "results": results},
+            {
+                "query": query,
+                "count": len(results),
+                "truncated": truncated,
+                "pagination": paginator.metadata(),
+                "results": page_results,
+            },
             context=clue_context,
         )
         return Response(output.data)
@@ -427,7 +583,7 @@ def oauth_consent(request):
         {
             "authorization_request": authorization_request,
             "client_name": authorization_request.client.metadata.get("client_name")
-            or "Una aplicación",
+            or _("An application"),
             "workspaces": workspaces,
         },
     )
