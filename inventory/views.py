@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -7,13 +8,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.db import transaction
 from django.db.models import Count
-from django.http import FileResponse, Http404, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django.views.generic import FormView
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
@@ -36,6 +37,8 @@ from .serializers import (
     BulkUpsertResultSerializer,
     BulkUpsertSerializer,
     HoldingSerializer,
+    InventoryImportResultSerializer,
+    InventoryImportSerializer,
     ItemSerializer,
     LocationRelationSerializer,
     LocationSerializer,
@@ -52,6 +55,13 @@ from .services import (
     get_stock_status,
     hash_request,
     search_holdings,
+)
+from .transfers import (
+    InventoryTransferError,
+    export_inventory_csv,
+    export_inventory_document,
+    import_inventory_document,
+    parse_inventory_document,
 )
 
 
@@ -224,6 +234,96 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
         return Response(
             output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
         )
+
+
+class InventoryExportView(WorkspaceAccessMixin, GenericAPIView):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="format",
+                type=str,
+                enum=["json", "csv"],
+                default="json",
+                description="Portable inventory document format.",
+            )
+        ],
+        responses={(200, "application/json"): bytes, (200, "text/csv"): bytes},
+    )
+    def get(self, request, *args, **kwargs):
+        format_name = request.query_params.get("format", "json").casefold()
+        if format_name not in {"json", "csv"}:
+            return Response(
+                {"detail": "format must be json or csv."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        workspace = self.get_workspace()
+        document = export_inventory_document(workspace)
+        if format_name == "csv":
+            response = HttpResponse(
+                export_inventory_csv(document),
+                content_type="text/csv; charset=utf-8",
+            )
+        else:
+            response = HttpResponse(
+                json.dumps(document, ensure_ascii=False, indent=2),
+                content_type="application/json",
+            )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{workspace.slug}-inventory.{format_name}"'
+        )
+        return response
+
+
+class InventoryImportView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = InventoryImportSerializer
+
+    @extend_schema(responses={status.HTTP_200_OK: InventoryImportResultSerializer})
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        content = data.get("content")
+        if uploaded_file := data.get("file"):
+            try:
+                content = uploaded_file.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                return Response(
+                    {"detail": "Import files must be UTF-8 encoded."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        try:
+            document = parse_inventory_document(
+                format_name=data["format"],
+                document=data.get("document"),
+                content=content,
+            )
+            summary, event, replayed = import_inventory_document(
+                workspace=self.get_workspace(),
+                actor=request.user,
+                document=document,
+                dry_run=data["dry_run"],
+                idempotency_key=data["idempotency_key"],
+                provenance=data.get("provenance", {}),
+                request_hash=hash_request(
+                    {
+                        "document": document,
+                        "idempotency_key": data["idempotency_key"],
+                        "provenance": data.get("provenance", {}),
+                    }
+                ),
+            )
+        except InventoryTransferError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        output = InventoryImportResultSerializer(
+            {
+                "event_id": event.id if event else None,
+                "replayed": replayed,
+                "dry_run": data["dry_run"],
+                "summary": summary,
+            }
+        )
+        return Response(output.data)
 
 
 class WorkspaceViewSet(viewsets.ModelViewSet):

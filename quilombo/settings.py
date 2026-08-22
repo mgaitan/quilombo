@@ -189,6 +189,7 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "URL_FORMAT_OVERRIDE": None,
 }
 
 SPECTACULAR_SETTINGS = {
