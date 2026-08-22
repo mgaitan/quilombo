@@ -4,6 +4,7 @@ services:
     plan: free
     name: quilombo-v1-mgaitan
     runtime: python
+    autoDeployTrigger: off
     buildCommand: "./build.sh"
     startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
     healthCheckPath: /health/
