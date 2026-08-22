@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }} | {{ workspace.name }} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{{ title }}</span>
+  </nav>
+  <h1>{{ title }}</h1>
+  <form method="post" class="stacked-form inventory-edit-form">
+    {% csrf_token %}
+    {% if item_form %}
+      <div class="form-grid">
+        {% for field in item_form %}
+          <div class="field{% if field.name == 'description' or field.name == 'aliases' %} field-wide{% endif %}">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if location_form %}
+      <div class="form-grid">
+        {% for field in location_form %}
+          <div class="field{% if field.name == 'description' or field.name == 'aliases' %} field-wide{% endif %}">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if holding_form %}
+      {% if item_form %}<h2>{% translate "First holding" %}</h2>{% endif %}
+      <div class="form-grid">
+        {% for field in holding_form %}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <label class="toggle-control field-wide">{{ field }} <span>{{ field.label }}</span></label>
+          {% else %}
+            <div class="field{% if field.name == 'notes' or field.name == 'location' %} field-wide{% endif %}">
+              {{ field.label_tag }}
+              {{ field }}
+              {{ field.errors }}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="actions">
+      <button class="button button-primary" type="submit">{{ submit_label }}</button>
+      <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">{% translate "Cancel" %}</a>
+    </div>
+  </form>
+{% endblock %}

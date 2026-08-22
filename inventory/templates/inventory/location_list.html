@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Locations" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Locations" %}</span>
+  </nav>
+  <div class="page-heading">
+    <div><h1>{% translate "Locations" %}</h1></div>
+    {% if can_write %}<a class="button button-primary" href="{% url 'web-location-create' workspace.slug %}">{% translate "New location" %}</a>{% endif %}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{% translate "Location" %}</th><th>{% translate "Kind" %}</th>{% if can_write %}<th>{% translate "Actions" %}</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for location in locations %}
+          <tr>
+            <td>{{ location.path_label }}<span class="row-detail">{{ location.key }}</span></td>
+            <td>{{ location.kind|default:"—" }}</td>
+            {% if can_write %}<td><a href="{% url 'web-location-edit' workspace.slug location.id %}">{% translate "Edit" %}</a></td>{% endif %}
+          </tr>
+        {% empty %}<tr><td colspan="3">{% translate "No locations recorded yet." %}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

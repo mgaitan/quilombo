@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count
@@ -23,6 +24,9 @@ from rest_framework.response import Response
 
 from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
 from .forms import (
+    HoldingForm,
+    ItemForm,
+    LocationForm,
     MemberAccessForm,
     WorkspaceCreateForm,
     WorkspaceRenameForm,
@@ -68,13 +72,21 @@ from .services import (
     IdempotencyConflict,
     build_holding_clue_context,
     bulk_upsert_inventory,
+    create_holding,
+    create_item_with_holding,
+    create_location,
     create_workspace,
     get_stock_status,
     hash_request,
+    remove_holding,
+    remove_item,
     remove_workspace_member,
     rename_workspace,
     search_holdings,
     share_workspace,
+    update_holding,
+    update_item,
+    update_location,
     update_workspace_member,
 )
 from .transfers import (
@@ -124,6 +136,21 @@ def _managed_workspace(user, workspace_slug):
             memberships__role__in=[Membership.Role.OWNER, Membership.Role.ADMIN],
         )
     )
+
+
+def _workspace_membership(user, workspace_slug):
+    return get_object_or_404(
+        Membership.objects.select_related("workspace"),
+        user=user,
+        workspace__slug=workspace_slug,
+    )
+
+
+def _writable_workspace(user, workspace_slug):
+    membership = _workspace_membership(user, workspace_slug)
+    if not membership_can_write(membership):
+        raise PermissionDenied(_("This inventory is shared as read-only."))
+    return membership.workspace
 
 
 @login_required
@@ -208,11 +235,15 @@ def workspace_member(request, workspace_slug, user_id):
 
 @login_required
 def first_inventory(request, workspace_slug):
-    workspace = get_object_or_404(
-        Workspace.objects.filter(memberships__user=request.user),
-        slug=workspace_slug,
+    membership = _workspace_membership(request.user, workspace_slug)
+    return render(
+        request,
+        "inventory/first_inventory.html",
+        {
+            "workspace": membership.workspace,
+            "can_write": membership_can_write(membership),
+        },
     )
-    return render(request, "inventory/first_inventory.html", {"workspace": workspace})
 
 
 def _location_tree_options(locations):
@@ -233,12 +264,26 @@ def _location_tree_options(locations):
     return options
 
 
+def _location_paths(locations):
+    locations = list(locations)
+    by_id = {location.id: location for location in locations}
+    paths = {}
+    for location in locations:
+        current = location
+        path = []
+        seen = set()
+        while current and current.id not in seen:
+            seen.add(current.id)
+            path.append(current.name)
+            current = by_id.get(current.parent_id)
+        paths[location.id] = " → ".join(reversed(path))
+    return paths
+
+
 @login_required
 def workspace_inventory(request, workspace_slug):
-    workspace = get_object_or_404(
-        Workspace.objects.filter(memberships__user=request.user),
-        slug=workspace_slug,
-    )
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
     query = request.GET.get("q", "").strip()
     location_key = request.GET.get("location", "").strip()
     matching_holdings = search_holdings(
@@ -252,6 +297,10 @@ def workspace_inventory(request, workspace_slug):
     preserved_query = request.GET.copy()
     preserved_query.pop("page", None)
     stock_status = get_stock_status(workspace=workspace)
+    locations = list(workspace.locations.only("id", "parent_id", "key", "name"))
+    location_paths = _location_paths(locations)
+    for holding in page_obj:
+        holding.location_path = location_paths.get(holding.location_id, holding.location.name)
     return render(
         request,
         "inventory/workspace.html",
@@ -261,14 +310,246 @@ def workspace_inventory(request, workspace_slug):
             "page_obj": page_obj,
             "truncated": truncated,
             "preserved_query": preserved_query.urlencode(),
-            "location_options": _location_tree_options(
-                workspace.locations.only("id", "parent_id", "key", "name")
-            ),
+            "location_options": _location_tree_options(locations),
             "query": query,
             "location_key": location_key,
             "stock_status": stock_status,
             "can_manage": user_can_manage_workspace(request.user, workspace),
+            "can_write": membership_can_write(membership),
         },
+    )
+
+
+def _inventory_form_context(
+    workspace, title, submit_label, *, item_form=None, holding_form=None, location_form=None
+):
+    return {
+        "workspace": workspace,
+        "title": title,
+        "submit_label": submit_label,
+        "item_form": item_form,
+        "holding_form": holding_form,
+        "location_form": location_form,
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def item_create(request, workspace_slug):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item_form = ItemForm(request.POST or None, workspace=workspace)
+    holding_form = HoldingForm(
+        request.POST or None,
+        workspace=workspace,
+        item=item_form.instance,
+        prefix="holding",
+    )
+    if request.method == "POST" and item_form.is_valid() and holding_form.is_valid():
+        item = create_item_with_holding(
+            workspace=workspace,
+            item_data=item_form.cleaned_data,
+            holding_data=holding_form.cleaned_data,
+        )
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(
+            workspace,
+            _("New item"),
+            _("Create item"),
+            item_form=item_form,
+            holding_form=holding_form,
+        ),
+    )
+
+
+@login_required
+def item_list(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    items = workspace.items.annotate(holding_count=Count("holdings")).order_by("name", "id")
+    return render(
+        request,
+        "inventory/item_list.html",
+        {
+            "workspace": workspace,
+            "items": items,
+            "can_write": membership_can_write(membership),
+        },
+    )
+
+
+@login_required
+def item_detail(request, workspace_slug, item_id):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    holdings = list(item.holdings.select_related("location").order_by("location__name", "id"))
+    location_paths = _location_paths(workspace.locations.only("id", "parent_id", "name"))
+    for holding in holdings:
+        holding.location_path = location_paths.get(holding.location_id, holding.location.name)
+    return render(
+        request,
+        "inventory/item_detail.html",
+        {
+            "workspace": workspace,
+            "item": item,
+            "holdings": holdings,
+            "can_write": membership_can_write(membership),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def item_edit(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    form = ItemForm(request.POST or None, instance=item, workspace=workspace)
+    if request.method == "POST" and form.is_valid():
+        item = update_item(workspace=workspace, item=item, data=form.cleaned_data)
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(workspace, _("Edit item"), _("Save changes"), item_form=form),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def item_delete(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    if request.method == "POST":
+        remove_item(workspace=workspace, item=item)
+        return HttpResponseRedirect(reverse("workspace-inventory", args=[workspace.slug]))
+    return render(
+        request,
+        "inventory/confirm_delete.html",
+        {
+            "workspace": workspace,
+            "object_name": item.name,
+            "detail": _("All holdings for this item will also be deleted."),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def holding_create(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    form = HoldingForm(request.POST or None, workspace=workspace, item=item)
+    if request.method == "POST" and form.is_valid():
+        create_holding(workspace=workspace, item=item, data=form.cleaned_data)
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(workspace, _("Add holding"), _("Add holding"), holding_form=form),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def holding_edit(request, workspace_slug, item_id, holding_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    holding = get_object_or_404(Holding, workspace=workspace, item=item, id=holding_id)
+    form = HoldingForm(
+        request.POST or None,
+        instance=holding,
+        workspace=workspace,
+        item=item,
+    )
+    if request.method == "POST" and form.is_valid():
+        update_holding(
+            workspace=workspace,
+            item=item,
+            holding=holding,
+            data=form.cleaned_data,
+        )
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(workspace, _("Edit holding"), _("Save changes"), holding_form=form),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def holding_delete(request, workspace_slug, item_id, holding_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    holding = get_object_or_404(Holding, workspace=workspace, item=item, id=holding_id)
+    if request.method == "POST":
+        remove_holding(workspace=workspace, item=item, holding=holding)
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    return render(
+        request,
+        "inventory/confirm_delete.html",
+        {
+            "workspace": workspace,
+            "object_name": holding.location.name,
+            "detail": _("The item itself will remain."),
+        },
+    )
+
+
+@login_required
+def location_list(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    locations = list(workspace.locations.order_by("name", "id"))
+    paths = _location_paths(locations)
+    for location in locations:
+        location.path_label = paths[location.id]
+    return render(
+        request,
+        "inventory/location_list.html",
+        {
+            "workspace": workspace,
+            "locations": locations,
+            "can_write": membership_can_write(membership),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_create(request, workspace_slug):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    form = LocationForm(request.POST or None, workspace=workspace)
+    if request.method == "POST" and form.is_valid():
+        create_location(workspace=workspace, data=form.cleaned_data)
+        return HttpResponseRedirect(reverse("web-location-list", args=[workspace.slug]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(
+            workspace, _("New location"), _("Create location"), location_form=form
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_edit(request, workspace_slug, location_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    location = get_object_or_404(Location, workspace=workspace, id=location_id)
+    form = LocationForm(request.POST or None, instance=location, workspace=workspace)
+    if request.method == "POST" and form.is_valid():
+        update_location(workspace=workspace, location=location, data=form.cleaned_data)
+        return HttpResponseRedirect(reverse("web-location-list", args=[workspace.slug]))
+    return render(
+        request,
+        "inventory/inventory_form.html",
+        _inventory_form_context(
+            workspace, _("Edit location"), _("Save changes"), location_form=form
+        ),
     )
 
 

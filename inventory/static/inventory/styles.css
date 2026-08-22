@@ -9,7 +9,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 a { color: inherit; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 
 .masthead,
 .page,
@@ -175,6 +175,7 @@ p { margin: 0 0 18px; }
 }
 
 .page-heading .lede { margin-bottom: 0; }
+.page-actions { justify-content: flex-end; margin-top: 0; }
 
 .workspace-list {
   margin: 0;
@@ -229,7 +230,8 @@ p { margin: 0 0 18px; }
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid #cfd3d0;
@@ -240,7 +242,9 @@ select {
 }
 
 input:focus,
-select:focus { border-color: #303532; outline: 2px solid #d9e8df; outline-offset: 1px; }
+select:focus,
+textarea:focus { border-color: #303532; outline: 2px solid #d9e8df; outline-offset: 1px; }
+textarea { min-height: 110px; resize: vertical; }
 
 .result-summary { margin: 24px 0 10px; }
 .pagination {
@@ -309,6 +313,16 @@ code {
 .toggle-control { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font: 600 13px system-ui, sans-serif; }
 .toggle-control input { width: 18px; min-height: 18px; margin: 0; }
 .button-danger { color: #9e2d27; }
+.danger-link { color: #9e2d27; }
+.danger-action { border-color: #9e2d27; background: #9e2d27; }
+.inventory-edit-form { max-width: 700px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.field-wide { grid-column: 1 / -1; }
+.item-description { max-width: 720px; font-size: 18px; }
+.item-metadata { display: flex; flex-wrap: wrap; gap: 24px 40px; margin: 28px 0 44px; }
+.item-metadata div { min-width: 140px; }
+.item-metadata dt { color: #6c726e; font: 600 12px system-ui, sans-serif; text-transform: uppercase; }
+.item-metadata dd { margin: 4px 0 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .field .helptext { margin-top: 6px; color: #737975; font-size: 13px; }
 .field .helptext ul { margin: 8px 0 0; padding-left: 20px; }
@@ -337,12 +351,14 @@ code {
   .dictionary-entry { grid-template-columns: 1fr; gap: 12px; }
   .band { margin-top: 58px; }
   .page-heading { display: block; }
-  .page-heading > .button { margin-top: 20px; }
+  .page-heading > .button, .page-heading > .page-actions { margin-top: 20px; }
   .workspace-list li { align-items: flex-start; flex-direction: column; gap: 14px; }
   .workspace-list span { text-align: left; }
   .search-form { grid-template-columns: 1fr; }
   .inline-settings-form, .share-form { grid-template-columns: 1fr; align-items: start; }
   .member-row, .member-controls { align-items: flex-start; flex-direction: column; }
+  .form-grid { grid-template-columns: 1fr; }
+  .field-wide { grid-column: auto; }
 }
 
 @media (max-width: 480px) {

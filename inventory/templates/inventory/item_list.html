@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Items" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Items" %}</span>
+  </nav>
+  <div class="page-heading">
+    <div><h1>{% translate "Items" %}</h1></div>
+    {% if can_write %}<a class="button button-primary" href="{% url 'web-item-create' workspace.slug %}">{% translate "New item" %}</a>{% endif %}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{% translate "Item" %}</th><th>{% translate "Category" %}</th><th>{% translate "Holdings" %}</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td><strong><a href="{% url 'web-item-detail' workspace.slug item.id %}">{{ item.name }}</a></strong><span class="row-detail">{{ item.key }}</span></td>
+            <td>{{ item.category|default:"—" }}</td>
+            <td>{{ item.holding_count }}</td>
+          </tr>
+        {% empty %}<tr><td colspan="3">{% translate "No items recorded yet." %}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
