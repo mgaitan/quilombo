@@ -28,6 +28,9 @@ uv run ruff check .
 uv run python manage.py check
 ```
 
+Pull requests to `main` run these checks against PostgreSQL, verify that model changes include
+migrations, and validate the generated OpenAPI schema. CI never deploys the application.
+
 Build the Sphinx/MyST documentation locally:
 
 ```bash
@@ -113,4 +116,9 @@ The health endpoint at `/health/` verifies both the app and database connection.
 gh release create v0.2.0 --generate-notes
 ```
 
-The release workflow builds and publishes the technical documentation to GitHub Pages.
+The release workflow builds and publishes the technical documentation to GitHub Pages, verifies
+that the tag matches the package version, and asks Render to deploy that exact tagged commit.
+Branch pushes and pull requests never deploy production.
+
+To roll back a bad release, revert the change on `main`, bump the patch version, and publish a new
+release. Do not move or reuse a published version tag.

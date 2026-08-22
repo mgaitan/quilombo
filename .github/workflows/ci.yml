@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quilombo
+          POSTGRES_USER: quilombo
+          POSTGRES_PASSWORD: quilombo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quilombo -d quilombo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://quilombo:quilombo@localhost:5432/quilombo
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Check Django configuration
+        run: uv run python manage.py check
+
+      - name: Check migrations
+        run: uv run python manage.py makemigrations --check
+
+      - name: Validate OpenAPI schema
+        run: uv run python manage.py spectacular --file /tmp/openapi.yml --validate
+
+      - name: Run tests
+        run: uv run pytest
