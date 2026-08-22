@@ -54,6 +54,25 @@ Portable workspace transfer is available through
 non-mutating dry run, commit atomically, and record client-supplied provenance. See
 [Import and export](docs/import_export.md) for the versioned contract.
 
+REST collection responses use a stable paginated envelope:
+
+```json
+{
+  "pagination": {
+    "count": 123,
+    "page": 1,
+    "page_size": 50,
+    "total_pages": 3,
+    "next": "http://localhost:8000/api/workspaces/?page=2",
+    "previous": null
+  },
+  "results": []
+}
+```
+
+Use `page` and `page_size`; page sizes are bounded to 200. Inventory search returns the same
+metadata alongside its query diagnostics and reports when its bounded candidate set was truncated.
+
 ## Connect an MCP client
 
 The hosted v0.1 app is available at

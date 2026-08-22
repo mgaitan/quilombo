@@ -214,6 +214,67 @@ class ProvenanceSerializer(serializers.Serializer):
         return value
 
 
+class ItemRepairFieldsSerializer(serializers.Serializer):
+    key = serializers.CharField(required=False, max_length=128)
+    name = serializers.CharField(required=False, max_length=200)
+    description = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    aliases = StringListField(required=False)
+    attributes = serializers.JSONField(required=False)
+    tracking_mode = serializers.ChoiceField(required=False, choices=Item.TrackingMode)
+    unit = serializers.CharField(required=False, max_length=32)
+    minimum_quantity = serializers.DecimalField(
+        required=False, allow_null=True, max_digits=20, decimal_places=6, min_value=0
+    )
+    target_quantity = serializers.DecimalField(
+        required=False, allow_null=True, max_digits=20, decimal_places=6, min_value=0
+    )
+
+
+class HoldingRepairSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    location_id = serializers.UUIDField(required=False)
+    quantity = serializers.DecimalField(
+        required=False, max_digits=20, decimal_places=6, min_value=0
+    )
+    approximate = serializers.BooleanField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if len(attrs) == 1:
+            raise serializers.ValidationError("At least one holding field must be supplied.")
+        return attrs
+
+
+class ItemRepairSerializer(serializers.Serializer):
+    item_id = serializers.UUIDField()
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+    item = ItemRepairFieldsSerializer(required=False)
+    holdings = HoldingRepairSerializer(many=True, required=False, max_length=5000)
+
+    def validate(self, attrs):
+        if not attrs.get("item") and not attrs.get("holdings"):
+            raise serializers.ValidationError("Supply item fields or holdings to update.")
+        holding_ids = [row["id"] for row in attrs.get("holdings", [])]
+        if len(holding_ids) != len(set(holding_ids)):
+            raise serializers.ValidationError({"holdings": "Batch contains duplicate IDs."})
+        item = attrs.get("item", {})
+        minimum = item.get("minimum_quantity")
+        target = item.get("target_quantity")
+        if minimum is not None and target is not None and target < minimum:
+            raise serializers.ValidationError(
+                {"item": {"target_quantity": "Target quantity must reach the minimum."}}
+            )
+        return attrs
+
+
+class ItemDeleteSerializer(serializers.Serializer):
+    item_id = serializers.UUIDField()
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+
+
 class BulkUpsertSerializer(serializers.Serializer):
     idempotency_key = serializers.CharField(max_length=160)
     provenance = ProvenanceSerializer(required=False)
@@ -447,6 +508,8 @@ class SearchQuerySerializer(serializers.Serializer):
     category = serializers.CharField(required=False, max_length=120)
     location = serializers.CharField(required=False, max_length=128)
     include_descendants = serializers.BooleanField(required=False, default=True)
+    page = serializers.IntegerField(required=False, min_value=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=200)
 
 
 class SearchHoldingSerializer(HoldingSerializer):
@@ -484,9 +547,20 @@ class HoldingClueSerializer(SearchHoldingSerializer):
         return self.context.get("nearby_by_holding", {}).get(holding.id, [])
 
 
+class PaginationMetadataSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    total_pages = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+
+
 class SearchResultSerializer(serializers.Serializer):
     query = serializers.CharField()
     count = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    pagination = PaginationMetadataSerializer()
     results = HoldingClueSerializer(many=True)
 
 

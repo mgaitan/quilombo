@@ -118,7 +118,10 @@ values; it does not forecast consumption or apply per-location thresholds.
 
 ## Handle corrections and failures
 
-- Accept a human correction as a new observation and preserve its provenance.
+- Accept a human correction as a new observation and preserve its provenance. Search first, then
+  prefer `update_inventory_item` with the returned stable UUID when the intended record is known.
+- Use `delete_inventory_item` only after there is enough evidence that the record is erroneous or a
+  duplicate. Show the exact item and affected holdings and obtain confirmation before deletion.
 - On insufficient source quantity, unknown keys, or an idempotency conflict, do not guess. Read the
   current state, explain the mismatch, and draft a corrected operation.
 - On an ambiguous request such as "move the screws", ask which matching item, source, destination,

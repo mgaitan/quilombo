@@ -1,0 +1,15 @@
+{% if page_obj.paginator.num_pages > 1 %}
+  <nav class="pagination" aria-label="Paginación">
+    {% if page_obj.has_previous %}
+      <a href="?{% if preserved_query %}{{ preserved_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Anterior</a>
+    {% else %}
+      <span aria-disabled="true">Anterior</span>
+    {% endif %}
+    <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a href="?{% if preserved_query %}{{ preserved_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Siguiente</a>
+    {% else %}
+      <span aria-disabled="true">Siguiente</span>
+    {% endif %}
+  </nav>
+{% endif %}
