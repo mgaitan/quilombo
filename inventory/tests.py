@@ -1172,6 +1172,29 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
 
 
 @pytest.mark.django_db
+def test_about_link_and_dictionary_entry_follow_language(client):
+    english = client.get("/", HTTP_ACCEPT_LANGUAGE="en-US")
+    english_content = english.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/en/posts/quilombo-agents-to-organize-real-life/"
+        in english_content
+    )
+    assert "noun · lunfardo" in english_content
+    assert "a mess, a chaotic tangle" in english_content
+
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="es-AR")
+    spanish_content = spanish.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/"
+        in spanish_content
+    )
+    assert "sustantivo · lunfardo" in spanish_content
+    assert "un lío, un enredo caótico" in spanish_content
+
+
+@pytest.mark.django_db
 def test_manual_language_switch_persists_choice(client):
     switched = client.post(
         "/i18n/setlang/",
