@@ -7,7 +7,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from .models import Holding, Location, LocationRelation
+from .models import Holding, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
     BulkUpsertSerializer,
@@ -188,6 +188,7 @@ def get_inventory_snapshot(
     token = _token_from_context(ctx)
     workspace = token.workspace
     locations = Location.objects.filter(workspace=workspace).select_related("parent")
+    items = Item.objects.filter(workspace=workspace)
     holdings = Holding.objects.filter(workspace=workspace).select_related("item", "location")
     relations = LocationRelation.objects.filter(workspace=workspace).select_related(
         "subject", "object"
@@ -199,12 +200,15 @@ def get_inventory_snapshot(
             include_descendants=include_descendants,
         )
         locations = locations.filter(id__in=scope_ids)
+        items = items.filter(holdings__location_id__in=scope_ids).distinct()
         holdings = holdings.filter(location_id__in=scope_ids)
         relations = relations.filter(Q(subject_id__in=scope_ids) | Q(object_id__in=scope_ids))
     if category:
+        items = items.filter(category__iexact=category)
         holdings = holdings.filter(item__category__iexact=category)
     bounded_limit = min(max(limit, 1), 2000)
     location_rows = list(locations[:bounded_limit])
+    item_rows = list(items[:bounded_limit])
     holding_rows = list(holdings[:bounded_limit])
     relation_rows = list(relations[:bounded_limit])
     clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
@@ -212,6 +216,7 @@ def get_inventory_snapshot(
         "workspace": workspace.slug,
         "locations": [
             {
+                "id": str(location.id),
                 "key": location.key,
                 "name": location.name,
                 "kind": location.kind,
@@ -220,6 +225,20 @@ def get_inventory_snapshot(
                 "metadata": location.metadata,
             }
             for location in location_rows
+        ],
+        "items": [
+            {
+                "id": str(item.id),
+                "key": item.key,
+                "name": item.name,
+                "description": item.description,
+                "category": item.category,
+                "aliases": item.aliases,
+                "attributes": item.attributes,
+                "tracking_mode": item.tracking_mode,
+                "unit": item.unit,
+            }
+            for item in item_rows
         ],
         "location_relations": [
             {
@@ -231,7 +250,8 @@ def get_inventory_snapshot(
         ],
         "holdings": [_serialize_holding(holding, clue_context) for holding in holding_rows],
         "truncated": any(
-            len(rows) == bounded_limit for rows in (location_rows, holding_rows, relation_rows)
+            len(rows) == bounded_limit
+            for rows in (location_rows, item_rows, holding_rows, relation_rows)
         ),
     }
 

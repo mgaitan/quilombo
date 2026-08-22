@@ -896,6 +896,55 @@ def test_update_inventory_item_is_tenant_scoped_and_rolls_back(users, workspaces
 
 
 @pytest.mark.django_db
+def test_update_inventory_item_requires_whole_holdings_when_switching_to_discrete(
+    users, workspaces
+):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="bin", name="Bin")
+    item = Item.objects.create(workspace=workspace, key="parts", name="Parts")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1.5"),
+    )
+    invalid = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-invalid",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+    }
+
+    with pytest.raises(BulkUpsertError, match="whole quantities"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data=invalid,
+            request_hash=hash_request(invalid),
+        )
+
+    item.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.BULK
+
+    corrected = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-corrected",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+        "holdings": [{"id": holding.id, "quantity": Decimal("2")}],
+    }
+    update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=corrected,
+        request_hash=hash_request(corrected),
+    )
+
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert holding.quantity == Decimal("2")
+
+
+@pytest.mark.django_db
 def test_delete_inventory_item_is_tenant_scoped_and_idempotent(users, workspaces):
     workspace, other_workspace = workspaces
     item = Item.objects.create(workspace=workspace, key="duplicate", name="Duplicate")
@@ -971,6 +1020,16 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         location=location,
         quantity=Decimal("8"),
     )
+    empty_location = Location.objects.create(
+        workspace=workspace,
+        key="empty-shelf",
+        name="Empty shelf",
+    )
+    empty_item = Item.objects.create(
+        workspace=workspace,
+        key="unplaced-tool",
+        name="Unplaced tool",
+    )
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
 
     async def exercise_mcp():
@@ -995,9 +1054,10 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                         "find_inventory", {"query": "tornillos madera"}
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
-                    return tools, result, status_result
+                    snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
+                    return tools, result, status_result, snapshot_result
 
-    tools, result, status_result = asyncio.run(exercise_mcp())
+    tools, result, status_result, snapshot_result = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
@@ -1020,6 +1080,13 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
+    snapshot = snapshot_result.structured_content
+    assert next(row for row in snapshot["locations"] if row["key"] == "empty-shelf")["id"] == str(
+        empty_location.id
+    )
+    assert next(row for row in snapshot["items"] if row["key"] == "unplaced-tool")["id"] == str(
+        empty_item.id
+    )
 
 
 @pytest.mark.django_db(transaction=True)

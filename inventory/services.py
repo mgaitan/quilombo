@@ -699,17 +699,32 @@ def update_inventory_item(*, workspace, actor, data, request_hash):
         raise BulkUpsertError("Item was not found in this workspace.")
 
     item_fields = data.get("item", {})
+    holding_rows = data.get("holdings", [])
     minimum = item_fields.get("minimum_quantity", item.minimum_quantity)
     target = item_fields.get("target_quantity", item.target_quantity)
     if minimum is not None and target is not None and target < minimum:
         raise BulkUpsertError("Target quantity must reach the minimum quantity.")
     for field, value in item_fields.items():
         setattr(item, field, value)
+    if item.tracking_mode == Item.TrackingMode.DISCRETE:
+        quantity_overrides = {
+            row["id"]: row["quantity"] for row in holding_rows if "quantity" in row
+        }
+        existing_holdings = Holding.objects.select_for_update().filter(
+            workspace=workspace, item=item
+        )
+        if any(
+            quantity_overrides.get(holding.id, holding.quantity)
+            != quantity_overrides.get(holding.id, holding.quantity).to_integral_value()
+            for holding in existing_holdings
+        ):
+            raise BulkUpsertError(
+                "All holdings must have whole quantities before switching to discrete tracking."
+            )
     if item_fields:
         item.full_clean()
         item.save(update_fields=[*item_fields, "updated_at"])
 
-    holding_rows = data.get("holdings", [])
     holdings = {
         holding.id: holding
         for holding in Holding.objects.select_for_update().filter(
