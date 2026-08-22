@@ -2,7 +2,7 @@
 # Exit on error
 set -o errexit
 
-uv sync --frozen --no-dev
+uv sync --locked --no-dev
 
 # Convert static asset files
 uv run --no-sync python manage.py collectstatic --no-input
