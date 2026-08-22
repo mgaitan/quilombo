@@ -25,8 +25,8 @@
       <label for="location">{% translate "Within" %}</label>
       <select id="location" name="location">
         <option value="">{% blocktranslate with name=workspace.name %}All of {{ name }}{% endblocktranslate %}</option>
-        {% for location in locations %}
-          <option value="{{ location.key }}" {% if location.key == location_key %}selected{% endif %}>{{ location.name }}</option>
+        {% for option in location_options %}
+          <option value="{{ option.key }}" {% if option.key == location_key %}selected{% endif %}>{{ option.label }}</option>
         {% endfor %}
       </select>
     </div>
