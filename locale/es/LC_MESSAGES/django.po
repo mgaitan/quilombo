@@ -165,6 +165,12 @@ msgstr "Crear cuenta"
 msgid "Workshop drawers and compartments next to a bookcase."
 msgstr "Cajones y compartimientos de taller junto a una biblioteca."
 
+msgid "noun · lunfardo"
+msgstr "sustantivo · lunfardo"
+
+msgid "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand."
+msgstr "Del habla del Río de la Plata: un lío, un enredo caótico o una situación que se fue de las manos."
+
 msgid "Start with the detail you have"
 msgstr "Empezá con el detalle que tengas"
 
