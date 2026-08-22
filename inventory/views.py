@@ -235,11 +235,15 @@ def workspace_member(request, workspace_slug, user_id):
 
 @login_required
 def first_inventory(request, workspace_slug):
-    workspace = get_object_or_404(
-        Workspace.objects.filter(memberships__user=request.user),
-        slug=workspace_slug,
+    membership = _workspace_membership(request.user, workspace_slug)
+    return render(
+        request,
+        "inventory/first_inventory.html",
+        {
+            "workspace": membership.workspace,
+            "can_write": membership_can_write(membership),
+        },
     )
-    return render(request, "inventory/first_inventory.html", {"workspace": workspace})
 
 
 def _location_tree_options(locations):

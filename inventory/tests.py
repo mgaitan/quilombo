@@ -1678,6 +1678,9 @@ def test_web_crud_rejects_read_only_and_cross_workspace_writes(client, users, wo
 
     client.force_login(users[1])
     assert client.get(f"/app/workshop/items/{item.id}/").status_code == 200
+    onboarding = client.get("/app/workshop/first-inventory/")
+    assert onboarding.status_code == 200
+    assert "Crear primera ubicación" not in onboarding.content.decode()
     denied = client.post(
         "/app/workshop/items/new/",
         {

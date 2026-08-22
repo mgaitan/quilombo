@@ -29,7 +29,7 @@
     </div>
 
     <div class="actions">
-      <a class="button button-primary" href="{% url 'web-location-create' workspace.slug %}">{% translate "Create first location" %}</a>
+      {% if can_write %}<a class="button button-primary" href="{% url 'web-location-create' workspace.slug %}">{% translate "Create first location" %}</a>{% endif %}
       <a class="button button-primary" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %}</a>
       <a class="button" href="{% url 'workspace-inventory' workspace.slug %}">{% translate "Open inventory" %}</a>
     </div>
