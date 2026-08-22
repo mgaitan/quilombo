@@ -34,7 +34,7 @@ jobs:
           enable-cache: true
 
       - name: Install documentation dependencies
-        run: uv sync --group docs --frozen
+        run: uv sync --group docs --locked
 
       - name: Build documentation
         run: make docs
