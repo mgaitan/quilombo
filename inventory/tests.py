@@ -30,7 +30,13 @@ from .models import (
     OAuthCredential,
     Workspace,
 )
-from .services import hash_request, move_inventory
+from .services import (
+    BulkUpsertError,
+    delete_inventory_item,
+    hash_request,
+    move_inventory,
+    update_inventory_item,
+)
 
 
 @pytest.fixture
@@ -782,6 +788,204 @@ def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
     assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.MOVE).count() == 1
 
 
+@pytest.mark.django_db
+def test_update_inventory_item_repairs_fields_and_holding_idempotently(users, workspaces):
+    workspace, _ = workspaces
+    source = Location.objects.create(workspace=workspace, key="wrong", name="Wrong shelf")
+    destination = Location.objects.create(workspace=workspace, key="right", name="Right shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="wrong-key",
+        name="Wrong name",
+        description="Incorrect description",
+    )
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=source,
+        quantity=Decimal("2"),
+    )
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "repair-item-001",
+        "provenance": {"client_actor": "test-agent"},
+        "item": {
+            "key": "correct-key",
+            "name": "Correct name",
+            "description": "Correct description",
+            "attributes": {"color": "green"},
+        },
+        "holdings": [
+            {
+                "id": holding.id,
+                "location_id": destination.id,
+                "quantity": Decimal("3"),
+                "notes": "Confirmed correction",
+            }
+        ],
+    }
+
+    event, replayed = update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert item.key == "correct-key"
+    assert item.attributes == {"color": "green"}
+    assert holding.location == destination
+    assert holding.quantity == Decimal("3")
+    assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.ITEM_UPDATE).count() == 1
+
+
+@pytest.mark.django_db
+def test_update_inventory_item_is_tenant_scoped_and_rolls_back(users, workspaces):
+    workspace, other_workspace = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    other_location = Location.objects.create(
+        workspace=other_workspace, key="other-shelf", name="Other shelf"
+    )
+    item = Item.objects.create(workspace=workspace, key="item", name="Original")
+    other_item = Item.objects.create(workspace=other_workspace, key="other", name="Other")
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("1")
+    )
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "repair-item-rollback",
+        "item": {"name": "Changed"},
+        "holdings": [{"id": holding.id, "location_id": other_location.id}],
+    }
+
+    with pytest.raises(BulkUpsertError, match="destination location"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+    with pytest.raises(BulkUpsertError, match="not found"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data={
+                "item_id": other_item.id,
+                "idempotency_key": "repair-other-item",
+                "item": {"name": "Intrusion"},
+            },
+            request_hash="other",
+        )
+
+    item.refresh_from_db()
+    other_item.refresh_from_db()
+    assert item.name == "Original"
+    assert other_item.name == "Other"
+    assert not workspace.inventory_events.filter(idempotency_key="repair-item-rollback").exists()
+
+
+@pytest.mark.django_db
+def test_update_inventory_item_requires_whole_holdings_when_switching_to_discrete(
+    users, workspaces
+):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="bin", name="Bin")
+    item = Item.objects.create(workspace=workspace, key="parts", name="Parts")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1.5"),
+    )
+    invalid = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-invalid",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+    }
+
+    with pytest.raises(BulkUpsertError, match="whole quantities"):
+        update_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data=invalid,
+            request_hash=hash_request(invalid),
+        )
+
+    item.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.BULK
+
+    corrected = {
+        "item_id": item.id,
+        "idempotency_key": "switch-discrete-corrected",
+        "item": {"tracking_mode": Item.TrackingMode.DISCRETE},
+        "holdings": [{"id": holding.id, "quantity": Decimal("2")}],
+    }
+    update_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=corrected,
+        request_hash=hash_request(corrected),
+    )
+
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert holding.quantity == Decimal("2")
+
+
+@pytest.mark.django_db
+def test_delete_inventory_item_is_tenant_scoped_and_idempotent(users, workspaces):
+    workspace, other_workspace = workspaces
+    item = Item.objects.create(workspace=workspace, key="duplicate", name="Duplicate")
+    other_item = Item.objects.create(workspace=other_workspace, key="kept", name="Kept")
+    data = {
+        "item_id": item.id,
+        "idempotency_key": "delete-duplicate-001",
+        "provenance": {"source_reference": "Confirmed duplicate"},
+    }
+
+    event, replayed = delete_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = delete_inventory_item(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    with pytest.raises(BulkUpsertError, match="not found"):
+        delete_inventory_item(
+            workspace=workspace,
+            actor=users[0],
+            data={
+                "item_id": other_item.id,
+                "idempotency_key": "delete-other-item",
+            },
+            request_hash="other",
+        )
+
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert not workspace.items.filter(id=item.id).exists()
+    assert other_workspace.items.filter(id=other_item.id).exists()
+    assert event.summary["item_id"] == str(item.id)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     workspace, _ = workspaces
@@ -816,6 +1020,16 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         location=location,
         quantity=Decimal("8"),
     )
+    empty_location = Location.objects.create(
+        workspace=workspace,
+        key="empty-shelf",
+        name="Empty shelf",
+    )
+    empty_item = Item.objects.create(
+        workspace=workspace,
+        key="unplaced-tool",
+        name="Unplaced tool",
+    )
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
 
     async def exercise_mcp():
@@ -840,16 +1054,19 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                         "find_inventory", {"query": "tornillos madera"}
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
-                    return tools, result, status_result
+                    snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
+                    return tools, result, status_result, snapshot_result
 
-    tools, result, status_result = asyncio.run(exercise_mcp())
+    tools, result, status_result, snapshot_result = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
+        "delete_inventory_item",
         "find_inventory",
         "get_inventory_status",
         "get_inventory_snapshot",
         "move_inventory",
+        "update_inventory_item",
     }
     assert result.is_error is False
     first_result = result.structured_content["results"][0]
@@ -863,6 +1080,13 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
+    snapshot = snapshot_result.structured_content
+    assert next(row for row in snapshot["locations"] if row["key"] == "empty-shelf")["id"] == str(
+        empty_location.id
+    )
+    assert next(row for row in snapshot["items"] if row["key"] == "unplaced-tool")["id"] == str(
+        empty_item.id
+    )
 
 
 @pytest.mark.django_db(transaction=True)

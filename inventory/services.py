@@ -4,7 +4,7 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -657,6 +657,149 @@ def move_inventory(
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
         metadata=provenance.get("metadata", {}),
+        summary=summary,
+    )
+    return event, False
+
+
+def _mutation_event(*, workspace, actor, kind, data, request_hash, summary):
+    provenance = data.get("provenance", {})
+    return InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=kind,
+        actor=actor,
+        client_actor=provenance.get("client_actor", ""),
+        idempotency_key=data["idempotency_key"],
+        request_hash=request_hash,
+        source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
+        source_reference=provenance.get("source_reference", ""),
+        observed_at=provenance.get("observed_at"),
+        metadata=provenance.get("metadata", {}),
+        summary=summary,
+    )
+
+
+def _replayed_event(*, workspace, data, request_hash):
+    event = InventoryEvent.objects.filter(
+        workspace=workspace, idempotency_key=data["idempotency_key"]
+    ).first()
+    if event and event.request_hash != request_hash:
+        raise IdempotencyConflict("Idempotency key was already used with a different payload.")
+    return event
+
+
+@transaction.atomic
+def update_inventory_item(*, workspace, actor, data, request_hash):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    if event := _replayed_event(workspace=workspace, data=data, request_hash=request_hash):
+        return event, True
+
+    item = Item.objects.select_for_update().filter(workspace=workspace, id=data["item_id"]).first()
+    if not item:
+        raise BulkUpsertError("Item was not found in this workspace.")
+
+    item_fields = data.get("item", {})
+    holding_rows = data.get("holdings", [])
+    minimum = item_fields.get("minimum_quantity", item.minimum_quantity)
+    target = item_fields.get("target_quantity", item.target_quantity)
+    if minimum is not None and target is not None and target < minimum:
+        raise BulkUpsertError("Target quantity must reach the minimum quantity.")
+    for field, value in item_fields.items():
+        setattr(item, field, value)
+    if item.tracking_mode == Item.TrackingMode.DISCRETE:
+        quantity_overrides = {
+            row["id"]: row["quantity"] for row in holding_rows if "quantity" in row
+        }
+        existing_holdings = Holding.objects.select_for_update().filter(
+            workspace=workspace, item=item
+        )
+        if any(
+            quantity_overrides.get(holding.id, holding.quantity)
+            != quantity_overrides.get(holding.id, holding.quantity).to_integral_value()
+            for holding in existing_holdings
+        ):
+            raise BulkUpsertError(
+                "All holdings must have whole quantities before switching to discrete tracking."
+            )
+    if item_fields:
+        item.full_clean()
+        item.save(update_fields=[*item_fields, "updated_at"])
+
+    holdings = {
+        holding.id: holding
+        for holding in Holding.objects.select_for_update().filter(
+            workspace=workspace,
+            item=item,
+            id__in=[row["id"] for row in holding_rows],
+        )
+    }
+    if len(holdings) != len(holding_rows):
+        raise BulkUpsertError("A holding was not found for this item in this workspace.")
+    location_ids = {row["location_id"] for row in holding_rows if "location_id" in row}
+    locations = {
+        location.id: location
+        for location in Location.objects.filter(workspace=workspace, id__in=location_ids)
+    }
+    if len(locations) != len(location_ids):
+        raise BulkUpsertError("A destination location was not found in this workspace.")
+
+    for row in holding_rows:
+        holding = holdings[row["id"]]
+        for field, value in row.items():
+            if field == "id":
+                continue
+            if field == "location_id":
+                holding.location = locations[value]
+            else:
+                setattr(holding, field, value)
+        holding.item = item
+        holding.full_clean()
+        try:
+            holding.save()
+        except IntegrityError as error:
+            raise BulkUpsertError(
+                "The item already has a holding at the destination location."
+            ) from error
+
+    summary = {
+        "item_id": str(item.id),
+        "item_key": item.key,
+        "item_fields": sorted(item_fields),
+        "holdings": [str(row["id"]) for row in holding_rows],
+    }
+    event = _mutation_event(
+        workspace=workspace,
+        actor=actor,
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        data=data,
+        request_hash=request_hash,
+        summary=summary,
+    )
+    return event, False
+
+
+@transaction.atomic
+def delete_inventory_item(*, workspace, actor, data, request_hash):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    if event := _replayed_event(workspace=workspace, data=data, request_hash=request_hash):
+        return event, True
+
+    item = Item.objects.select_for_update().filter(workspace=workspace, id=data["item_id"]).first()
+    if not item:
+        raise BulkUpsertError("Item was not found in this workspace.")
+    summary = {
+        "item_id": str(item.id),
+        "item_key": item.key,
+        "item_name": item.name,
+        "deleted_holdings": item.holdings.count(),
+    }
+    item.delete()
+    event = _mutation_event(
+        workspace=workspace,
+        actor=actor,
+        kind=InventoryEvent.Kind.ITEM_DELETE,
+        data=data,
+        request_hash=request_hash,
         summary=summary,
     )
     return event, False
