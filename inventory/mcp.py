@@ -94,6 +94,13 @@ def _token_from_context(ctx: Context):
     return token
 
 
+def _write_token_from_context(ctx: Context):
+    token = _token_from_context(ctx)
+    if not token.can_write:
+        raise ToolError("This inventory is shared as read-only.")
+    return token
+
+
 def _serialize_holding(holding, clue_context=None):
     clue_context = clue_context or {}
     serialized = {
@@ -306,7 +313,7 @@ def bulk_upsert_inventory(
     holdings: list[dict[str, Any]] | None = None,
     location_relations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    token = _token_from_context(ctx)
+    token = _write_token_from_context(ctx)
     payload = {
         "idempotency_key": idempotency_key,
         "provenance": provenance or {},
@@ -348,7 +355,7 @@ def move_inventory(
     ctx: Context,
     provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    token = _token_from_context(ctx)
+    token = _write_token_from_context(ctx)
     provenance_serializer = ProvenanceSerializer(data=provenance or {})
     if not provenance_serializer.is_valid():
         raise ToolError(f"Invalid provenance: {provenance_serializer.errors}")
@@ -395,7 +402,7 @@ def update_inventory_item(
     holdings: list[dict[str, Any]] | None = None,
     provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    token = _token_from_context(ctx)
+    token = _write_token_from_context(ctx)
     payload = {
         "item_id": item_id,
         "idempotency_key": idempotency_key,
@@ -433,7 +440,7 @@ def delete_inventory_item(
     ctx: Context,
     provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    token = _token_from_context(ctx)
+    token = _write_token_from_context(ctx)
     payload = {
         "item_id": item_id,
         "idempotency_key": idempotency_key,

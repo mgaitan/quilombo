@@ -14,6 +14,7 @@
       <h1>{{ workspace.name }}</h1>
       <p class="lede">{% translate "Search by item, category, description, or location." %}</p>
     </div>
+    {% if can_manage %}<a class="button" href="{% url 'workspace-settings' workspace.slug %}">{% translate "Settings" %}</a>{% endif %}
   </div>
 
   <form class="search-form" method="get">

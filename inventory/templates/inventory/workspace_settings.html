@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Settings" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Settings" %}</span>
+  </nav>
+  <h1>{% translate "Inventory settings" %}</h1>
+
+  <section class="settings-section">
+    <h2>{% translate "Name" %}</h2>
+    <form method="post" class="inline-settings-form">
+      {% csrf_token %}
+      <div class="field">
+        <label class="sr-only" for="{{ rename_form.name.id_for_label }}">{% translate "Name" %}</label>
+        {{ rename_form.name }}
+        {{ rename_form.name.errors }}
+      </div>
+      <button class="button" type="submit">{% translate "Rename" %}</button>
+    </form>
+  </section>
+
+  <section class="settings-section">
+    <h2>{% translate "People with access" %}</h2>
+    <ul class="member-list">
+      {% for membership in memberships %}
+        <li class="member-row">
+          <div>
+            <strong>{{ membership.user.username }}</strong>
+            <span class="row-detail">
+              {% if membership.role == "owner" %}{% translate "Owner" %}{% elif membership.role == "admin" %}{% translate "Admin" %}{% else %}{% translate "Member" %}{% endif %}
+            </span>
+          </div>
+          {% if membership.role == "owner" %}
+            <span>{% translate "Can edit" %}</span>
+          {% else %}
+            <form method="post" action="{% url 'workspace-member' workspace.slug membership.user_id %}" class="member-controls">
+              {% csrf_token %}
+              <label class="toggle-control">
+                <input name="can_write" type="checkbox" {% if membership.effective_can_write %}checked{% endif %}>
+                <span>{% translate "Can edit" %}</span>
+              </label>
+              <button class="button" type="submit">{% translate "Update" %}</button>
+              <button class="button button-danger" type="submit" name="action" value="remove">{% translate "Remove" %}</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="settings-section">
+    <h2>{% translate "Share with another user" %}</h2>
+    <form method="post" action="{% url 'workspace-share' workspace.slug %}" class="inline-settings-form share-form">
+      {% csrf_token %}
+      <div class="field">
+        {{ share_form.username.label_tag }}
+        {{ share_form.username }}
+        {{ share_form.username.errors }}
+      </div>
+      <label class="toggle-control">
+        {{ share_form.can_write }}
+        <span>{% translate "Can edit" %}</span>
+      </label>
+      <button class="button button-primary" type="submit">{% translate "Share" %}</button>
+    </form>
+  </section>
+{% endblock %}

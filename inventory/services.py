@@ -2,14 +2,16 @@ import hashlib
 import json
 import re
 import unicodedata
+import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField
 from django.db.models.functions import Cast
 from django.utils import timezone
+from django.utils.text import slugify
 
-from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
+from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Membership, Workspace
 
 
 class BulkUpsertError(Exception):
@@ -18,6 +20,66 @@ class BulkUpsertError(Exception):
 
 class IdempotencyConflict(BulkUpsertError):
     pass
+
+
+@transaction.atomic
+def create_workspace(*, user, name):
+    base = slugify(name)[:60] or "inventory"
+    workspace = Workspace.objects.create(name=name, slug=f"{base}-{uuid.uuid4().hex[:10]}")
+    Membership.objects.create(
+        workspace=workspace,
+        user=user,
+        role=Membership.Role.OWNER,
+        can_write=True,
+    )
+    return workspace
+
+
+@transaction.atomic
+def rename_workspace(*, workspace, name):
+    locked = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    locked.name = name
+    locked.save(update_fields=["name"])
+    return locked
+
+
+@transaction.atomic
+def share_workspace(*, workspace, user, can_write=True):
+    locked = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    membership = Membership.objects.select_for_update().filter(workspace=locked, user=user).first()
+    if membership:
+        if membership.role != Membership.Role.OWNER:
+            membership.can_write = can_write
+            membership.save(update_fields=["can_write"])
+        return membership
+    membership = Membership.objects.create(
+        workspace=locked,
+        user=user,
+        role=Membership.Role.MEMBER,
+        can_write=can_write,
+    )
+    return membership
+
+
+@transaction.atomic
+def update_workspace_member(*, workspace, user_id, can_write):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    membership = Membership.objects.select_for_update().get(workspace=workspace, user_id=user_id)
+    if membership.role == Membership.Role.OWNER:
+        return membership
+    membership.can_write = can_write
+    membership.save(update_fields=["can_write"])
+    return membership
+
+
+@transaction.atomic
+def remove_workspace_member(*, workspace, user_id):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    membership = Membership.objects.select_for_update().get(workspace=workspace, user_id=user_id)
+    if membership.role == Membership.Role.OWNER:
+        return False
+    membership.delete()
+    return True
 
 
 SEARCH_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)

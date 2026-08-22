@@ -193,6 +193,7 @@ class QuilomboOAuthProvider:
             client=grant.client,
             user=grant.user,
             workspace=grant.workspace,
+            can_write=grant.can_write,
             scopes=grant.scopes,
             resource=grant.resource,
         )
@@ -255,6 +256,7 @@ class QuilomboOAuthProvider:
             client=credential.client,
             user=credential.user,
             workspace=credential.workspace,
+            can_write=credential.can_write,
             scopes=scopes,
             resource=credential.resource,
             family_id=credential.family_id,
@@ -278,6 +280,7 @@ class QuilomboOAuthProvider:
                     "iss": self.issuer,
                     "workspace_id": str(identity.workspace_id),
                     "user_id": str(identity.user_id),
+                    "can_write": identity.can_write,
                 },
             )
         return StoredAccessToken(
@@ -292,6 +295,7 @@ class QuilomboOAuthProvider:
                 "iss": self.issuer,
                 "workspace_id": str(identity.workspace_id),
                 "user_id": str(identity.user_id),
+                "can_write": identity.can_write,
             },
         )
 
@@ -310,13 +314,16 @@ class QuilomboOAuthProvider:
             revoked_at__isnull=True,
         ).update(revoked_at=timezone.now())
 
-    def _issue_token_pair(self, *, client, user, workspace, scopes, resource, family_id=None):
+    def _issue_token_pair(
+        self, *, client, user, workspace, can_write, scopes, resource, family_id=None
+    ):
         family_id = family_id or uuid.uuid4()
         access, raw_access = OAuthCredential.issue(
             kind=OAuthCredential.Kind.ACCESS,
             client=client,
             user=user,
             workspace=workspace,
+            can_write=can_write,
             family_id=family_id,
             scopes=scopes,
             resource=resource,
@@ -327,6 +334,7 @@ class QuilomboOAuthProvider:
             client=client,
             user=user,
             workspace=workspace,
+            can_write=can_write,
             family_id=family_id,
             scopes=scopes,
             resource=resource,
@@ -341,8 +349,9 @@ class QuilomboOAuthProvider:
         )
 
 
-def create_authorization_grant(*, authorization_request, user, workspace):
-    if not Membership.objects.filter(user=user, workspace=workspace).exists():
+def create_authorization_grant(*, authorization_request, user, workspace, can_write=True):
+    membership = Membership.objects.filter(user=user, workspace=workspace).first()
+    if not membership:
         raise ValueError("Workspace is not available to this user.")
     prefix = secrets.token_hex(6)
     secret = secrets.token_urlsafe(32)
@@ -353,6 +362,7 @@ def create_authorization_grant(*, authorization_request, user, workspace):
         client=authorization_request.client,
         user=user,
         workspace=workspace,
+        can_write=can_write and (membership.role == Membership.Role.OWNER or membership.can_write),
         scopes=authorization_request.scopes,
         code_challenge=authorization_request.code_challenge,
         redirect_uri=authorization_request.redirect_uri,
