@@ -9,7 +9,12 @@ from mcp.types import ToolAnnotations
 
 from .models import Holding, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
-from .serializers import BulkUpsertSerializer, ProvenanceSerializer
+from .serializers import (
+    BulkUpsertSerializer,
+    ItemDeleteSerializer,
+    ItemRepairSerializer,
+    ProvenanceSerializer,
+)
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
@@ -23,7 +28,13 @@ from .services import (
     bulk_upsert_inventory as bulk_upsert_service,
 )
 from .services import (
+    delete_inventory_item as delete_inventory_item_service,
+)
+from .services import (
     move_inventory as move_inventory_service,
+)
+from .services import (
+    update_inventory_item as update_inventory_item_service,
 )
 
 oauth_provider = QuilomboOAuthProvider()
@@ -83,6 +94,8 @@ def _token_from_context(ctx: Context):
 def _serialize_holding(holding, clue_context=None):
     clue_context = clue_context or {}
     serialized = {
+        "holding_id": str(holding.id),
+        "item_id": str(holding.item.id),
         "item_key": holding.item.key,
         "item_name": holding.item.name,
         "item_description": holding.item.description,
@@ -90,6 +103,7 @@ def _serialize_holding(holding, clue_context=None):
         "category": holding.item.category,
         "attributes": holding.item.attributes,
         "location_key": holding.location.key,
+        "location_id": str(holding.location.id),
         "location_name": holding.location.name,
         "location_path": clue_context.get("location_paths", {}).get(holding.location_id, []),
         "nearby_items": clue_context.get("nearby_by_holding", {}).get(holding.id, []),
@@ -309,3 +323,80 @@ def move_inventory(
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error
     return {"event_id": str(event.id), "replayed": replayed, "move": event.summary}
+
+
+@server.tool(
+    title="Update an inventory item",
+    description=(
+        "Correct a known item and optionally its known holdings by stable UUID. Search first and "
+        "supply only confirmed fields. Holding location_id moves that complete holding; quantity "
+        "replaces its current quantity. This writes immediately."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def update_inventory_item(
+    item_id: str,
+    idempotency_key: str,
+    ctx: Context,
+    item: dict[str, Any] | None = None,
+    holdings: list[dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    payload = {
+        "item_id": item_id,
+        "idempotency_key": idempotency_key,
+        "item": item or {},
+        "holdings": holdings or [],
+        "provenance": provenance or {},
+    }
+    serializer = ItemRepairSerializer(data=payload)
+    if not serializer.is_valid():
+        raise ToolError(f"Invalid item update: {serializer.errors}")
+    try:
+        event, replayed = update_inventory_item_service(
+            workspace=token.workspace,
+            actor=token.user,
+            data=serializer.validated_data,
+            request_hash=hash_request(serializer.validated_data),
+        )
+    except (BulkUpsertError, IdempotencyConflict) as error:
+        raise ToolError(str(error)) from error
+    return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}
+
+
+@server.tool(
+    title="Delete an erroneous inventory item",
+    description=(
+        "Delete a known erroneous or duplicate item and its holdings by stable UUID. Search first "
+        "and use only after the client has enough evidence and applies its confirmation policy."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def delete_inventory_item(
+    item_id: str,
+    idempotency_key: str,
+    ctx: Context,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    payload = {
+        "item_id": item_id,
+        "idempotency_key": idempotency_key,
+        "provenance": provenance or {},
+    }
+    serializer = ItemDeleteSerializer(data=payload)
+    if not serializer.is_valid():
+        raise ToolError(f"Invalid item deletion: {serializer.errors}")
+    try:
+        event, replayed = delete_inventory_item_service(
+            workspace=token.workspace,
+            actor=token.user,
+            data=serializer.validated_data,
+            request_hash=hash_request(serializer.validated_data),
+        )
+    except (BulkUpsertError, IdempotencyConflict) as error:
+        raise ToolError(str(error)) from error
+    return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}
