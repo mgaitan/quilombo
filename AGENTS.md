@@ -3,7 +3,9 @@
 ## Workflow
 
 - Track implementation work in a GitHub issue before editing code.
-- Work on `integration/v1`; do not open a pull request for each commit.
+- Work on a dedicated branch and open a separate pull request for each issue.
+- Merge reviewed pull requests before preparing a release.
+- Deploy production only by publishing a GitHub Release; branch pushes must not deploy.
 - Use Conventional Commits and reference completed issues in commit bodies.
 - Keep commits focused and leave unrelated working-tree changes untouched.
 
