@@ -117,6 +117,20 @@ p { margin: 0 0 18px; }
   margin-top: 26px;
 }
 
+.dictionary-entry {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 32px;
+  max-width: 720px;
+  margin-top: 72px;
+  border-block: 1px solid #d9ddda;
+  padding: 24px 0;
+}
+
+.dictionary-entry h2 { margin-bottom: 2px; font-size: 28px; }
+.dictionary-entry p { align-self: center; margin: 0; }
+.dictionary-class { color: #6c726e; font: 12px system-ui, sans-serif; text-transform: uppercase; }
+
 .button {
   display: inline-flex;
   min-height: 38px;
@@ -320,6 +334,7 @@ code {
   .intro { grid-template-columns: 1fr; gap: 32px; }
   .intro-image { order: -1; }
   .feature-grid { grid-template-columns: 1fr; gap: 20px; }
+  .dictionary-entry { grid-template-columns: 1fr; gap: 12px; }
   .band { margin-top: 58px; }
   .page-heading { display: block; }
   .page-heading > .button { margin-top: 20px; }

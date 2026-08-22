@@ -1173,6 +1173,29 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
 
 
 @pytest.mark.django_db
+def test_about_link_and_dictionary_entry_follow_language(client):
+    english = client.get("/", HTTP_ACCEPT_LANGUAGE="en-US")
+    english_content = english.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/en/posts/quilombo-agents-to-organize-real-life/"
+        in english_content
+    )
+    assert "noun · lunfardo" in english_content
+    assert "a mess, a chaotic tangle" in english_content
+
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="es-AR")
+    spanish_content = spanish.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/"
+        in spanish_content
+    )
+    assert "sustantivo · lunfardo" in spanish_content
+    assert "un lío, un enredo caótico" in spanish_content
+
+
+@pytest.mark.django_db
 def test_manual_language_switch_persists_choice(client):
     switched = client.post(
         "/i18n/setlang/",
@@ -1394,6 +1417,66 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
     assert response.status_code == 200
     assert "Cajón 1" in content
     assert [holding.location.key for holding in response.context["holdings"]] == ["cajon-1"]
+
+
+@pytest.mark.django_db
+def test_human_location_filter_renders_depth_first_tree(client, users, workspaces):
+    workshop, library = workspaces
+    bookcase = Location.objects.create(
+        workspace=workshop,
+        key="bookcase",
+        name="Biblioteca de 4 estantes",
+    )
+    shelf = Location.objects.create(
+        workspace=workshop,
+        key="shelf-1",
+        name="Estante 1",
+        parent=bookcase,
+    )
+    Location.objects.create(
+        workspace=workshop,
+        key="drawer-1",
+        name="Cajón 1",
+        parent=shelf,
+    )
+    Location.objects.create(
+        workspace=workshop,
+        key="hallway-library",
+        name="Biblioteca del pasillo",
+    )
+    client.force_login(users[0])
+
+    response = client.get("/app/workshop/", {"location": "drawer-1"})
+
+    assert response.status_code == 200
+    assert response.context["location_options"] == [
+        {"key": "bookcase", "label": "Biblioteca de 4 estantes"},
+        {"key": "shelf-1", "label": "\u00a0\u00a0⤷ Estante 1"},
+        {"key": "drawer-1", "label": "\u00a0\u00a0\u00a0\u00a0⤷ Cajón 1"},
+        {"key": "hallway-library", "label": "Biblioteca del pasillo"},
+    ]
+    assert 'value="drawer-1" selected' in response.content.decode()
+
+    fiction = Location.objects.create(
+        workspace=library,
+        key="fiction",
+        name="Ficción",
+    )
+    Location.objects.create(
+        workspace=library,
+        key="latin-america",
+        name="Latinoamérica",
+        parent=fiction,
+    )
+    client.force_login(users[1])
+
+    library_response = client.get("/app/library/")
+
+    assert library_response.status_code == 200
+    assert library_response.context["location_options"] == [
+        {"key": "fiction", "label": "Ficción"},
+        {"key": "latin-america", "label": "\u00a0\u00a0⤷ Latinoamérica"},
+    ]
 
 
 @pytest.mark.django_db
