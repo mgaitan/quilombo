@@ -11,6 +11,7 @@ from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from django.views.decorators.http import require_http_methods
 from django.views.generic import FormView
 from drf_spectacular.utils import extend_schema
@@ -408,7 +409,7 @@ def oauth_consent(request):
         {
             "authorization_request": authorization_request,
             "client_name": authorization_request.client.metadata.get("client_name")
-            or "Una aplicación",
+            or _("An application"),
             "workspaces": workspaces,
         },
     )

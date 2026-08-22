@@ -25,6 +25,7 @@ def health_check(request):
 
 
 urlpatterns = [
+    path("i18n/", include("django.conf.urls.i18n")),
     path("", home, name="home"),
     path("app/", dashboard, name="dashboard"),
     path(

@@ -1,41 +1,41 @@
 {% extends "base.html" %}
-{% load static %}
+{% load i18n static %}
 
 {% block content %}
   <section class="intro" aria-labelledby="page-title">
     <div class="intro-copy">
       <h1 id="page-title">Quilombo</h1>
-      <p class="lede">Un inventario para organizar el mundo físico con agentes.</p>
-      <p>Modelá talleres, pañoles, bibliotecas o depósitos como ubicaciones anidadas. Después preguntale a tu agente dónde está algo, o pedile que actualice cientos de registros en una sola operación.</p>
+      <p class="lede">{% translate "A memory for the things around you." %}</p>
+      <p>{% translate "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up." %}</p>
       <div class="actions">
         {% if user.is_authenticated %}
-          <a class="button button-primary" href="{% url 'dashboard' %}">Ver inventarios</a>
+          <a class="button button-primary" href="{% url 'dashboard' %}">{% translate "Open inventories" %}</a>
         {% else %}
-          <a class="button button-primary" href="{% url 'signup' %}">Crear cuenta</a>
-          <a class="button" href="{% url 'login' %}">Ingresar</a>
+          <a class="button button-primary" href="{% url 'signup' %}">{% translate "Create account" %}</a>
+          <a class="button" href="{% url 'login' %}">{% translate "Sign in" %}</a>
         {% endif %}
       </div>
     </div>
-    <img class="intro-image" src="{% static 'inventory/organized-storage.webp' %}" alt="Cajones y compartimientos de taller organizados junto a una biblioteca.">
+    <img class="intro-image" src="{% static 'inventory/organized-storage.webp' %}" alt="{% translate "Workshop drawers and compartments next to a bookcase." %}">
   </section>
 
   <section class="band" aria-labelledby="how-title">
-    <h2 id="how-title">Ubicaciones dentro de ubicaciones</h2>
-    <p>Un workspace separa personas y datos. Dentro suyo, las ubicaciones representan el espacio físico: taller, cajonera, cajón y compartimiento. Las búsquedas pueden abarcar cualquier rama completa, como “buscá en el taller”.</p>
+    <h2 id="how-title">{% translate "Start with the detail you have" %}</h2>
+    <p>{% translate "You can record that the electronics are in the red box today. Add the shelf, organizer, and exact compartment later. Both descriptions remain useful." %}</p>
   </section>
 
-  <section class="feature-grid" aria-label="Capacidades principales">
+  <section class="feature-grid" aria-label="{% translate "What you can do" %}">
     <div>
-      <h2>Encontrar</h2>
-      <p>Consultá nombres, categorías, alias y atributos, aunque el inventario no tenga una descripción perfecta.</p>
+      <h2>{% translate "Describe" %}</h2>
+      <p>{% translate "Tell the agent what is in a drawer, shelf, workshop, or library using ordinary words." %}</p>
     </div>
     <div>
-      <h2>Actualizar</h2>
-      <p>Los agentes pueden hacer upserts masivos e idempotentes e informar de dónde obtuvieron cada observación.</p>
+      <h2>{% translate "Find" %}</h2>
+      <p>{% translate "Search the web inventory or ask the agent where an item was last recorded." %}</p>
     </div>
     <div>
-      <h2>Conectar</h2>
-      <p>Usá el MCP remoto desde ChatGPT, Claude u otro cliente compatible. OAuth limita cada conexión al workspace elegido.</p>
+      <h2>{% translate "Connect" %}</h2>
+      <p>{% translate "Use Quilombo from ChatGPT, Claude, or another MCP client and choose which inventory it can access." %}</p>
     </div>
   </section>
 {% endblock %}

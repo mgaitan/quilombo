@@ -643,13 +643,51 @@ def test_public_home_and_connector_guide(client):
     signup_response = client.get("/accounts/signup/")
 
     assert home_response.status_code == 200
-    assert "organizar el mundo físico" in home_response.content.decode()
+    assert "Una memoria para las cosas que te rodean." in home_response.content.decode()
+    assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
     assert "ChatGPT" in connector_response.content.decode()
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_web_detects_english_and_spanish_from_accept_language(client):
+    english = client.get("/", HTTP_ACCEPT_LANGUAGE="en-US,en;q=0.9")
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="es-AR,es;q=0.9")
+
+    english_content = english.content.decode()
+    spanish_content = spanish.content.decode()
+    assert '<html lang="en">' in english_content
+    assert "A memory for the things around you." in english_content
+    assert "Create account" in english_content
+    assert '<html lang="es">' in spanish_content
+    assert "Una memoria para las cosas que te rodean." in spanish_content
+    assert "Crear cuenta" in spanish_content
+
+
+@pytest.mark.django_db
+def test_manual_language_switch_persists_choice(client):
+    switched = client.post(
+        "/i18n/setlang/",
+        {"language": "en", "next": "/connect/"},
+    )
+
+    assert switched.status_code == 302
+    assert switched.url == "/connect/"
+    assert switched.cookies["django_language"].value == "en"
+
+    english = client.get("/connect/", HTTP_ACCEPT_LANGUAGE="es")
+    content = english.content.decode()
+    assert '<html lang="en">' in content
+    assert "Connect an agent" in content
+    assert 'value="en" aria-current="true"' in content
+
+    client.post("/i18n/setlang/", {"language": "es", "next": "/"})
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="en")
+    assert "Una memoria para las cosas que te rodean." in spanish.content.decode()
 
 
 @pytest.mark.django_db
@@ -701,7 +739,7 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
     other_workspace = client.get(f"/app/{library.slug}/first-inventory/")
 
     assert guide.status_code == 200
-    assert "una zona por vez" in guide.content.decode()
+    assert "una zona a la vez" in guide.content.decode()
     assert other_workspace.status_code == 404
 
 
