@@ -1,59 +1,60 @@
 {% extends "base.html" %}
+{% load i18n %}
 
 {% block title %}{{ workspace.name }} | Quilombo{% endblock %}
 
 {% block content %}
-  <nav class="breadcrumb" aria-label="Migas de pan">
-    <a href="{% url 'dashboard' %}">Inventarios</a>
+  <nav class="breadcrumb" aria-label="{% translate "Breadcrumb" %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
     <span aria-hidden="true">/</span>
     <span>{{ workspace.name }}</span>
   </nav>
   <div class="page-heading">
     <div>
       <h1>{{ workspace.name }}</h1>
-      <p class="lede">Buscá por objeto, categoría, alias, atributo o ubicación.</p>
+      <p class="lede">{% translate "Search by item, category, description, or location." %}</p>
     </div>
   </div>
 
   <form class="search-form" method="get">
     <div>
-      <label for="query">Qué estás buscando</label>
-      <input id="query" name="q" type="search" value="{{ query }}" placeholder="tornillos para madera">
+      <label for="query">{% translate "What are you looking for?" %}</label>
+      <input id="query" name="q" type="search" value="{{ query }}" placeholder="{% translate "wood screws" %}">
     </div>
     <div>
-      <label for="location">Dentro de</label>
+      <label for="location">{% translate "Within" %}</label>
       <select id="location" name="location">
-        <option value="">Todo {{ workspace.name }}</option>
+        <option value="">{% blocktranslate with name=workspace.name %}All of {{ name }}{% endblocktranslate %}</option>
         {% for location in locations %}
           <option value="{{ location.key }}" {% if location.key == location_key %}selected{% endif %}>{{ location.name }}</option>
         {% endfor %}
       </select>
     </div>
-    <button class="button button-primary" type="submit">Buscar</button>
+    <button class="button button-primary" type="submit">{% translate "Search" %}</button>
   </form>
 
   {% if stock_status.items %}
     <div class="page-heading section-heading">
       <div>
-        <h2>Requieren atención</h2>
-        <p class="lede">Faltantes y cantidades por debajo del mínimo configurado.</p>
+        <h2>{% translate "Low stock" %}</h2>
+        <p class="lede">{% translate "Items below the minimum quantity you configured." %}</p>
       </div>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Objeto</th>
-            <th>Estado</th>
-            <th>Actual / mínimo</th>
-            <th>Reponer</th>
+            <th>{% translate "Item" %}</th>
+            <th>{% translate "Status" %}</th>
+            <th>{% translate "Current / minimum" %}</th>
+            <th>{% translate "Add" %}</th>
           </tr>
         </thead>
         <tbody>
           {% for item in stock_status.items %}
             <tr>
               <td><strong>{{ item.item_name }}</strong><span class="row-detail">{{ item.item_key }}</span></td>
-              <td>{% if item.status == "missing" %}Falta{% else %}Stock bajo{% endif %}</td>
+              <td>{% if item.status == "missing" %}{% translate "Missing" %}{% else %}{% translate "Low" %}{% endif %}</td>
               <td>{{ item.current_quantity|floatformat:"-6" }} / {{ item.minimum_quantity|floatformat:"-6" }} {{ item.unit }}</td>
               <td>{{ item.recommended_add_quantity|floatformat:"-6" }} {{ item.unit }}</td>
             </tr>
@@ -64,16 +65,20 @@
   {% endif %}
 
   <div class="result-summary">
-    {% if truncated %}Más de 1000 resultados{% else %}{{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }}{% endif %}
+    {% if truncated %}
+      {% translate "More than 1000 results" %}
+    {% else %}
+      {% blocktranslate count count=page_obj.paginator.count %}{{ count }} result{% plural %}{{ count }} results{% endblocktranslate %}
+    {% endif %}
   </div>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>Objeto</th>
-          <th>Ubicación</th>
-          <th>Cantidad</th>
-          <th>Notas</th>
+          <th>{% translate "Item" %}</th>
+          <th>{% translate "Location" %}</th>
+          <th>{% translate "Quantity" %}</th>
+          <th>{% translate "Notes" %}</th>
         </tr>
       </thead>
       <tbody>
@@ -85,10 +90,10 @@
             </td>
             <td>{{ holding.location.name }}<span class="row-detail">{{ holding.location.key }}</span></td>
             <td>{% if holding.approximate %}≈{% endif %}{{ holding.quantity|floatformat:"-6" }} {{ holding.item.unit }}</td>
-            <td>{{ holding.notes|default:"—" }}</td>
+            <td>{{ holding.notes|default:_("No notes") }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="4">Todavía no hay existencias que coincidan.</td></tr>
+          <tr><td colspan="4">{% translate "No recorded holdings match this search." %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

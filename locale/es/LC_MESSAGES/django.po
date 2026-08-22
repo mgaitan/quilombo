@@ -1,0 +1,294 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Quilombo\n"
+"Language: es\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Spanish"
+msgstr "Español"
+
+msgid "English"
+msgstr "Inglés"
+
+msgid "An application"
+msgstr "Una aplicación"
+
+msgid "An inventory your AI agent can read and update."
+msgstr "Un inventario que tu agente de IA puede consultar y actualizar."
+
+msgid "Main navigation"
+msgstr "Navegación principal"
+
+msgid "Connect"
+msgstr "Conectar"
+
+msgid "Inventories"
+msgstr "Inventarios"
+
+msgid "Sign out"
+msgstr "Salir"
+
+msgid "Sign in"
+msgstr "Ingresar"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "About Quilombo"
+msgstr "Sobre Quilombo"
+
+msgid "Connect an agent"
+msgstr "Conectar un agente"
+
+msgid "Add Quilombo as an MCP server, sign in, and choose the inventory this connection can read and update."
+msgstr "Agregá Quilombo como servidor MCP, ingresá y elegí el inventario que esta conexión puede consultar y actualizar."
+
+msgid "Server URL"
+msgstr "URL del servidor"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Open Settings, then Apps & Connectors, Advanced settings, and enable Developer mode."
+msgstr "Abrí Configuración, Apps y conectores, Configuración avanzada, y activá el modo desarrollador."
+
+msgid "Create an app, choose Server URL, and paste the URL above."
+msgstr "Creá una app, elegí URL del servidor y pegá la URL de arriba."
+
+msgid "Choose OAuth authentication. ChatGPT will open Quilombo so you can sign in and select an inventory."
+msgstr "Elegí OAuth como autenticación. ChatGPT abrirá Quilombo para que ingreses y elijas un inventario."
+
+msgid "Upload the Quilombo skill so the agent follows the recommended inventory workflow."
+msgstr "Subí la skill de Quilombo para que el agente siga el flujo recomendado para inventarios."
+
+msgid "Open ChatGPT"
+msgstr "Abrir ChatGPT"
+
+msgid "Download skill"
+msgstr "Descargar skill"
+
+msgid "Official guide"
+msgstr "Guía oficial"
+
+msgid "Open Customize, then Connectors, and add a custom connector."
+msgstr "Abrí Personalizar, luego Conectores, y agregá un conector personalizado."
+
+msgid "Enter Quilombo as the name and paste the server URL."
+msgstr "Ingresá Quilombo como nombre y pegá la URL del servidor."
+
+msgid "Sign in to Quilombo and choose an inventory when the authorization page opens."
+msgstr "Ingresá a Quilombo y elegí un inventario cuando se abra la autorización."
+
+msgid "Open Claude"
+msgstr "Abrir Claude"
+
+msgid "Custom MCP servers are added from each client's settings. There is no shared installation link."
+msgstr "Los servidores MCP personalizados se agregan desde la configuración de cada cliente. No hay un enlace de instalación común."
+
+msgid "URL copied"
+msgstr "URL copiada"
+
+msgid "Open an inventory to search what you recorded or start with a new place."
+msgstr "Abrí un inventario para buscar lo que registraste o empezá con un lugar nuevo."
+
+msgid "%(count)s location"
+msgid_plural "%(count)s locations"
+msgstr[0] "%(count)s ubicación"
+msgstr[1] "%(count)s ubicaciones"
+
+msgid "%(count)s item"
+msgid_plural "%(count)s items"
+msgstr[0] "%(count)s objeto"
+msgstr[1] "%(count)s objetos"
+
+msgid "%(count)s holding"
+msgid_plural "%(count)s holdings"
+msgstr[0] "%(count)s existencia"
+msgstr[1] "%(count)s existencias"
+
+msgid "Start"
+msgstr "Empezar"
+
+msgid "You do not have any inventories yet."
+msgstr "Todavía no tenés inventarios."
+
+msgid "Start %(name)s"
+msgstr "Empezar %(name)s"
+
+msgid "Breadcrumb"
+msgstr "Migas de pan"
+
+msgid "First inventory"
+msgstr "Primer inventario"
+
+msgid "Start with one place"
+msgstr "Empezá por un lugar"
+
+msgid "Choose a drawer, shelf, box, or room you can describe now. You can add more detail later."
+msgstr "Elegí un cajón, estante, caja o ambiente que puedas describir ahora. Más adelante podés agregar detalles."
+
+msgid "Tell your agent which place you want to inventory, such as your workshop or library."
+msgstr "Decile a tu agente qué lugar querés inventariar, por ejemplo tu taller o tu biblioteca."
+
+msgid "Describe one area at a time. If your agent supports images, you can show it a photo instead."
+msgstr "Describí una zona por vez. Si tu agente admite imágenes, también podés mostrarle una foto."
+
+msgid "Check the locations, items, and quantities the agent proposes."
+msgstr "Revisá las ubicaciones, los objetos y las cantidades que propone el agente."
+
+msgid "Confirm the change, then continue with another area when you are ready."
+msgstr "Confirmá el cambio y seguí con otra zona cuando quieras."
+
+msgid "Try this:"
+msgstr "Podés decirle:"
+
+msgid "I want to inventory my workshop. Ask me about one area at a time and let me review each change before saving it."
+msgstr "Quiero inventariar mi taller. Preguntame por una zona a la vez y dejame revisar cada cambio antes de guardarlo."
+
+msgid "Open inventory"
+msgstr "Abrir inventario"
+
+msgid "A memory for the things around you."
+msgstr "Una memoria para las cosas que te rodean."
+
+msgid "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up."
+msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale dónde quedaron las bisagras, un libro o esa mecha de 6 mm."
+
+msgid "Open inventories"
+msgstr "Abrir inventarios"
+
+msgid "Create account"
+msgstr "Crear cuenta"
+
+msgid "Workshop drawers and compartments next to a bookcase."
+msgstr "Cajones y compartimientos de taller junto a una biblioteca."
+
+msgid "Start with the detail you have"
+msgstr "Empezá con el detalle que tengas"
+
+msgid "You can record that the electronics are in the red box today. Add the shelf, organizer, and exact compartment later. Both descriptions remain useful."
+msgstr "Hoy podés registrar que las cosas de electrónica están en la caja roja. Más adelante agregás el estante, el organizador y el compartimiento exacto."
+
+msgid "What you can do"
+msgstr "Qué podés hacer"
+
+msgid "Describe"
+msgstr "Describir"
+
+msgid "Tell the agent what is in a drawer, shelf, workshop, or library using ordinary words."
+msgstr "Contale al agente qué hay en un cajón, un estante, un taller o una biblioteca con palabras comunes."
+
+msgid "Find"
+msgstr "Encontrar"
+
+msgid "Search the web inventory or ask the agent where an item was last recorded."
+msgstr "Buscá en el inventario web o preguntale al agente dónde se registró un objeto por última vez."
+
+msgid "Use Quilombo from ChatGPT, Claude, or another MCP client and choose which inventory it can access."
+msgstr "Usá Quilombo desde ChatGPT, Claude u otro cliente MCP y elegí a qué inventario puede acceder."
+
+msgid "Authorize access"
+msgstr "Autorizar acceso"
+
+msgid "Authorize %(name)s"
+msgstr "Autorizar a %(name)s"
+
+msgid "This application will be able to search and update the inventory you choose."
+msgstr "Esta aplicación podrá buscar y actualizar el inventario que elijas."
+
+msgid "Inventory"
+msgstr "Inventario"
+
+msgid "Authorize"
+msgstr "Autorizar"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "No inventory available"
+msgstr "No hay un inventario disponible"
+
+msgid "This account does not have an inventory that can be shared with the application."
+msgstr "Esta cuenta no tiene un inventario que pueda compartir con la aplicación."
+
+msgid "Search by item, category, description, or location."
+msgstr "Buscá por objeto, categoría, descripción o ubicación."
+
+msgid "What are you looking for?"
+msgstr "¿Qué estás buscando?"
+
+msgid "wood screws"
+msgstr "tornillos para madera"
+
+msgid "Within"
+msgstr "Dentro de"
+
+msgid "All of %(name)s"
+msgstr "Todo %(name)s"
+
+msgid "Search"
+msgstr "Buscar"
+
+msgid "Low stock"
+msgstr "Stock bajo"
+
+msgid "Items below the minimum quantity you configured."
+msgstr "Objetos por debajo de la cantidad mínima que configuraste."
+
+msgid "Item"
+msgstr "Objeto"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Current / minimum"
+msgstr "Actual / mínimo"
+
+msgid "Add"
+msgstr "Reponer"
+
+msgid "Missing"
+msgstr "Falta"
+
+msgid "Low"
+msgstr "Bajo"
+
+msgid "%(count)s result"
+msgid_plural "%(count)s results"
+msgstr[0] "%(count)s resultado"
+msgstr[1] "%(count)s resultados"
+
+msgid "Location"
+msgstr "Ubicación"
+
+msgid "Quantity"
+msgstr "Cantidad"
+
+msgid "Notes"
+msgstr "Notas"
+
+msgid "No notes"
+msgstr "Sin notas"
+
+msgid "No recorded holdings match this search."
+msgstr "No hay existencias registradas que coincidan con esta búsqueda."
+
+msgid "Use your Quilombo account."
+msgstr "Usá tu cuenta de Quilombo."
+
+msgid "New to Quilombo?"
+msgstr "¿Primera vez en Quilombo?"
+
+msgid "Create an account"
+msgstr "Crear una cuenta"
+
+msgid "Your account starts with a private inventory named Home."
+msgstr "Tu cuenta empieza con un inventario privado llamado Home."
+
+msgid "Already have an account?"
+msgstr "¿Ya tenés cuenta?"
+
+msgid "More than 1000 results"
+msgstr "Más de 1000 resultados"

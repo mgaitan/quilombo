@@ -1,34 +1,41 @@
-{% load static %}
+{% load i18n static %}
+{% get_current_language as LANGUAGE_CODE %}
 <!doctype html>
-<html lang="es">
+<html lang="{{ LANGUAGE_CODE }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Quilombo{% endblock %}</title>
-    <meta name="description" content="Inventario agent-first para encontrar y organizar objetos físicos.">
+    <meta name="description" content="{% translate "An inventory your AI agent can read and update." %}">
     <link rel="stylesheet" href="{% static 'inventory/styles.css' %}">
   </head>
   <body>
     <header class="masthead">
       <a class="wordmark" href="{% url 'home' %}">Quilombo</a>
-      <nav class="nav" aria-label="Principal">
-        <a href="{% url 'connector-guide' %}">Conectar</a>
+      <nav class="nav" aria-label="{% translate "Main navigation" %}">
+        <a href="{% url 'connector-guide' %}">{% translate "Connect" %}</a>
         {% if user.is_authenticated %}
-          <a href="{% url 'dashboard' %}">Inventarios</a>
+          <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
           <form action="{% url 'logout' %}" method="post">
             {% csrf_token %}
-            <button class="text-button" type="submit">Salir</button>
+            <button class="text-button" type="submit">{% translate "Sign out" %}</button>
           </form>
         {% else %}
-          <a href="{% url 'login' %}">Ingresar</a>
+          <a href="{% url 'login' %}">{% translate "Sign in" %}</a>
         {% endif %}
+        <form class="language-switch" action="{% url 'set_language' %}" method="post" aria-label="{% translate "Language" %}">
+          {% csrf_token %}
+          <input name="next" type="hidden" value="{{ request.get_full_path }}">
+          <button type="submit" name="language" value="es" {% if LANGUAGE_CODE == "es" %}aria-current="true"{% endif %}>ES</button>
+          <button type="submit" name="language" value="en" {% if LANGUAGE_CODE == "en" %}aria-current="true"{% endif %}>EN</button>
+        </form>
       </nav>
     </header>
     <main class="page {% block page_class %}{% endblock %}">
       {% block content %}{% endblock %}
     </main>
     <footer class="footer">
-      <span>Quilombo guarda hechos. La inteligencia vive en tus agentes.</span>
+      <a href="https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/">{% translate "About Quilombo" %}</a>
       <a href="https://github.com/mgaitan/quilombo">GitHub</a>
       <a href="{% url 'api-docs' %}">API</a>
     </footer>
