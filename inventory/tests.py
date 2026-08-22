@@ -1300,7 +1300,7 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
 
 @pytest.mark.django_db
 def test_human_location_filter_renders_depth_first_tree(client, users, workspaces):
-    workshop, _ = workspaces
+    workshop, library = workspaces
     bookcase = Location.objects.create(
         workspace=workshop,
         key="bookcase",
@@ -1335,6 +1335,27 @@ def test_human_location_filter_renders_depth_first_tree(client, users, workspace
         {"key": "hallway-library", "label": "Biblioteca del pasillo"},
     ]
     assert 'value="drawer-1" selected' in response.content.decode()
+
+    fiction = Location.objects.create(
+        workspace=library,
+        key="fiction",
+        name="Ficción",
+    )
+    Location.objects.create(
+        workspace=library,
+        key="latin-america",
+        name="Latinoamérica",
+        parent=fiction,
+    )
+    client.force_login(users[1])
+
+    library_response = client.get("/app/library/")
+
+    assert library_response.status_code == 200
+    assert library_response.context["location_options"] == [
+        {"key": "fiction", "label": "Ficción"},
+        {"key": "latin-america", "label": "\u00a0\u00a0⤷ Latinoamérica"},
+    ]
 
 
 @pytest.mark.django_db
