@@ -48,6 +48,12 @@ supplied current values. Every mutation should carry a unique idempotency key an
 short provenance reference such as “processed from a workshop photo on 2026-08-14”; source media is
 not uploaded or retained.
 
+Portable workspace transfer is available through
+`GET /api/workspaces/{slug}/export/?format=json|csv` and
+`POST /api/workspaces/{slug}/import/`. Imports preserve stable record UUIDs, support a
+non-mutating dry run, commit atomically, and record client-supplied provenance. See
+[Import and export](docs/import_export.md) for the versioned contract.
+
 REST collection responses use a stable paginated envelope:
 
 ```json

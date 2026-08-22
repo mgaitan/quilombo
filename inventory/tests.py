@@ -2,8 +2,11 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
+import uuid
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -24,6 +27,7 @@ from .models import (
     InventoryEvent,
     Item,
     Location,
+    LocationRelation,
     Membership,
     OAuthAuthorizationRequest,
     OAuthClient,
@@ -369,6 +373,348 @@ def test_bulk_upsert_query_count_is_constant_for_large_batch(users, workspaces):
 
     assert response.status_code == 201
     assert len(queries) < 25
+
+
+@pytest.mark.django_db
+def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, workspaces):
+    workshop, _ = workspaces
+    root = Location.objects.create(workspace=workshop, key="workshop", name="Workshop")
+    drawer = Location.objects.create(
+        workspace=workshop,
+        key="drawer",
+        name="Drawer",
+        parent=root,
+        aliases=["cajón"],
+        metadata={"zone": 1},
+    )
+    item = Item.objects.create(
+        workspace=workshop,
+        key="screws",
+        name="Screws",
+        attributes={"material": "steel"},
+        unit="piece",
+        minimum_quantity=Decimal("5"),
+        target_quantity=Decimal("10"),
+    )
+    holding = Holding.objects.create(
+        workspace=workshop,
+        item=item,
+        location=drawer,
+        quantity=Decimal("8"),
+        approximate=True,
+        notes="Counted by hand",
+    )
+    relation = LocationRelation.objects.create(
+        workspace=workshop,
+        subject=drawer,
+        relation=LocationRelation.Relation.NEAR,
+        object=root,
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    exported = client.get("/api/workspaces/workshop/export/", {"format": "json"})
+    document = exported.json()
+
+    assert exported.status_code == 200
+    assert "workshop-inventory.json" in exported.headers["Content-Disposition"]
+    assert document["format_version"] == "1.0"
+    assert document["holdings"][0]["id"] == str(holding.id)
+
+    drawer_id = drawer.id
+    item_id = item.id
+    holding_id = holding.id
+    relation.delete()
+    holding.delete()
+    item.delete()
+    drawer.delete()
+    root.delete()
+    payload = {
+        "format": "json",
+        "document": document,
+        "dry_run": True,
+        "idempotency_key": "json-import-001",
+        "provenance": {
+            "client_actor": "test-importer",
+            "source_reference": "Round-trip fixture",
+        },
+    }
+    preview = client.post("/api/workspaces/workshop/import/", payload, format="json")
+
+    assert preview.status_code == 200
+    assert preview.json()["event_id"] is None
+    assert preview.json()["summary"]["locations"] == {"created": 2, "updated": 0}
+    assert workshop.locations.count() == 0
+    assert not workshop.inventory_events.filter(idempotency_key="json-import-001").exists()
+
+    payload["dry_run"] = False
+    imported = client.post("/api/workspaces/workshop/import/", payload, format="json")
+    replayed = client.post("/api/workspaces/workshop/import/", payload, format="json")
+
+    assert imported.status_code == 200
+    assert imported.json()["replayed"] is False
+    assert replayed.json()["replayed"] is True
+    assert workshop.locations.get(id=drawer_id).aliases == ["cajón"]
+    assert workshop.items.get(id=item_id).attributes == {"material": "steel"}
+    assert workshop.holdings.get(id=holding_id).quantity == Decimal("8")
+    event = workshop.inventory_events.get(idempotency_key="json-import-001")
+    assert event.source_kind == InventoryEvent.SourceKind.IMPORT
+    assert event.client_actor == "test-importer"
+    assert event.metadata["transfer_format_version"] == "1.0"
+
+
+@pytest.mark.django_db
+def test_csv_inventory_round_trip_covers_library_records(users, workspaces):
+    _, library = workspaces
+    shelf = Location.objects.create(
+        workspace=library,
+        key="poetry",
+        name="Poesía",
+        metadata={"floor": 2},
+    )
+    book = Item.objects.create(
+        workspace=library,
+        key="gelman",
+        name="Interrupciones I",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+        attributes={"author": "Juan Gelman"},
+    )
+    holding = Holding.objects.create(
+        workspace=library,
+        item=book,
+        location=shelf,
+        quantity=Decimal("1"),
+        notes="Firmado",
+    )
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    exported = client.get("/api/workspaces/library/export/", {"format": "csv"})
+    content = exported.content.decode()
+
+    assert exported.status_code == 200
+    assert exported.headers["Content-Type"].startswith("text/csv")
+    assert content.splitlines()[0].startswith("record_type,id,key,name")
+    assert "Poesía" in content
+
+    shelf_id = shelf.id
+    book_id = book.id
+    holding_id = holding.id
+    holding.delete()
+    book.delete()
+    shelf.delete()
+    imported = client.post(
+        "/api/workspaces/library/import/",
+        {
+            "format": "csv",
+            "content": content,
+            "idempotency_key": "csv-import-001",
+        },
+        format="json",
+    )
+
+    assert imported.status_code == 200
+    assert library.locations.get(id=shelf_id).metadata == {"floor": 2}
+    assert library.items.get(id=book_id).attributes == {"author": "Juan Gelman"}
+    assert library.holdings.get(id=holding_id).notes == "Firmado"
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_foreign_ids_without_partial_writes(users, workspaces):
+    workshop, library = workspaces
+    foreign_location = Location.objects.create(
+        workspace=library, key="private", name="Private shelf"
+    )
+    new_item_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [
+            {
+                "id": str(foreign_location.id),
+                "key": "intrusion",
+                "name": "Intrusion",
+                "parent_id": None,
+            }
+        ],
+        "items": [
+            {
+                "id": str(new_item_id),
+                "key": "new-item",
+                "name": "New item",
+                "tracking_mode": "bulk",
+                "unit": "unit",
+                "minimum_quantity": None,
+                "target_quantity": None,
+            }
+        ],
+        "holdings": [],
+        "location_relations": [],
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "content": json.dumps(document),
+            "idempotency_key": "foreign-import",
+        },
+        format="json",
+    )
+    inaccessible_export = client.get("/api/workspaces/library/export/")
+    inaccessible_import = client.post(
+        "/api/workspaces/library/import/",
+        {
+            "format": "json",
+            "document": document,
+            "idempotency_key": "inaccessible",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "another workspace" in response.json()["detail"]
+    assert not workshop.locations.exists()
+    assert not workshop.items.filter(id=new_item_id).exists()
+    assert not workshop.inventory_events.filter(idempotency_key="foreign-import").exists()
+    assert foreign_location.workspace == library
+    assert inaccessible_export.status_code == 404
+    assert inaccessible_import.status_code == 404
+
+
+@pytest.mark.django_db
+def test_inventory_dry_run_rejects_duplicate_holding_identity(users, workspaces):
+    workshop, _ = workspaces
+    location_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [{"id": str(location_id), "key": "box", "name": "Box", "parent_id": None}],
+        "items": [
+            {
+                "id": str(item_id),
+                "key": "part",
+                "name": "Part",
+                "tracking_mode": "bulk",
+                "unit": "unit",
+                "minimum_quantity": None,
+                "target_quantity": None,
+            }
+        ],
+        "holdings": [
+            {
+                "id": str(uuid.uuid4()),
+                "item_id": str(item_id),
+                "location_id": str(location_id),
+                "quantity": "1",
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "item_id": str(item_id),
+                "location_id": str(location_id),
+                "quantity": "2",
+            },
+        ],
+        "location_relations": [],
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "document": document,
+            "dry_run": True,
+            "idempotency_key": "duplicate-holding",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "duplicate item and location" in response.json()["detail"]
+    assert not workshop.locations.exists()
+    assert not workshop.items.exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_does_not_reassign_uuid_created_by_another_workspace(users, workspaces):
+    workshop, library = workspaces
+    location_id = uuid.uuid4()
+    document = {
+        "format_version": "1.0",
+        "locations": [
+            {
+                "id": str(location_id),
+                "key": "imported",
+                "name": "Imported",
+                "parent_id": None,
+            }
+        ],
+        "items": [],
+        "holdings": [],
+        "location_relations": [],
+    }
+    from .transfers import _validate_target
+
+    def create_competing_location(workspace, candidate):
+        _validate_target(workspace, candidate)
+        Location.objects.create(
+            id=location_id,
+            workspace=library,
+            key="competing",
+            name="Competing",
+        )
+
+    client = APIClient()
+    client.force_authenticate(users[0])
+    with patch(
+        "inventory.transfers._validate_target",
+        side_effect=create_competing_location,
+    ):
+        response = client.post(
+            "/api/workspaces/workshop/import/",
+            {
+                "format": "json",
+                "document": document,
+                "idempotency_key": "competing-uuid",
+            },
+            format="json",
+        )
+
+    assert response.status_code == 400
+    assert "constraint" in response.json()["detail"]
+    assert not workshop.locations.filter(id=location_id).exists()
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_non_object_provenance_metadata(users, workspaces):
+    workshop, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/import/",
+        {
+            "format": "json",
+            "document": {
+                "format_version": "1.0",
+                "locations": [],
+                "items": [],
+                "holdings": [],
+                "location_relations": [],
+            },
+            "idempotency_key": "invalid-provenance",
+            "provenance": {"metadata": ["camera"]},
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "Metadata must be a JSON object" in str(response.json())
+    assert not workshop.inventory_events.exists()
 
 
 @pytest.mark.django_db

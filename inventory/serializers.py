@@ -208,6 +208,11 @@ class ProvenanceSerializer(serializers.Serializer):
     observed_at = serializers.DateTimeField(required=False, allow_null=True)
     metadata = serializers.JSONField(required=False)
 
+    def validate_metadata(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Metadata must be a JSON object.")
+        return value
+
 
 class ItemRepairFieldsSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, max_length=128)
@@ -302,6 +307,166 @@ class BulkUpsertResultSerializer(serializers.Serializer):
     event_id = serializers.UUIDField()
     replayed = serializers.BooleanField()
     processed = serializers.DictField(child=serializers.IntegerField())
+
+
+class TransferLocationSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    key = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=160)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    kind = serializers.CharField(required=False, allow_blank=True, max_length=64, default="")
+    parent_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    aliases = StringListField(required=False, default=list)
+    metadata = serializers.JSONField(required=False, default=dict)
+
+
+class TransferItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    key = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=200)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    category = serializers.CharField(required=False, allow_blank=True, max_length=120, default="")
+    aliases = StringListField(required=False, default=list)
+    attributes = serializers.JSONField(required=False, default=dict)
+    tracking_mode = serializers.ChoiceField(choices=Item.TrackingMode)
+    unit = serializers.CharField(max_length=32)
+    minimum_quantity = serializers.DecimalField(allow_null=True, max_digits=20, decimal_places=6)
+    target_quantity = serializers.DecimalField(allow_null=True, max_digits=20, decimal_places=6)
+
+    def validate(self, attrs):
+        minimum = attrs["minimum_quantity"]
+        target = attrs["target_quantity"]
+        if minimum is not None and minimum < 0:
+            raise serializers.ValidationError({"minimum_quantity": "Must not be negative."})
+        if target is not None and target < 0:
+            raise serializers.ValidationError({"target_quantity": "Must not be negative."})
+        if minimum is not None and target is not None and target < minimum:
+            raise serializers.ValidationError(
+                {"target_quantity": "Must reach the minimum quantity."}
+            )
+        return attrs
+
+
+class TransferHoldingSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    item_id = serializers.UUIDField()
+    location_id = serializers.UUIDField()
+    quantity = serializers.DecimalField(max_digits=20, decimal_places=6, min_value=0)
+    approximate = serializers.BooleanField(default=False)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class TransferLocationRelationSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    subject_id = serializers.UUIDField()
+    relation = serializers.ChoiceField(choices=LocationRelation.Relation)
+    object_id = serializers.UUIDField()
+
+
+class InventoryDocumentSerializer(serializers.Serializer):
+    format_version = serializers.ChoiceField(choices=["1.0"])
+    workspace = serializers.JSONField(required=False, default=dict)
+    exported_at = serializers.DateTimeField(required=False)
+    locations = TransferLocationSerializer(many=True, default=list, max_length=10000)
+    items = TransferItemSerializer(many=True, default=list, max_length=10000)
+    holdings = TransferHoldingSerializer(many=True, default=list, max_length=50000)
+    location_relations = TransferLocationRelationSerializer(
+        many=True, default=list, max_length=50000
+    )
+
+    def validate(self, attrs):
+        for collection in ("locations", "items", "holdings", "location_relations"):
+            ids = [row["id"] for row in attrs[collection]]
+            if len(ids) != len(set(ids)):
+                raise serializers.ValidationError({collection: "Contains duplicate IDs."})
+        for collection in ("locations", "items"):
+            keys = [row["key"] for row in attrs[collection]]
+            if len(keys) != len(set(keys)):
+                raise serializers.ValidationError({collection: "Contains duplicate keys."})
+        holding_keys = [(row["item_id"], row["location_id"]) for row in attrs["holdings"]]
+        if len(holding_keys) != len(set(holding_keys)):
+            raise serializers.ValidationError(
+                {"holdings": "Contains duplicate item and location pairs."}
+            )
+        relation_keys = [
+            (row["subject_id"], row["relation"], row["object_id"])
+            for row in attrs["location_relations"]
+        ]
+        if len(relation_keys) != len(set(relation_keys)):
+            raise serializers.ValidationError(
+                {"location_relations": "Contains duplicate relations."}
+            )
+
+        location_ids = {row["id"] for row in attrs["locations"]}
+        item_ids = {row["id"] for row in attrs["items"]}
+        for row in attrs["locations"]:
+            if row["parent_id"] and row["parent_id"] not in location_ids:
+                raise serializers.ValidationError(
+                    {"locations": f"Unknown parent ID '{row['parent_id']}'."}
+                )
+        for row in attrs["holdings"]:
+            if row["item_id"] not in item_ids or row["location_id"] not in location_ids:
+                raise serializers.ValidationError(
+                    {"holdings": "Every item_id and location_id must exist in the document."}
+                )
+        for row in attrs["location_relations"]:
+            if row["subject_id"] not in location_ids or row["object_id"] not in location_ids:
+                raise serializers.ValidationError(
+                    {"location_relations": "Every location ID must exist in the document."}
+                )
+            if row["subject_id"] == row["object_id"]:
+                raise serializers.ValidationError(
+                    {"location_relations": "Related locations must differ."}
+                )
+
+        parent_by_id = {row["id"]: row["parent_id"] for row in attrs["locations"]}
+        for location_id in parent_by_id:
+            current = location_id
+            seen = set()
+            while current:
+                if current in seen:
+                    raise serializers.ValidationError(
+                        {"locations": f"Hierarchy contains a cycle at '{current}'."}
+                    )
+                seen.add(current)
+                current = parent_by_id.get(current)
+
+        item_by_id = {row["id"]: row for row in attrs["items"]}
+        for row in attrs["holdings"]:
+            item = item_by_id[row["item_id"]]
+            if (
+                item["tracking_mode"] == Item.TrackingMode.DISCRETE
+                and row["quantity"] != row["quantity"].to_integral_value()
+            ):
+                raise serializers.ValidationError(
+                    {"holdings": f"Discrete item '{item['key']}' requires a whole quantity."}
+                )
+        return attrs
+
+
+class InventoryImportSerializer(serializers.Serializer):
+    format = serializers.ChoiceField(choices=["json", "csv"])
+    document = serializers.JSONField(required=False)
+    content = serializers.CharField(required=False, allow_blank=False)
+    file = serializers.FileField(required=False)
+    dry_run = serializers.BooleanField(required=False, default=False)
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+
+    def validate(self, attrs):
+        sources = [name for name in ("document", "content", "file") if name in attrs]
+        if len(sources) != 1:
+            raise serializers.ValidationError("Supply exactly one of document, content, or file.")
+        if "document" in attrs and attrs["format"] != "json":
+            raise serializers.ValidationError("document is available only for JSON imports.")
+        return attrs
+
+
+class InventoryImportResultSerializer(serializers.Serializer):
+    event_id = serializers.UUIDField(allow_null=True)
+    replayed = serializers.BooleanField()
+    dry_run = serializers.BooleanField()
+    summary = serializers.JSONField()
 
 
 class WorkspaceSerializer(serializers.ModelSerializer):
