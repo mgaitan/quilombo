@@ -33,17 +33,17 @@ import_export.md
 ```
 
 ```{toctree}
+:maxdepth: 1
+:caption: Architecture
+
+architecture.md
+```
+
+```{toctree}
 :maxdepth: 2
 :caption: Contribute
 
 development.md
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Project notes
-
-marketing-plan.md
 ```
 
 The generated REST schema is available from a running installation at `/api/docs/`.

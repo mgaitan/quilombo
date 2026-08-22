@@ -9,7 +9,7 @@ transactional, idempotent bulk command, while reads and ordinary CRUD remain sim
 
 ## Run locally
 
-Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
@@ -34,6 +34,10 @@ Build the Sphinx/MyST documentation locally:
 uv sync --group docs
 uv run --group docs sphinx-build -W --keep-going docs docs/_build/html
 ```
+
+The published documentation is available at
+[`mgaitan.github.io/quilombo`](https://mgaitan.github.io/quilombo/). Releases are listed at
+[`github.com/mgaitan/quilombo/releases`](https://github.com/mgaitan/quilombo/releases).
 
 ## Use the API
 
@@ -100,3 +104,13 @@ connection string; deployments install from `uv.lock`, collect static files, and
 
 The free Render service can sleep while idle, so its first request after inactivity may take longer.
 The health endpoint at `/health/` verifies both the app and database connection.
+
+## Release
+
+`main` is the development branch. Create a release after merging a verified change:
+
+```bash
+gh release create v0.1.1 --generate-notes
+```
+
+The release workflow builds and publishes the technical documentation to GitHub Pages.

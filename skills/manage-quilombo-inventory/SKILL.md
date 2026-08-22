@@ -69,6 +69,10 @@ on 2026-08-14`.
 
 ## Record observations
 
+For a book with a visible ISBN, call `lookup_book_by_isbn` to obtain a bibliographic draft. Show or
+reason over the suggested fields before saving them. The lookup is read-only; include its
+`source_url` and retrieval time in the provenance of any later upsert.
+
 1. Convert the observation into stable location, item, holding, and relation records.
 2. Search or inspect a snapshot first to reuse existing keys and aliases. Preserve useful user
    vocabulary in aliases; include known translations and spelling variants, but do not invent

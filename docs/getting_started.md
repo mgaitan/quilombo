@@ -4,7 +4,7 @@ This guide gets a local Quilombo instance running and records the first inventor
 
 ## Run locally
 
-Quilombo requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
+Quilombo requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync

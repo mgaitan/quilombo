@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ApiTokenRevokeView,
     ApiTokenView,
+    BookLookupView,
     BulkUpsertView,
     HoldingViewSet,
     InventoryExportView,
@@ -41,6 +42,11 @@ urlpatterns = [
         "workspaces/<slug:workspace_slug>/stock-status/",
         StockStatusView.as_view(),
         name="stock-status",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/catalog/books/<str:isbn>/",
+        BookLookupView.as_view(),
+        name="book-lookup",
     ),
     path(
         "workspaces/<slug:workspace_slug>/search/",

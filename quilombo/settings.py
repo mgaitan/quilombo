@@ -33,6 +33,10 @@ PUBLIC_BASE_URL = os.environ.get(
     "PUBLIC_BASE_URL",
     "https://quilombo-v1-mgaitan.onrender.com" if IS_PROD else "http://localhost:8000",
 ).rstrip("/")
+BOOK_CATALOG_USER_AGENT = os.environ.get(
+    "BOOK_CATALOG_USER_AGENT",
+    "Quilombo/0.1 (https://github.com/mgaitan/quilombo)",
+)
 
 ALLOWED_HOSTS = [
     host.strip()
