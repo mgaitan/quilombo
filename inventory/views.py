@@ -3,7 +3,7 @@ from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
-from django.contrib.auth import login
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.core.paginator import Paginator
@@ -22,6 +22,12 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
+from .forms import (
+    MemberAccessForm,
+    WorkspaceCreateForm,
+    WorkspaceRenameForm,
+    WorkspaceShareForm,
+)
 from .models import (
     ApiToken,
     Holding,
@@ -34,6 +40,11 @@ from .models import (
 )
 from .oauth import create_authorization_grant
 from .pagination import InventoryPagination
+from .permissions import (
+    membership_can_write,
+    require_workspace_write,
+    user_can_manage_workspace,
+)
 from .serializers import (
     ApiTokenCreateSerializer,
     ApiTokenIssuedSerializer,
@@ -57,9 +68,14 @@ from .services import (
     IdempotencyConflict,
     build_holding_clue_context,
     bulk_upsert_inventory,
+    create_workspace,
     get_stock_status,
     hash_request,
+    remove_workspace_member,
+    rename_workspace,
     search_holdings,
+    share_workspace,
+    update_workspace_member,
 )
 from .transfers import (
     InventoryTransferError,
@@ -98,6 +114,96 @@ def dashboard(request):
             "preserved_query": preserved_query.urlencode(),
         },
     )
+
+
+def _managed_workspace(user, workspace_slug):
+    return get_object_or_404(
+        Workspace.objects.filter(
+            slug=workspace_slug,
+            memberships__user=user,
+            memberships__role__in=[Membership.Role.OWNER, Membership.Role.ADMIN],
+        )
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_create(request):
+    form = WorkspaceCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        workspace = create_workspace(user=request.user, name=form.cleaned_data["name"])
+        return HttpResponseRedirect(reverse("workspace-inventory", args=[workspace.slug]))
+    return render(request, "inventory/workspace_form.html", {"form": form})
+
+
+def _workspace_settings_context(workspace, *, rename_form=None, share_form=None):
+    memberships = workspace.memberships.select_related("user").order_by("role", "user__username")
+    for membership in memberships:
+        membership.effective_can_write = membership_can_write(membership)
+    return {
+        "workspace": workspace,
+        "memberships": memberships,
+        "rename_form": rename_form or WorkspaceRenameForm(initial={"name": workspace.name}),
+        "share_form": share_form or WorkspaceShareForm(),
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_settings(request, workspace_slug):
+    workspace = _managed_workspace(request.user, workspace_slug)
+    rename_form = WorkspaceRenameForm(request.POST or None)
+    if request.method == "POST" and rename_form.is_valid():
+        workspace = rename_workspace(workspace=workspace, name=rename_form.cleaned_data["name"])
+        return HttpResponseRedirect(reverse("workspace-settings", args=[workspace.slug]))
+    return render(
+        request,
+        "inventory/workspace_settings.html",
+        _workspace_settings_context(workspace, rename_form=rename_form),
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def workspace_share(request, workspace_slug):
+    workspace = _managed_workspace(request.user, workspace_slug)
+    form = WorkspaceShareForm(request.POST)
+    if form.is_valid():
+        user = (
+            get_user_model().objects.filter(username__iexact=form.cleaned_data["username"]).first()
+        )
+        if user:
+            share_workspace(
+                workspace=workspace,
+                user=user,
+                can_write=form.cleaned_data["can_write"],
+            )
+            return HttpResponseRedirect(reverse("workspace-settings", args=[workspace.slug]))
+        form.add_error("username", _("No user has that username."))
+    return render(
+        request,
+        "inventory/workspace_settings.html",
+        _workspace_settings_context(workspace, share_form=form),
+        status=400,
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def workspace_member(request, workspace_slug, user_id):
+    workspace = _managed_workspace(request.user, workspace_slug)
+    get_object_or_404(Membership, workspace=workspace, user_id=user_id)
+    if request.POST.get("action") == "remove":
+        remove_workspace_member(workspace=workspace, user_id=user_id)
+    else:
+        form = MemberAccessForm(request.POST)
+        if form.is_valid():
+            update_workspace_member(
+                workspace=workspace,
+                user_id=user_id,
+                can_write=form.cleaned_data["can_write"],
+            )
+    return HttpResponseRedirect(reverse("workspace-settings", args=[workspace.slug]))
 
 
 @login_required
@@ -161,6 +267,7 @@ def workspace_inventory(request, workspace_slug):
             "query": query,
             "location_key": location_key,
             "stock_status": stock_status,
+            "can_manage": user_can_manage_workspace(request.user, workspace),
         },
     )
 
@@ -203,6 +310,11 @@ class WorkspaceAccessMixin:
             )
         return self.workspace
 
+    def require_write_access(self):
+        workspace = self.get_workspace()
+        require_workspace_write(self.request, workspace)
+        return workspace
+
 
 class WorkspaceScopedViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
     def get_queryset(self):
@@ -210,18 +322,18 @@ class WorkspaceScopedViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         with transaction.atomic():
-            workspace = self.get_workspace()
+            workspace = self.require_write_access()
             Workspace.objects.select_for_update().get(pk=workspace.pk)
             serializer.save(workspace=workspace)
 
     def perform_update(self, serializer):
         with transaction.atomic():
-            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            Workspace.objects.select_for_update().get(pk=self.require_write_access().pk)
             serializer.save()
 
     def perform_destroy(self, instance):
         with transaction.atomic():
-            Workspace.objects.select_for_update().get(pk=self.get_workspace().pk)
+            Workspace.objects.select_for_update().get(pk=self.require_write_access().pk)
             instance.delete()
 
 
@@ -272,6 +384,7 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
         }
     )
     def post(self, request, *args, **kwargs):
+        self.require_write_access()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -340,6 +453,7 @@ class InventoryImportView(WorkspaceAccessMixin, GenericAPIView):
 
     @extend_schema(responses={status.HTTP_200_OK: InventoryImportResultSerializer})
     def post(self, request, *args, **kwargs):
+        self.require_write_access()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -454,10 +568,12 @@ class ApiTokenView(WorkspaceAccessMixin, GenericAPIView):
             )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        workspace = self.require_write_access()
         token, raw_token = ApiToken.issue(
-            workspace=self.get_workspace(),
+            workspace=workspace,
             user=request.user,
             name=serializer.validated_data["name"],
+            can_write=serializer.validated_data["can_write"],
         )
         output = ApiTokenIssuedSerializer(
             {
@@ -466,6 +582,7 @@ class ApiTokenView(WorkspaceAccessMixin, GenericAPIView):
                 "prefix": token.prefix,
                 "created_at": token.created_at,
                 "revoked_at": token.revoked_at,
+                "can_write": token.can_write,
                 "token": raw_token,
             }
         )
@@ -480,7 +597,7 @@ class ApiTokenRevokeView(WorkspaceAccessMixin, GenericAPIView):
         if getattr(request.auth, "workspace_id", None):
             return Response(status=status.HTTP_403_FORBIDDEN)
         token = get_object_or_404(
-            self.get_workspace().api_tokens,
+            self.require_write_access().api_tokens,
             pk=token_id,
             user=request.user,
             revoked_at__isnull=True,
@@ -580,6 +697,7 @@ def oauth_consent(request):
                     authorization_request=authorization_request,
                     user=request.user,
                     workspace=workspace,
+                    can_write=request.POST.get("can_write") == "on",
                 )
                 authorization_request.delete()
             redirect_params.update(
@@ -590,8 +708,8 @@ def oauth_consent(request):
 
         return HttpResponseRedirect(construct_redirect_uri(redirect_uri, **redirect_params))
 
-    workspaces = Workspace.objects.filter(memberships__user=request.user).distinct()
-    if not workspaces.exists():
+    memberships = Membership.objects.filter(user=request.user).select_related("workspace")
+    if not memberships.exists():
         return render(
             request,
             "inventory/oauth_consent_error.html",
@@ -604,6 +722,12 @@ def oauth_consent(request):
             "authorization_request": authorization_request,
             "client_name": authorization_request.client.metadata.get("client_name")
             or _("An application"),
-            "workspaces": workspaces,
+            "memberships": [
+                {
+                    "workspace": membership.workspace,
+                    "can_write": membership_can_write(membership),
+                }
+                for membership in memberships
+            ],
         },
     )

@@ -496,12 +496,13 @@ class WorkspaceSerializer(serializers.ModelSerializer):
 class ApiTokenSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApiToken
-        fields = ["id", "name", "prefix", "created_at", "revoked_at"]
+        fields = ["id", "name", "prefix", "can_write", "created_at", "revoked_at"]
         read_only_fields = fields
 
 
 class ApiTokenCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=120)
+    can_write = serializers.BooleanField(default=True)
 
 
 class ApiTokenIssuedSerializer(ApiTokenSerializer):

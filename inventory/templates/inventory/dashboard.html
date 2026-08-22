@@ -10,7 +10,10 @@
       <h1>{% translate "Inventories" %}</h1>
       <p class="lede">{% translate "Open an inventory to search what you recorded or start with a new place." %}</p>
     </div>
-    <a class="button" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %}</a>
+    <div class="actions">
+      <a class="button button-primary" href="{% url 'workspace-create' %}">{% translate "New inventory" %}</a>
+      <a class="button" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %}</a>
+    </div>
   </div>
 
   <ul class="workspace-list">

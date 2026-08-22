@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "New inventory" %} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "New inventory" %}</span>
+  </nav>
+  <h1>{% translate "New inventory" %}</h1>
+  <form method="post" class="stacked-form settings-form">
+    {% csrf_token %}
+    <div class="field">
+      {{ form.name.label_tag }}
+      {{ form.name }}
+      {{ form.name.errors }}
+    </div>
+    <button class="button button-primary" type="submit">{% translate "Create" %}</button>
+  </form>
+{% endblock %}

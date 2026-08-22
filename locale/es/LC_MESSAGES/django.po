@@ -298,3 +298,63 @@ msgstr "¿Ya tenés cuenta?"
 
 msgid "More than 1000 results"
 msgstr "Más de 1000 resultados"
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Username"
+msgstr "Nombre de usuario"
+
+msgid "Can edit"
+msgstr "Puede editar"
+
+msgid "New inventory"
+msgstr "Nuevo inventario"
+
+msgid "Settings"
+msgstr "Configuración"
+
+msgid "Create"
+msgstr "Crear"
+
+msgid "Rename"
+msgstr "Renombrar"
+
+msgid "Inventory settings"
+msgstr "Configuración del inventario"
+
+msgid "People with access"
+msgstr "Personas con acceso"
+
+msgid "Update"
+msgstr "Actualizar"
+
+msgid "Remove"
+msgstr "Quitar"
+
+msgid "Share with another user"
+msgstr "Compartir con otra persona"
+
+msgid "Share"
+msgstr "Compartir"
+
+msgid "Allow changes"
+msgstr "Permitir cambios"
+
+msgid "Choose the inventory this agent can use."
+msgstr "Elegí el inventario que puede usar este agente."
+
+msgid "No user has that username."
+msgstr "No hay ninguna persona con ese nombre de usuario."
+
+msgid "Add Quilombo as an MCP server, sign in, and choose an inventory and its access level."
+msgstr "Agregá Quilombo como servidor MCP, iniciá sesión y elegí un inventario y su nivel de acceso."
+
+msgid "Owner"
+msgstr "Propietario"
+
+msgid "Admin"
+msgstr "Administrador"
+
+msgid "Member"
+msgstr "Miembro"
