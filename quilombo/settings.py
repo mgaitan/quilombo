@@ -16,8 +16,11 @@ from pathlib import Path
 import dj_database_url
 from django.utils.translation import gettext_lazy as _
 
+from .version import VERSION
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+APP_VERSION = VERSION
 
 
 # Quick-start development settings - unsuitable for production
@@ -35,7 +38,7 @@ PUBLIC_BASE_URL = os.environ.get(
 ).rstrip("/")
 BOOK_CATALOG_USER_AGENT = os.environ.get(
     "BOOK_CATALOG_USER_AGENT",
-    "Quilombo/0.1 (https://github.com/mgaitan/quilombo)",
+    f"Quilombo/{APP_VERSION} (https://github.com/mgaitan/quilombo)",
 )
 
 ALLOWED_HOSTS = [
@@ -106,6 +109,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "quilombo.context_processors.runtime",
             ],
         },
     },
@@ -210,6 +214,6 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Quilombo API",
     "DESCRIPTION": "Manage the Quilombo at your workshop",
-    "VERSION": "1.0.0",
+    "VERSION": APP_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
 }

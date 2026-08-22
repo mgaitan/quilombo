@@ -44,7 +44,7 @@ oauth_provider = QuilomboOAuthProvider()
 server = MCPServer(
     name="quilombo",
     title="Quilombo physical inventory",
-    version="0.1.0",
+    version=settings.APP_VERSION,
     instructions=(
         "Quilombo stores user-authorized physical inventory facts and does not infer facts. "
         "Search before mutation. Mutating tools write immediately: apply any draft and human "

@@ -12,6 +12,7 @@ from zipfile import ZipFile
 
 import httpx2
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -1329,7 +1330,14 @@ def test_health_check_includes_database(client):
     response = client.get("/health/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
+
+
+def test_public_web_footer_shows_runtime_version(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert f"v{settings.APP_VERSION}" in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -1641,9 +1649,15 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
-                    return tools, result, status_result, snapshot_result
+                    return (
+                        tools,
+                        result,
+                        status_result,
+                        snapshot_result,
+                        mcp_client.server_info.version,
+                    )
 
-    tools, result, status_result, snapshot_result = asyncio.run(exercise_mcp())
+    tools, result, status_result, snapshot_result, server_version = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
@@ -1655,6 +1669,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "move_inventory",
         "update_inventory_item",
     }
+    assert server_version == settings.APP_VERSION
     assert result.is_error is False
     first_result = result.structured_content["results"][0]
     assert first_result["location_key"] == "drawer-1-a"
