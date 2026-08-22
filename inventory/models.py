@@ -35,6 +35,7 @@ class Membership(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
     )
     role = models.CharField(max_length=12, choices=Role, default=Role.MEMBER)
+    can_write = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -295,6 +296,7 @@ class ApiToken(models.Model):
     name = models.CharField(max_length=120)
     prefix = models.CharField(max_length=12, unique=True)
     token_hash = models.CharField(max_length=64)
+    can_write = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
@@ -302,7 +304,7 @@ class ApiToken(models.Model):
         ordering = ["-created_at"]
 
     @classmethod
-    def issue(cls, *, workspace, user, name):
+    def issue(cls, *, workspace, user, name, can_write=True):
         prefix = secrets.token_hex(6)
         secret = secrets.token_urlsafe(32)
         raw_token = f"qlo_{prefix}_{secret}"
@@ -310,6 +312,7 @@ class ApiToken(models.Model):
             workspace=workspace,
             user=user,
             name=name,
+            can_write=can_write,
             prefix=prefix,
             token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         )
@@ -352,6 +355,7 @@ class OAuthAuthorizationGrant(models.Model):
     client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    can_write = models.BooleanField(default=True)
     scopes = models.JSONField(default=list)
     code_challenge = models.CharField(max_length=160)
     redirect_uri = models.URLField(max_length=1000)
@@ -378,6 +382,7 @@ class OAuthCredential(models.Model):
     client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    can_write = models.BooleanField(default=True)
     family_id = models.UUIDField(default=uuid.uuid4)
     scopes = models.JSONField(default=list)
     resource = models.URLField(max_length=1000, blank=True)
@@ -389,7 +394,19 @@ class OAuthCredential(models.Model):
         indexes = [models.Index(fields=["kind", "prefix"])]
 
     @classmethod
-    def issue(cls, *, kind, client, user, workspace, family_id, scopes, resource, expires_at):
+    def issue(
+        cls,
+        *,
+        kind,
+        client,
+        user,
+        workspace,
+        family_id,
+        scopes,
+        resource,
+        expires_at,
+        can_write=True,
+    ):
         prefix = secrets.token_hex(6)
         secret = secrets.token_urlsafe(32)
         raw_token = f"qlo_oauth_{prefix}_{secret}"
@@ -400,6 +417,7 @@ class OAuthCredential(models.Model):
             client=client,
             user=user,
             workspace=workspace,
+            can_write=can_write,
             family_id=family_id,
             scopes=scopes,
             resource=resource or "",

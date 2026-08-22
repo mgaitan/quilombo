@@ -35,7 +35,11 @@
       {% block content %}{% endblock %}
     </main>
     <footer class="footer">
-      <a href="https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/">{% translate "About Quilombo" %}</a>
+      {% if LANGUAGE_CODE == "en" %}
+        <a href="https://mgaitan.github.io/en/posts/quilombo-agents-to-organize-real-life/">{% translate "About Quilombo" %}</a>
+      {% else %}
+        <a href="https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/">{% translate "About Quilombo" %}</a>
+      {% endif %}
       <a href="https://github.com/mgaitan/quilombo">GitHub</a>
       <a href="{% url 'api-docs' %}">API</a>
       <span>v{{ APP_VERSION }}</span>

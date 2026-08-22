@@ -14,7 +14,11 @@ from inventory.views import (
     first_inventory,
     home,
     oauth_consent,
+    workspace_create,
     workspace_inventory,
+    workspace_member,
+    workspace_settings,
+    workspace_share,
 )
 
 
@@ -29,6 +33,14 @@ urlpatterns = [
     path("i18n/", include("django.conf.urls.i18n")),
     path("", home, name="home"),
     path("app/", dashboard, name="dashboard"),
+    path("app/new/", workspace_create, name="workspace-create"),
+    path("app/<slug:workspace_slug>/settings/", workspace_settings, name="workspace-settings"),
+    path("app/<slug:workspace_slug>/members/", workspace_share, name="workspace-share"),
+    path(
+        "app/<slug:workspace_slug>/members/<int:user_id>/",
+        workspace_member,
+        name="workspace-member",
+    ),
     path(
         "app/<slug:workspace_slug>/first-inventory/",
         first_inventory,

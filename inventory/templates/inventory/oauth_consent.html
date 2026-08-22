@@ -7,22 +7,40 @@
 {% block content %}
   <section class="auth-panel">
     <h1>{% blocktranslate with name=client_name %}Authorize {{ name }}{% endblocktranslate %}</h1>
-    <p class="lede">{% translate "This application will be able to search and update the inventory you choose." %}</p>
+    <p class="lede">{% translate "Choose the inventory this agent can use." %}</p>
     <form method="post" class="stacked-form">
       {% csrf_token %}
       <input type="hidden" name="request" value="{{ authorization_request.id }}">
       <div class="field">
         <label for="workspace">{% translate "Inventory" %}</label>
         <select id="workspace" name="workspace" required>
-          {% for workspace in workspaces %}
-            <option value="{{ workspace.id }}">{{ workspace.name }}</option>
+          {% for membership in memberships %}
+            <option value="{{ membership.workspace.id }}" data-can-write="{{ membership.can_write|yesno:'true,false' }}">{{ membership.workspace.name }}</option>
           {% endfor %}
         </select>
       </div>
+      <label class="toggle-control" for="can-write">
+        <input id="can-write" name="can_write" type="checkbox" checked>
+        <span>{% translate "Allow changes" %}</span>
+      </label>
       <div class="actions">
         <button class="button button-primary" type="submit" name="action" value="allow">{% translate "Authorize" %}</button>
         <button class="button" type="submit" name="action" value="deny">{% translate "Cancel" %}</button>
       </div>
     </form>
   </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const workspace = document.querySelector("#workspace");
+    const canWrite = document.querySelector("#can-write");
+    function syncAccess() {
+      const allowed = workspace.selectedOptions[0].dataset.canWrite === "true";
+      canWrite.disabled = !allowed;
+      if (!allowed) canWrite.checked = false;
+    }
+    workspace.addEventListener("change", syncAccess);
+    syncAccess();
+  </script>
 {% endblock %}

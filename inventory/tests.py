@@ -31,6 +31,7 @@ from .models import (
     Location,
     LocationRelation,
     Membership,
+    OAuthAuthorizationGrant,
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
@@ -1172,6 +1173,29 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
 
 
 @pytest.mark.django_db
+def test_about_link_and_dictionary_entry_follow_language(client):
+    english = client.get("/", HTTP_ACCEPT_LANGUAGE="en-US")
+    english_content = english.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/en/posts/quilombo-agents-to-organize-real-life/"
+        in english_content
+    )
+    assert "noun · lunfardo" in english_content
+    assert "a mess, a chaotic tangle" in english_content
+
+    spanish = client.get("/", HTTP_ACCEPT_LANGUAGE="es-AR")
+    spanish_content = spanish.content.decode()
+
+    assert (
+        "https://mgaitan.github.io/posts/quilombo-agentes-para-organizar-la-vida-real/"
+        in spanish_content
+    )
+    assert "sustantivo · lunfardo" in spanish_content
+    assert "un lío, un enredo caótico" in spanish_content
+
+
+@pytest.mark.django_db
 def test_manual_language_switch_persists_choice(client):
     switched = client.post(
         "/i18n/setlang/",
@@ -1247,6 +1271,103 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
 
 
 @pytest.mark.django_db
+def test_owner_creates_renames_and_shares_workspace(client, users, workspaces):
+    client.force_login(users[0])
+
+    created = client.post("/app/new/", {"name": "Casa nueva"})
+    workspace = Workspace.objects.get(name="Casa nueva")
+    original_slug = workspace.slug
+    assert created.status_code == 302
+    assert created.url == f"/app/{workspace.slug}/"
+    assert workspace.memberships.get(user=users[0]).role == Membership.Role.OWNER
+
+    renamed = client.post(
+        f"/app/{workspace.slug}/settings/",
+        {"name": "Casa ordenada"},
+    )
+    shared = client.post(
+        f"/app/{workspace.slug}/members/",
+        {"username": users[1].username, "can_write": "on"},
+    )
+    workspace.refresh_from_db()
+    membership = workspace.memberships.get(user=users[1])
+
+    assert renamed.status_code == 302
+    assert shared.status_code == 302
+    assert workspace.name == "Casa ordenada"
+    assert workspace.slug == original_slug
+    assert membership.can_write is True
+
+    updated = client.post(
+        f"/app/{workspace.slug}/members/{users[1].id}/",
+        {},
+    )
+    membership.refresh_from_db()
+    assert updated.status_code == 302
+    assert membership.can_write is False
+
+
+@pytest.mark.django_db
+def test_read_only_access_can_read_but_cannot_mutate(users, workspaces):
+    workspace, _ = workspaces
+    Membership.objects.create(workspace=workspace, user=users[1], can_write=False)
+    Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    assert client.get("/api/workspaces/workshop/locations/").status_code == 200
+    denied = client.post(
+        "/api/workspaces/workshop/items/",
+        {"key": "book", "name": "Book", "unit": "item"},
+        format="json",
+    )
+    assert denied.status_code == 403
+
+    _, raw_token = ApiToken.issue(
+        workspace=workspace,
+        user=users[0],
+        name="Read-only agent",
+        can_write=False,
+    )
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+    assert client.get("/api/workspaces/workshop/locations/").status_code == 200
+    denied = client.post(
+        "/api/workspaces/workshop/items/",
+        {"key": "agent-book", "name": "Agent book", "unit": "item"},
+        format="json",
+    )
+    assert denied.status_code == 403
+
+
+@pytest.mark.django_db
+def test_oauth_consent_records_read_only_choice(client, users, workspaces):
+    workspace, _ = workspaces
+    oauth_client = OAuthClient.objects.create(
+        client_id="read-only-client",
+        metadata={"client_name": "Read-only client"},
+    )
+    authorization_request = OAuthAuthorizationRequest.objects.create(
+        client=oauth_client,
+        code_challenge="challenge",
+        redirect_uri="https://example.com/callback",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    client.force_login(users[0])
+
+    response = client.post(
+        "/oauth/consent/",
+        {
+            "request": authorization_request.id,
+            "workspace": workspace.id,
+            "action": "allow",
+        },
+    )
+
+    assert response.status_code == 302
+    assert OAuthAuthorizationGrant.objects.get(client=oauth_client).can_write is False
+
+
+@pytest.mark.django_db
 def test_dashboard_workspace_pagination_is_stable(client, users, workspaces):
     extra_workspaces = [
         Workspace(name=f"Workspace {index:02}", slug=f"workspace-{index:02}") for index in range(26)
@@ -1296,6 +1417,66 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
     assert response.status_code == 200
     assert "Cajón 1" in content
     assert [holding.location.key for holding in response.context["holdings"]] == ["cajon-1"]
+
+
+@pytest.mark.django_db
+def test_human_location_filter_renders_depth_first_tree(client, users, workspaces):
+    workshop, library = workspaces
+    bookcase = Location.objects.create(
+        workspace=workshop,
+        key="bookcase",
+        name="Biblioteca de 4 estantes",
+    )
+    shelf = Location.objects.create(
+        workspace=workshop,
+        key="shelf-1",
+        name="Estante 1",
+        parent=bookcase,
+    )
+    Location.objects.create(
+        workspace=workshop,
+        key="drawer-1",
+        name="Cajón 1",
+        parent=shelf,
+    )
+    Location.objects.create(
+        workspace=workshop,
+        key="hallway-library",
+        name="Biblioteca del pasillo",
+    )
+    client.force_login(users[0])
+
+    response = client.get("/app/workshop/", {"location": "drawer-1"})
+
+    assert response.status_code == 200
+    assert response.context["location_options"] == [
+        {"key": "bookcase", "label": "Biblioteca de 4 estantes"},
+        {"key": "shelf-1", "label": "\u00a0\u00a0⤷ Estante 1"},
+        {"key": "drawer-1", "label": "\u00a0\u00a0\u00a0\u00a0⤷ Cajón 1"},
+        {"key": "hallway-library", "label": "Biblioteca del pasillo"},
+    ]
+    assert 'value="drawer-1" selected' in response.content.decode()
+
+    fiction = Location.objects.create(
+        workspace=library,
+        key="fiction",
+        name="Ficción",
+    )
+    Location.objects.create(
+        workspace=library,
+        key="latin-america",
+        name="Latinoamérica",
+        parent=fiction,
+    )
+    client.force_login(users[1])
+
+    library_response = client.get("/app/library/")
+
+    assert library_response.status_code == 200
+    assert library_response.context["location_options"] == [
+        {"key": "fiction", "label": "Ficción"},
+        {"key": "latin-america", "label": "\u00a0\u00a0⤷ Latinoamérica"},
+    ]
 
 
 @pytest.mark.django_db
@@ -1625,6 +1806,12 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         name="Unplaced tool",
     )
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="MCP test")
+    _, read_only_token = ApiToken.issue(
+        workspace=workspace,
+        user=users[0],
+        name="Read-only MCP test",
+        can_write=False,
+    )
 
     async def exercise_mcp():
         from quilombo.asgi import create_application
@@ -1649,15 +1836,40 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
-                    return (
-                        tools,
-                        result,
-                        status_result,
-                        snapshot_result,
-                        mcp_client.server_info.version,
+                    server_version = mcp_client.server_info.version
+                http_client.headers["Authorization"] = f"Bearer {read_only_token}"
+                read_only_transport = streamable_http_client(
+                    "http://testserver/mcp",
+                    http_client=http_client,
+                    terminate_on_close=False,
+                )
+                async with Client(read_only_transport) as read_only_client:
+                    read_result = await read_only_client.call_tool(
+                        "find_inventory", {"query": "screws"}
                     )
+                    write_result = await read_only_client.call_tool(
+                        "bulk_upsert_inventory",
+                        {"idempotency_key": "read-only-write"},
+                    )
+                return (
+                    tools,
+                    result,
+                    status_result,
+                    snapshot_result,
+                    server_version,
+                    read_result,
+                    write_result,
+                )
 
-    tools, result, status_result, snapshot_result, server_version = asyncio.run(exercise_mcp())
+    (
+        tools,
+        result,
+        status_result,
+        snapshot_result,
+        server_version,
+        read_result,
+        write_result,
+    ) = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
         "bulk_upsert_inventory",
@@ -1670,6 +1882,9 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "update_inventory_item",
     }
     assert server_version == settings.APP_VERSION
+    assert read_result.is_error is False
+    assert write_result.is_error is True
+    assert "read-only" in write_result.content[0].text
     assert result.is_error is False
     first_result = result.structured_content["results"][0]
     assert first_result["location_key"] == "drawer-1-a"
@@ -1756,7 +1971,12 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
     assert "Quilombo test client" in consent_page.content.decode()
     consent = client.post(
         consent_url.path,
-        {"request": request_id, "workspace": str(workspace.id), "action": "allow"},
+        {
+            "request": request_id,
+            "workspace": str(workspace.id),
+            "action": "allow",
+            "can_write": "on",
+        },
         follow=False,
     )
     callback = urlsplit(consent.headers["location"])
@@ -1817,3 +2037,4 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
     assert OAuthCredential.objects.filter(
         kind=OAuthCredential.Kind.ACCESS, revoked_at__isnull=False
     ).exists()
+    assert OAuthCredential.objects.filter(can_write=True).exists()
