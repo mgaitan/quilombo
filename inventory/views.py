@@ -257,7 +257,11 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
-        queryset = Workspace.objects.filter(memberships__user=self.request.user).distinct()
+        queryset = (
+            Workspace.objects.filter(memberships__user=self.request.user)
+            .distinct()
+            .order_by("name", "id")
+        )
         if getattr(self.request.auth, "workspace_id", None):
             queryset = queryset.filter(pk=self.request.auth.workspace_id)
         return queryset

@@ -170,6 +170,33 @@ def test_api_collections_paginate_stably_and_handle_last_and_empty_pages(users, 
 
 
 @pytest.mark.django_db
+def test_workspace_api_pagination_uses_id_to_break_name_ties(users, workspaces):
+    workshop, _ = workspaces
+    same_named = [
+        Workspace.objects.create(name="Shared", slug=f"shared-{index}") for index in range(3)
+    ]
+    Membership.objects.bulk_create(
+        [
+            Membership(workspace=workspace, user=users[0], role=Membership.Role.MEMBER)
+            for workspace in same_named
+        ]
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    first = client.get("/api/workspaces/", {"page": 1, "page_size": 2}).json()
+    second = client.get("/api/workspaces/", {"page": 2, "page_size": 2}).json()
+
+    returned_ids = [row["id"] for row in [*first["results"], *second["results"]]]
+    expected_ids = [
+        str(workspace.id)
+        for workspace in sorted([workshop, *same_named], key=lambda row: (row.name, row.id))
+    ]
+    assert returned_ids == expected_ids
+    assert len(returned_ids) == len(set(returned_ids))
+
+
+@pytest.mark.django_db
 def test_search_pagination_preserves_filters_and_tenant_scope(users, workspaces):
     workshop, library = workspaces
     drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
