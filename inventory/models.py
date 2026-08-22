@@ -239,6 +239,8 @@ class InventoryEvent(models.Model):
         BULK_UPSERT = "bulk_upsert", "Bulk upsert"
         ADJUSTMENT = "adjustment", "Adjustment"
         MOVE = "move", "Move"
+        ITEM_UPDATE = "item_update", "Item update"
+        ITEM_DELETE = "item_delete", "Item delete"
 
     class SourceKind(models.TextChoices):
         MANUAL = "manual", "Manual"
