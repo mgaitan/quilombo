@@ -5,14 +5,17 @@ import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField
 from django.db.models.functions import Cast
 from django.utils import timezone
 from django.utils.text import slugify
+from django.utils.translation import gettext as _
 
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Membership, Workspace
+from .state import capture_inventory_state, inventory_state_hash, restore_inventory_state
 
 
 class BulkUpsertError(Exception):
@@ -20,6 +23,10 @@ class BulkUpsertError(Exception):
 
 
 class IdempotencyConflict(BulkUpsertError):
+    pass
+
+
+class InventoryUndoError(BulkUpsertError):
     pass
 
 
@@ -375,7 +382,7 @@ def location_scope_ids(*, workspace, location_key, include_descendants=True):
         return matching_ids
 
     children_by_parent = {}
-    for location_id, parent_id, _ in rows:
+    for location_id, parent_id, _location_key in rows:
         children_by_parent.setdefault(parent_id, set()).add(location_id)
 
     pending = list(matching_ids)
@@ -555,6 +562,8 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             raise IdempotencyConflict("Idempotency key was already used with a different payload.")
         return existing_event, True
 
+    before_state = capture_inventory_state(workspace)
+
     location_rows = data.get("locations", [])
     item_rows = data.get("items", [])
     holding_rows = data.get("holdings", [])
@@ -719,6 +728,10 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         observed_at=provenance.get("observed_at"),
         metadata=provenance.get("metadata", {}),
         summary=summary,
+        undo_data={
+            "before": before_state,
+            "after_hash": inventory_state_hash(capture_inventory_state(workspace)),
+        },
     )
     return event, False
 
@@ -744,6 +757,7 @@ def move_inventory(
         if existing_event.request_hash != request_hash:
             raise IdempotencyConflict("Idempotency key was already used with a different payload.")
         return existing_event, True
+    before_state = capture_inventory_state(workspace)
     if from_location_key == to_location_key:
         raise BulkUpsertError("Source and destination locations must differ.")
     try:
@@ -810,6 +824,10 @@ def move_inventory(
         observed_at=provenance.get("observed_at"),
         metadata=provenance.get("metadata", {}),
         summary=summary,
+        undo_data={
+            "before": before_state,
+            "after_hash": inventory_state_hash(capture_inventory_state(workspace)),
+        },
     )
     return event, False
 
@@ -955,3 +973,90 @@ def delete_inventory_item(*, workspace, actor, data, request_hash):
         summary=summary,
     )
     return event, False
+
+
+UNDO_TOKEN_SALT = "inventory.undo.preview"
+UNDO_TOKEN_MAX_AGE = 15 * 60
+
+
+def preview_inventory_undo(*, workspace, event):
+    if event.workspace_id != workspace.id:
+        raise InventoryUndoError(_("Event was not found in this workspace."))
+    if event.kind not in {InventoryEvent.Kind.BULK_UPSERT, InventoryEvent.Kind.MOVE}:
+        return {"allowed": False, "reason": _("This event type cannot be undone.")}
+    if not event.undo_data.get("before") or not event.undo_data.get("after_hash"):
+        return {"allowed": False, "reason": _("This event predates safe undo support.")}
+    if workspace.inventory_events.filter(
+        kind=InventoryEvent.Kind.UNDO,
+        summary__undoes_event_id=str(event.id),
+    ).exists():
+        return {"allowed": False, "reason": _("This event has already been undone.")}
+    latest = workspace.inventory_events.order_by("-created_at", "-id").first()
+    if latest != event:
+        return {"allowed": False, "reason": _("Only the latest inventory event can be undone.")}
+
+    current_hash = inventory_state_hash(capture_inventory_state(workspace))
+    if current_hash != event.undo_data["after_hash"]:
+        return {
+            "allowed": False,
+            "reason": _(
+                "The inventory changed after this event, so undo would overwrite newer work."
+            ),
+        }
+
+    before = event.undo_data["before"]
+    token = signing.dumps(
+        {"event_id": str(event.id), "state_hash": current_hash},
+        salt=UNDO_TOKEN_SALT,
+    )
+    return {
+        "allowed": True,
+        "reason": "",
+        "token": token,
+        "restored": {
+            "locations": len(before["locations"]),
+            "items": len(before["items"]),
+            "holdings": len(before["holdings"]),
+            "location_relations": len(before["location_relations"]),
+        },
+    }
+
+
+@transaction.atomic
+def undo_inventory_event(*, workspace, actor, event_id, preview_token):
+    try:
+        preview = signing.loads(
+            preview_token,
+            salt=UNDO_TOKEN_SALT,
+            max_age=UNDO_TOKEN_MAX_AGE,
+        )
+    except signing.BadSignature as error:
+        raise InventoryUndoError(_("The undo preview is invalid or expired.")) from error
+    if preview.get("event_id") != str(event_id):
+        raise InventoryUndoError(_("The undo preview does not match this event."))
+
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    event = (
+        InventoryEvent.objects.select_for_update().filter(workspace=workspace, id=event_id).first()
+    )
+    if not event:
+        raise InventoryUndoError(_("Event was not found in this workspace."))
+    current_preview = preview_inventory_undo(workspace=workspace, event=event)
+    if not current_preview["allowed"]:
+        raise InventoryUndoError(current_preview["reason"])
+    if preview.get("state_hash") != event.undo_data["after_hash"]:
+        raise InventoryUndoError(_("The inventory changed since the undo preview."))
+
+    restore_inventory_state(workspace, event.undo_data["before"])
+    undo_event = InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=InventoryEvent.Kind.UNDO,
+        actor=actor,
+        source_kind=InventoryEvent.SourceKind.MANUAL,
+        summary={
+            "undoes_event_id": str(event.id),
+            "original_kind": event.kind,
+            "restored": current_preview["restored"],
+        },
+    )
+    return undo_event

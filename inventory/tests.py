@@ -39,10 +39,13 @@ from .models import (
 )
 from .services import (
     BulkUpsertError,
+    InventoryUndoError,
     create_item_with_holding,
     delete_inventory_item,
     hash_request,
     move_inventory,
+    preview_inventory_undo,
+    undo_inventory_event,
     update_inventory_item,
 )
 
@@ -317,6 +320,155 @@ def test_bulk_upsert_creates_workshop_inventory_with_provenance(users, workspace
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
     assert workspace.inventory_events.count() == 1
+
+
+@pytest.mark.django_db
+def test_web_history_previews_and_undoes_latest_bulk_upsert(client, users, workspaces):
+    workspace, _ = workspaces
+    Location.objects.create(workspace=workspace, key="bench", name="Workbench")
+    api = APIClient()
+    api.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "mistaken-bulk-001",
+        "locations": [{"key": "wrong-box", "name": "Wrong box"}],
+        "items": [{"key": "wrong-item", "name": "Wrong item"}],
+        "holdings": [{"item_key": "wrong-item", "location_key": "wrong-box", "quantity": "2"}],
+    }
+    assert (
+        api.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json").status_code == 201
+    )
+    original = workspace.inventory_events.get(kind=InventoryEvent.Kind.BULK_UPSERT)
+    original_summary = original.summary.copy()
+    client.force_login(users[0])
+
+    history = client.get("/app/workshop/history/")
+    preview = client.get(f"/app/workshop/history/{original.id}/undo/")
+    response = client.post(
+        f"/app/workshop/history/{original.id}/undo/",
+        {"preview_token": preview.context["preview"]["token"]},
+    )
+
+    assert history.status_code == 200
+    assert "mistaken-bulk-001" not in history.content.decode()
+    assert f"/app/workshop/history/{original.id}/undo/" in history.content.decode()
+    assert preview.status_code == 200
+    assert preview.context["preview"]["allowed"] is True
+    assert response.status_code == 302
+    assert list(workspace.locations.values_list("key", flat=True)) == ["bench"]
+    assert not workspace.items.exists()
+    original.refresh_from_db()
+    assert original.summary == original_summary
+    undo = workspace.inventory_events.get(kind=InventoryEvent.Kind.UNDO)
+    assert undo.summary["undoes_event_id"] == str(original.id)
+
+
+@pytest.mark.django_db
+def test_undo_requires_preview_and_rejects_inventory_changed_after_it(users, workspaces):
+    workspace, _ = workspaces
+    source = Location.objects.create(workspace=workspace, key="source", name="Source")
+    destination = Location.objects.create(
+        workspace=workspace, key="destination", name="Destination"
+    )
+    item = Item.objects.create(workspace=workspace, key="book", name="A book")
+    Holding.objects.create(workspace=workspace, item=item, location=source, quantity=Decimal("3"))
+    request = {
+        "item_key": item.key,
+        "from_location_key": source.key,
+        "to_location_key": destination.key,
+        "quantity": "1",
+        "idempotency_key": "move-before-undo",
+        "provenance": {},
+    }
+    event, _ = move_inventory(
+        workspace=workspace,
+        actor=users[0],
+        request_hash=hash_request(request),
+        **request,
+    )
+    preview = preview_inventory_undo(workspace=workspace, event=event)
+    moved = workspace.holdings.get(location=destination)
+    moved.notes = "Edited after preview"
+    moved.save(update_fields=["notes", "updated_at"])
+
+    with pytest.raises(InventoryUndoError):
+        undo_inventory_event(
+            workspace=workspace,
+            actor=users[0],
+            event_id=event.id,
+            preview_token=preview["token"],
+        )
+    with pytest.raises(InventoryUndoError):
+        undo_inventory_event(
+            workspace=workspace,
+            actor=users[0],
+            event_id=event.id,
+            preview_token="",
+        )
+
+    assert not workspace.inventory_events.filter(kind=InventoryEvent.Kind.UNDO).exists()
+    assert workspace.holdings.get(location=destination).notes == "Edited after preview"
+
+
+@pytest.mark.django_db
+def test_previewed_move_undo_restores_quantities_and_records_compensation(users, workspaces):
+    workspace, _ = workspaces
+    source = Location.objects.create(workspace=workspace, key="shelf-a", name="Shelf A")
+    destination = Location.objects.create(workspace=workspace, key="shelf-b", name="Shelf B")
+    item = Item.objects.create(workspace=workspace, key="gelman", name="Interrupciones I")
+    original_holding = Holding.objects.create(
+        workspace=workspace, item=item, location=source, quantity=Decimal("2")
+    )
+    request = {
+        "item_key": item.key,
+        "from_location_key": source.key,
+        "to_location_key": destination.key,
+        "quantity": "1",
+        "idempotency_key": "move-book-undo",
+        "provenance": {},
+    }
+    event, _ = move_inventory(
+        workspace=workspace,
+        actor=users[0],
+        request_hash=hash_request(request),
+        **request,
+    )
+
+    preview = preview_inventory_undo(workspace=workspace, event=event)
+    undo = undo_inventory_event(
+        workspace=workspace,
+        actor=users[0],
+        event_id=event.id,
+        preview_token=preview["token"],
+    )
+
+    restored = workspace.holdings.get(location=source)
+    assert restored.id == original_holding.id
+    assert restored.quantity == Decimal("2")
+    assert not workspace.holdings.filter(location=destination).exists()
+    assert undo.kind == InventoryEvent.Kind.UNDO
+    assert undo.summary["original_kind"] == InventoryEvent.Kind.MOVE
+
+
+@pytest.mark.django_db
+def test_read_only_member_can_view_history_but_cannot_open_undo(client, users, workspaces):
+    workspace, _ = workspaces
+    Membership.objects.create(workspace=workspace, user=users[1], can_write=False)
+    event = InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=InventoryEvent.Kind.MOVE,
+        undo_data={
+            "before": {"locations": [], "items": [], "holdings": [], "location_relations": []},
+            "after_hash": "unused",
+        },
+    )
+    client.force_login(users[1])
+
+    history = client.get("/app/workshop/history/")
+    undo = client.get(f"/app/workshop/history/{event.id}/undo/")
+
+    assert history.status_code == 200
+    assert f"/app/workshop/history/{event.id}/undo/" not in history.content.decode()
+    assert undo.status_code == 403
 
 
 @pytest.mark.django_db

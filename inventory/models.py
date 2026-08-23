@@ -240,19 +240,20 @@ class Holding(models.Model):
 
 class InventoryEvent(models.Model):
     class Kind(models.TextChoices):
-        BULK_UPSERT = "bulk_upsert", "Bulk upsert"
-        ADJUSTMENT = "adjustment", "Adjustment"
-        MOVE = "move", "Move"
-        ITEM_UPDATE = "item_update", "Item update"
-        ITEM_DELETE = "item_delete", "Item delete"
+        BULK_UPSERT = "bulk_upsert", _("Bulk upsert")
+        ADJUSTMENT = "adjustment", _("Adjustment")
+        MOVE = "move", _("Move")
+        ITEM_UPDATE = "item_update", _("Item update")
+        ITEM_DELETE = "item_delete", _("Item delete")
+        UNDO = "undo", _("Undo")
 
     class SourceKind(models.TextChoices):
-        MANUAL = "manual", "Manual"
-        PHOTO = "photo", "Photo"
-        VIDEO = "video", "Video"
-        IMPORT = "import", "Import"
-        AGENT = "agent", "Agent"
-        OTHER = "other", "Other"
+        MANUAL = "manual", _("Manual")
+        PHOTO = "photo", _("Photo")
+        VIDEO = "video", _("Video")
+        IMPORT = "import", _("Import")
+        AGENT = "agent", _("Agent")
+        OTHER = "other", _("Other")
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
@@ -274,6 +275,7 @@ class InventoryEvent(models.Model):
     observed_at = models.DateTimeField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     summary = models.JSONField(default=dict, blank=True)
+    undo_data = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

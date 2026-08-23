@@ -55,3 +55,10 @@ separate translated searches.
 
 Quilombo stores provenance metadata supplied by the client, such as “processed from a workshop
 photo on 2026-08-15”. It does not upload or retain the source photo or video.
+
+## History and undo
+
+The workspace history shows immutable inventory events and their provenance. Recent bulk upserts,
+imports, and moves can be undone only when they are the latest event and the inventory still
+matches the state produced by that event. Undo always requires a preview, restores the preceding
+state, and appends a compensating event; it never edits or deletes the original event.

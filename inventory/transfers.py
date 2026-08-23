@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
 from .serializers import InventoryDocumentSerializer
+from .state import capture_inventory_state, inventory_state_hash
 
 FORMAT_VERSION = "1.0"
 CSV_FIELDS = [
@@ -319,6 +320,8 @@ def import_inventory_document(
             )
         return existing_event.summary, existing_event, True
 
+    before_state = capture_inventory_state(workspace)
+
     try:
         locations = {}
         for row in document["locations"]:
@@ -385,5 +388,9 @@ def import_inventory_document(
             "transfer_format_version": FORMAT_VERSION,
         },
         summary=summary,
+        undo_data={
+            "before": before_state,
+            "after_hash": inventory_state_hash(capture_inventory_state(workspace)),
+        },
     )
     return summary, event, False

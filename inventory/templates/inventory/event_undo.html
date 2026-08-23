@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Undo preview" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'event-history' workspace.slug %}">{% translate "History" %}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Undo preview" %}</span>
+  </nav>
+  <div class="page-heading"><div><h1>{% translate "Undo preview" %}</h1><p class="lede">{{ event.get_kind_display }} · {{ event.created_at|date:"SHORT_DATETIME_FORMAT" }}</p></div></div>
+  {% if preview.allowed %}
+    <p>{% translate "This will restore the inventory state from immediately before this event. The original event will remain in history." %}</p>
+    <dl class="item-metadata">
+      <div><dt>{% translate "Locations" %}</dt><dd>{{ preview.restored.locations }}</dd></div>
+      <div><dt>{% translate "Items" %}</dt><dd>{{ preview.restored.items }}</dd></div>
+      <div><dt>{% translate "Holdings" %}</dt><dd>{{ preview.restored.holdings }}</dd></div>
+      <div><dt>{% translate "Relations" %}</dt><dd>{{ preview.restored.location_relations }}</dd></div>
+    </dl>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="preview_token" value="{{ preview.token }}">
+      <div class="actions">
+        <button class="button button-danger" type="submit">{% translate "Undo event" %}</button>
+        <a class="button" href="{% url 'event-history' workspace.slug %}">{% translate "Cancel" %}</a>
+      </div>
+    </form>
+  {% else %}
+    <p>{{ preview.reason }}</p>
+    <a class="button" href="{% url 'event-history' workspace.slug %}">{% translate "Back to history" %}</a>
+  {% endif %}
+{% endblock %}

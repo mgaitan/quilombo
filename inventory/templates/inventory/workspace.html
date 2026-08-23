@@ -18,6 +18,7 @@
       {% if can_write %}<a class="button button-primary" href="{% url 'web-item-create' workspace.slug %}">{% translate "New item" %}</a>{% endif %}
       <a class="button" href="{% url 'web-item-list' workspace.slug %}">{% translate "Items" %}</a>
       <a class="button" href="{% url 'web-location-list' workspace.slug %}">{% translate "Locations" %}</a>
+      <a class="button" href="{% url 'event-history' workspace.slug %}">{% translate "History" %}</a>
       {% if can_manage %}<a class="button" href="{% url 'workspace-settings' workspace.slug %}">{% translate "Settings" %}</a>{% endif %}
     </div>
   </div>

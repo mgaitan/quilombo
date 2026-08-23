@@ -35,6 +35,7 @@ from .forms import (
 from .models import (
     ApiToken,
     Holding,
+    InventoryEvent,
     Item,
     Location,
     LocationRelation,
@@ -70,6 +71,7 @@ from .serializers import (
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
+    InventoryUndoError,
     build_holding_clue_context,
     bulk_upsert_inventory,
     create_holding,
@@ -78,12 +80,14 @@ from .services import (
     create_workspace,
     get_stock_status,
     hash_request,
+    preview_inventory_undo,
     remove_holding,
     remove_item,
     remove_workspace_member,
     rename_workspace,
     search_holdings,
     share_workspace,
+    undo_inventory_event,
     update_holding,
     update_item,
     update_location,
@@ -317,6 +321,62 @@ def workspace_inventory(request, workspace_slug):
             "can_manage": user_can_manage_workspace(request.user, workspace),
             "can_write": membership_can_write(membership),
         },
+    )
+
+
+@login_required
+def event_history(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    events = workspace.inventory_events.select_related("actor").order_by("-created_at", "-id")
+    page_obj = Paginator(events, 25).get_page(request.GET.get("page"))
+    latest_id = events.values_list("id", flat=True).first()
+    for event in page_obj:
+        event.can_undo = (
+            membership_can_write(membership)
+            and event.id == latest_id
+            and event.kind in {InventoryEvent.Kind.BULK_UPSERT, InventoryEvent.Kind.MOVE}
+            and bool(event.undo_data)
+        )
+    return render(
+        request,
+        "inventory/event_history.html",
+        {
+            "workspace": workspace,
+            "events": page_obj,
+            "page_obj": page_obj,
+            "can_write": membership_can_write(membership),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def event_undo(request, workspace_slug, event_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    event = get_object_or_404(InventoryEvent, workspace=workspace, id=event_id)
+    preview = preview_inventory_undo(workspace=workspace, event=event)
+    if request.method == "POST":
+        try:
+            undo_inventory_event(
+                workspace=workspace,
+                actor=request.user,
+                event_id=event.id,
+                preview_token=request.POST.get("preview_token", ""),
+            )
+        except InventoryUndoError as error:
+            preview = {"allowed": False, "reason": str(error)}
+            return render(
+                request,
+                "inventory/event_undo.html",
+                {"workspace": workspace, "event": event, "preview": preview},
+                status=409,
+            )
+        return HttpResponseRedirect(reverse("event-history", args=[workspace.slug]))
+    return render(
+        request,
+        "inventory/event_undo.html",
+        {"workspace": workspace, "event": event, "preview": preview},
     )
 
 
