@@ -30,8 +30,8 @@
               {% if event.client_actor %}<span class="row-detail">{% translate "Agent" %}: {{ event.client_actor }}</span>{% endif %}
             </td>
             <td>
-              {% if event.metadata.mcp_client.name %}
-                {{ event.metadata.mcp_client.name }}{% if event.metadata.mcp_client.version %} {{ event.metadata.mcp_client.version }}{% endif %}
+              {% if event.metadata.server_mcp_client.name %}
+                {{ event.metadata.server_mcp_client.name }}{% if event.metadata.server_mcp_client.version %} {{ event.metadata.server_mcp_client.version }}{% endif %}
                 <span class="row-detail">{% translate "MCP client" %} · {{ event.get_source_kind_display }}</span>
               {% else %}
                 {{ event.get_source_kind_display }}

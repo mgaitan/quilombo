@@ -230,8 +230,11 @@ def _event_change_lines(event):
             )
         return lines
     if event.kind == InventoryEvent.Kind.UNDO:
-        original_kind = summary.get("original_kind", "").replace("_", " ")
-        lines = [_("Undid: %(event)s") % {"event": original_kind or _("inventory event")}]
+        original_kind = summary.get("original_kind", "")
+        original_kind_label = dict(InventoryEvent.Kind.choices).get(
+            original_kind, original_kind.replace("_", " ")
+        )
+        lines = [_("Undid: %(event)s") % {"event": original_kind_label or _("inventory event")}]
         lines.extend(_inventory_count_lines(summary.get("restored", {})))
         return lines
     return [

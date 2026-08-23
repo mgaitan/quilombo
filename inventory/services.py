@@ -30,6 +30,14 @@ class InventoryUndoError(BulkUpsertError):
     pass
 
 
+def event_metadata_from_provenance(provenance):
+    metadata = dict(provenance.get("metadata", {}))
+    metadata.pop("server_mcp_client", None)
+    if mcp_client := provenance.get("_mcp_client"):
+        metadata["server_mcp_client"] = mcp_client
+    return metadata
+
+
 @transaction.atomic
 def create_workspace(*, user, name):
     base = slugify(name)[:60] or "inventory"
@@ -831,7 +839,7 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
-        metadata=provenance.get("metadata", {}),
+        metadata=event_metadata_from_provenance(provenance),
         summary=summary,
         undo_data={
             "before": before_state,
@@ -927,7 +935,7 @@ def move_inventory(
         source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
-        metadata=provenance.get("metadata", {}),
+        metadata=event_metadata_from_provenance(provenance),
         summary=summary,
         undo_data={
             "before": before_state,
@@ -949,7 +957,7 @@ def _mutation_event(*, workspace, actor, kind, data, request_hash, summary):
         source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
-        metadata=provenance.get("metadata", {}),
+        metadata=event_metadata_from_provenance(provenance),
         summary=summary,
     )
 
