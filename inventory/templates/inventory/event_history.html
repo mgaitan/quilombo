@@ -25,10 +25,27 @@
               <span class="row-detail">{{ event.id }}</span>
               {% if event.can_undo %}<a href="{% url 'event-undo' workspace.slug event.id %}">{% translate "Preview undo" %}</a>{% endif %}
             </td>
-            <td>{{ event.actor.get_username|default:event.client_actor|default:"—" }}</td>
-            <td>{{ event.get_source_kind_display }}{% if event.source_reference %}<span class="row-detail">{{ event.source_reference }}</span>{% endif %}</td>
+            <td>
+              {{ event.actor.get_username|default:"—" }}
+              {% if event.client_actor %}<span class="row-detail">{% translate "Agent" %}: {{ event.client_actor }}</span>{% endif %}
+            </td>
+            <td>
+              {% if event.metadata.mcp_client.name %}
+                {{ event.metadata.mcp_client.name }}{% if event.metadata.mcp_client.version %} {{ event.metadata.mcp_client.version }}{% endif %}
+                <span class="row-detail">{% translate "MCP client" %} · {{ event.get_source_kind_display }}</span>
+              {% else %}
+                {{ event.get_source_kind_display }}
+              {% endif %}
+              {% if event.source_reference %}<span class="row-detail">{{ event.source_reference }}</span>{% endif %}
+            </td>
             <td>{{ event.created_at|date:"SHORT_DATETIME_FORMAT" }}{% if event.observed_at %}<span class="row-detail">{% blocktranslate with date=event.observed_at|date:"SHORT_DATETIME_FORMAT" %}Observed {{ date }}{% endblocktranslate %}</span>{% endif %}</td>
-            <td><code class="event-summary">{{ event.summary }}</code></td>
+            <td>
+              {% if event.change_lines %}
+                <ul class="event-summary">{% for line in event.change_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+              {% else %}
+                <span class="row-detail">{% translate "No change details recorded." %}</span>
+              {% endif %}
+            </td>
           </tr>
         {% empty %}<tr><td colspan="5">{% translate "No inventory events recorded yet." %}</td></tr>{% endfor %}
       </tbody>

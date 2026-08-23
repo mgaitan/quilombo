@@ -15,6 +15,7 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
 from django.views.generic import FormView
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -41,6 +42,7 @@ from .models import (
     LocationRelation,
     Membership,
     OAuthAuthorizationRequest,
+    VerificationStatus,
     Workspace,
 )
 from .oauth import create_authorization_grant
@@ -130,6 +132,113 @@ def dashboard(request):
             "preserved_query": preserved_query.urlencode(),
         },
     )
+
+
+def _inventory_count(key, count):
+    if key == "locations":
+        return ngettext("%(count)s location", "%(count)s locations", count) % {"count": count}
+    if key == "items":
+        return ngettext("%(count)s item", "%(count)s items", count) % {"count": count}
+    if key == "holdings":
+        return ngettext("%(count)s holding", "%(count)s holdings", count) % {"count": count}
+    return ngettext("%(count)s spatial relation", "%(count)s spatial relations", count) % {
+        "count": count
+    }
+
+
+def _inventory_count_lines(summary):
+    lines = []
+    for key in ("locations", "items", "holdings", "location_relations"):
+        value = summary.get(key, 0)
+        if isinstance(value, dict):
+            created = value.get("created", 0)
+            updated = value.get("updated", 0)
+            count = created + updated
+            if count:
+                lines.append(
+                    _("%(records)s (%(created)s created, %(updated)s updated)")
+                    % {
+                        "records": _inventory_count(key, count),
+                        "created": created,
+                        "updated": updated,
+                    }
+                )
+        elif value:
+            lines.append(_inventory_count(key, value))
+    return lines
+
+
+def _event_change_lines(event):
+    summary = event.summary
+    if event.kind == InventoryEvent.Kind.BULK_UPSERT:
+        return _inventory_count_lines(summary)
+    if event.kind == InventoryEvent.Kind.MOVE:
+        amount = _("%(quantity)s %(unit)s of %(item)s") % {
+            "quantity": summary.get("quantity", "?"),
+            "unit": summary.get("unit", "unit"),
+            "item": summary.get("item_key", _("unknown item")),
+        }
+        route = _("From %(source)s to %(destination)s") % {
+            "source": summary.get("from_location_key", _("unknown location")),
+            "destination": summary.get("to_location_key", _("unknown location")),
+        }
+        return [amount, route]
+    if event.kind == InventoryEvent.Kind.AUDIT:
+        holdings = summary.get("holdings", [])
+        corrections = sum(bool(row.get("corrected_fields")) for row in holdings)
+        status = summary.get("location_status", VerificationStatus.UNKNOWN)
+        status_label = dict(VerificationStatus.choices).get(status, status)
+        lines = [
+            _("Location %(location)s: %(status)s")
+            % {
+                "location": summary.get("location_key", _("unknown location")),
+                "status": status_label,
+            },
+            ngettext("%(count)s holding checked", "%(count)s holdings checked", len(holdings))
+            % {"count": len(holdings)},
+        ]
+        if corrections:
+            lines.append(
+                ngettext(
+                    "%(count)s holding corrected",
+                    "%(count)s holdings corrected",
+                    corrections,
+                )
+                % {"count": corrections}
+            )
+        return lines
+    if event.kind == InventoryEvent.Kind.ITEM_UPDATE:
+        lines = [_("Item: %(item)s") % {"item": summary.get("item_key", "?")}]
+        fields = summary.get("item_fields", [])
+        if fields:
+            lines.append(_("Fields: %(fields)s") % {"fields": ", ".join(fields)})
+        holding_count = len(summary.get("holdings", []))
+        if holding_count:
+            lines.append(
+                ngettext("%(count)s holding updated", "%(count)s holdings updated", holding_count)
+                % {"count": holding_count}
+            )
+        return lines
+    if event.kind == InventoryEvent.Kind.ITEM_DELETE:
+        item = summary.get("item_name") or summary.get("item_key", "?")
+        lines = [_("Deleted item: %(item)s") % {"item": item}]
+        holding_count = summary.get("deleted_holdings", 0)
+        if holding_count:
+            lines.append(
+                ngettext("%(count)s holding removed", "%(count)s holdings removed", holding_count)
+                % {"count": holding_count}
+            )
+        return lines
+    if event.kind == InventoryEvent.Kind.UNDO:
+        original_kind = summary.get("original_kind", "").replace("_", " ")
+        lines = [_("Undid: %(event)s") % {"event": original_kind or _("inventory event")}]
+        lines.extend(_inventory_count_lines(summary.get("restored", {})))
+        return lines
+    return [
+        _("%(field)s: %(value)s") % {"field": key.replace("_", " ").capitalize(), "value": value}
+        for key, value in summary.items()
+        if not isinstance(value, (dict, list))
+    ]
 
 
 def _managed_workspace(user, workspace_slug):
@@ -332,6 +441,7 @@ def event_history(request, workspace_slug):
     page_obj = Paginator(events, 25).get_page(request.GET.get("page"))
     latest_id = events.values_list("id", flat=True).first()
     for event in page_obj:
+        event.change_lines = _event_change_lines(event)
         event.can_undo = (
             membership_can_write(membership)
             and event.id == latest_id

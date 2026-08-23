@@ -263,7 +263,8 @@ th { color: #626863; font: 600 12px system-ui, sans-serif; text-align: left; tex
 th, td { border-bottom: 1px solid #eceeec; padding: 14px 16px 14px 0; vertical-align: top; }
 td:last-child, th:last-child { padding-right: 0; }
 .row-detail { display: block; color: #747a76; font-size: 13px; }
-.event-summary { display: block; max-width: 36rem; white-space: normal; overflow-wrap: anywhere; }
+.event-summary { margin: 0; padding: 0; list-style: none; }
+.event-summary li + li { margin-top: 4px; }
 .freshness { font-size: 13px; font-weight: 700; }
 .freshness-current { color: #28633f; }
 .freshness-stale { color: #9a4b21; }
