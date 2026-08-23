@@ -67,6 +67,21 @@ on 2026-08-14`.
 8. Call `get_inventory_snapshot` when the question depends on spatial relations, a full location,
    or several scattered holdings.
 
+## Re-verify a location
+
+Use `audit_inventory` after physically checking a known location. Include only holdings that were
+actually checked: omitted holdings stay unchanged. Mark a fact `confirmed` only when observed and
+use `unknown` when the audit could not establish whether it remains accurate. The same call may
+correct a known holding's quantity, approximation flag, or notes. Show those corrections before
+writing and attach the observation time and source as provenance.
+
+Suggest opportunistic re-verification only when the user is already accessing the exact location
+and another holding there is stale or unknown. Ask at most one compact follow-up about facts that
+are quick to check. Do not ask about recently verified holdings, widen the audit to other
+locations, or turn routine searches into repeated inventory questionnaires. Use the freshness of
+`nearby_items` returned by search; request a location-scoped snapshot only when the user agrees to
+a broader audit.
+
 ## Record observations
 
 For a book with a visible ISBN, call `lookup_book_by_isbn` to obtain a bibliographic draft. Show or

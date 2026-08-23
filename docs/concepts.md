@@ -55,3 +55,10 @@ separate translated searches.
 
 Quilombo stores provenance metadata supplied by the client, such as “processed from a workshop
 photo on 2026-08-15”. It does not upload or retain the source photo or video.
+
+## Freshness
+
+Locations and holdings can be confirmed by an audit, marked unknown, or become stale after the
+configured freshness window. A later inventory mutation invalidates the earlier verification
+unless it carries a new observation. See [Audits and freshness](audits.md) for the agent behavior
+and MCP contract.

@@ -16,6 +16,7 @@ header.
 | --- | --- |
 | `find_inventory` | Find ranked holdings and their locations. |
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
+| `audit_inventory` | Verify a location and selected holdings, with optional corrections. |
 | `bulk_upsert_inventory` | Transactionally create or replace related inventory facts. |
 | `move_inventory` | Move a holding between locations. |
 | `update_inventory_item` | Correct a known item and its holdings by stable UUID. |
@@ -30,6 +31,9 @@ Read tools keep caller-provided limits within documented bounds. `find_inventory
 whether another narrower read is needed without treating an exactly-full page as truncated.
 
 Search and snapshot results expose stable item, holding, and location UUIDs for repair operations.
+They also expose verification status, last observation, observer, and whether a confirmed fact is
+current or stale. The default freshness window is 90 days and can be configured with
+`INVENTORY_FRESHNESS_DAYS`.
 Prefer `update_inventory_item` when the intended item is known. Delete only after the client has
 enough evidence that the record is erroneous or duplicated and has applied its confirmation policy.
 

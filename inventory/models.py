@@ -1,12 +1,66 @@
 import hashlib
 import secrets
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+
+class VerificationStatus(models.TextChoices):
+    CONFIRMED = "confirmed", _("Confirmed")
+    UNKNOWN = "unknown", _("Unknown")
+
+
+class FreshnessMixin:
+    @property
+    def freshness_status(self) -> str:
+        if self.verification_status != VerificationStatus.CONFIRMED:
+            return "unknown"
+        if not self.last_observed_at:
+            return "never"
+        cutoff = timezone.now() - timedelta(days=settings.INVENTORY_FRESHNESS_DAYS)
+        return "stale" if self.last_observed_at < cutoff else "current"
+
+    def _invalidate_verification(self, *, fact_fields, update_fields):
+        if not self.pk:
+            return update_fields
+        active_fields = fact_fields
+        if update_fields is not None:
+            active_fields = {
+                field
+                for field in fact_fields
+                if field in update_fields or field.removesuffix("_id") in update_fields
+            }
+        if not active_fields:
+            return update_fields
+        observed_fields = ["verification_status", "last_observed_at", "last_observed_by_id"]
+        previous = (
+            type(self).objects.filter(pk=self.pk).values(*active_fields, *observed_fields).first()
+        )
+        if not previous or not any(
+            previous[field] != getattr(self, field) for field in active_fields
+        ):
+            return update_fields
+        verification_refreshed = any(
+            previous[field] != getattr(self, field) for field in observed_fields
+        )
+        if verification_refreshed:
+            return update_fields
+        self.verification_status = VerificationStatus.UNKNOWN
+        self.last_observed_at = None
+        self.last_observed_by = None
+        if update_fields is None:
+            return None
+        return set(update_fields) | {
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+        }
 
 
 class Workspace(models.Model):
@@ -48,7 +102,7 @@ class Membership(models.Model):
         return f"{self.user} @ {self.workspace} ({self.role})"
 
 
-class Location(models.Model):
+class Location(FreshnessMixin, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="locations")
     key = models.CharField(max_length=128)
@@ -64,6 +118,17 @@ class Location(models.Model):
     )
     aliases = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    verification_status = models.CharField(
+        max_length=12, choices=VerificationStatus, default=VerificationStatus.UNKNOWN
+    )
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    last_observed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observed_locations",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -89,6 +154,23 @@ class Location(models.Model):
                 raise ValidationError({"parent": "Location hierarchy cannot contain cycles."})
             seen.add(ancestor.id)
             ancestor = ancestor.parent
+
+    def save(self, *args, **kwargs):
+        kwargs["update_fields"] = self._invalidate_verification(
+            fact_fields={
+                "key",
+                "name",
+                "description",
+                "kind",
+                "parent_id",
+                "aliases",
+                "metadata",
+            },
+            update_fields=kwargs.get("update_fields"),
+        )
+        if kwargs["update_fields"] is None:
+            kwargs.pop("update_fields")
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} [{self.key}]"
@@ -197,7 +279,7 @@ class Item(models.Model):
         return f"{self.name} [{self.key}]"
 
 
-class Holding(models.Model):
+class Holding(FreshnessMixin, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="holdings")
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="holdings")
@@ -205,6 +287,17 @@ class Holding(models.Model):
     quantity = models.DecimalField(max_digits=20, decimal_places=6)
     approximate = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
+    verification_status = models.CharField(
+        max_length=12, choices=VerificationStatus, default=VerificationStatus.UNKNOWN
+    )
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    last_observed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observed_holdings",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -233,6 +326,15 @@ class Holding(models.Model):
         ):
             raise ValidationError({"quantity": "Discrete items require a whole quantity."})
 
+    def save(self, *args, **kwargs):
+        kwargs["update_fields"] = self._invalidate_verification(
+            fact_fields={"item_id", "location_id", "quantity", "approximate", "notes"},
+            update_fields=kwargs.get("update_fields"),
+        )
+        if kwargs["update_fields"] is None:
+            kwargs.pop("update_fields")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         approximate = "~" if self.approximate else ""
         return f"{self.item.name} @ {self.location.name}: {approximate}{self.quantity}"
@@ -245,6 +347,7 @@ class InventoryEvent(models.Model):
         MOVE = "move", "Move"
         ITEM_UPDATE = "item_update", "Item update"
         ITEM_DELETE = "item_delete", "Item delete"
+        AUDIT = "audit", "Audit"
 
     class SourceKind(models.TextChoices):
         MANUAL = "manual", "Manual"

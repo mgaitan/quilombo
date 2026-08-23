@@ -493,3 +493,24 @@ msgstr "También se eliminarán todas las existencias de este objeto."
 
 msgid "The item itself will remain."
 msgstr "El objeto seguirá existiendo."
+
+msgid "Confirmed"
+msgstr "Confirmado"
+
+msgid "Unknown"
+msgstr "Desconocido"
+
+msgid "Verification"
+msgstr "Verificación"
+
+msgid "Current"
+msgstr "Vigente"
+
+msgid "Needs verification"
+msgstr "Necesita verificación"
+
+msgid "Observed %(date)s by %(user)s"
+msgstr "Observado el %(date)s por %(user)s"
+
+msgid "Observed %(date)s"
+msgstr "Observado el %(date)s"
