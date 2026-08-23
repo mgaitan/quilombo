@@ -18,7 +18,7 @@ dependencies = [
 dev = [
     "pytest>=8.4,<9",
     "pytest-django>=4.11,<5",
-    "ruff>=0.12,<0.13",
+    "ruff>=0.16.4,<0.17",
 ]
 docs = [
     "myst-parser>=5.1",
