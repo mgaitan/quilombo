@@ -4,12 +4,12 @@
 [![Latest release](https://img.shields.io/github/v/release/mgaitan/quilombo)](https://github.com/mgaitan/quilombo/releases/latest)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
 
-Quilombo is an **MCP-powered inventory management system**. It keeps track of physical things so
-an AI agent can help you find them again.
-
 > **quilombo** /kee-LOM-bo/
 >
 > *noun, Rioplatense lunfardo.* A mess, a chaotic tangle, a situation that has gotten out of hand.
+
+Quilombo is an **MCP-powered inventory management system**. It keeps track of physical things so
+an AI agent can help you find them again.
 
 The project started after a search for some hinges ended with buying another pair, only for the
 originals to turn up later. A workshop drawer, a bookshelf, a storage room, or a whole house can
@@ -77,7 +77,7 @@ https://quilombo-v1-mgaitan.onrender.com/mcp
 
 ChatGPT, Claude, and other OAuth-capable clients can register dynamically, open Quilombo for login,
 and ask which workspace to authorize. Clients without OAuth can use a long-lived workspace bearer
-token. Current client-specific setup steps live at `/connect/` in the web app.
+token. Current client-specific setup steps live at [/connect/](https://quilombo-v1-mgaitan.onrender.com/connect/) in the web app.
 
 The MCP server provides these tools:
 
