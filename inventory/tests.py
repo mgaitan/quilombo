@@ -2518,6 +2518,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     ]
     assert policy.contents[0].mime_type == "text/markdown"
     assert "Search before stating where an item is" in policy.contents[0].text
+    assert "loaded a Quilombo-specific skill" in policy.contents[0].text
     assert server_instructions == policy.contents[0].text
     move_tool = next(tool for tool in tools.tools if tool.name == "move_inventory")
     assert move_tool.annotations.destructive_hint is True

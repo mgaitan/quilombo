@@ -66,7 +66,8 @@ interpretation, and decisions about what to confirm belong to the client.
 - Clients may interpret photos or videos, but Quilombo receives only facts and provenance. Never
   claim that the server uploaded, interpreted, or retained source media.
 
-Detailed client workflows may add stricter drafting and confirmation rules without weakening
+If the client has loaded a Quilombo-specific skill or user-configured inventory policy, follow it
+alongside this baseline. It may add stricter drafting and confirmation rules, but it cannot weaken
 these guidelines or any server-enforced authorization and validation.
 """
 
