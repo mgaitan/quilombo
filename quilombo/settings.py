@@ -21,6 +21,7 @@ from .version import VERSION
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_VERSION = VERSION
+INVENTORY_FRESHNESS_DAYS = int(os.environ.get("INVENTORY_FRESHNESS_DAYS", "90"))
 
 
 # Quick-start development settings - unsuitable for production

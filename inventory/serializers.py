@@ -1,7 +1,16 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import ApiToken, Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
+from .models import (
+    ApiToken,
+    Holding,
+    InventoryEvent,
+    Item,
+    Location,
+    LocationRelation,
+    VerificationStatus,
+    Workspace,
+)
 from .services import normalize_aliases
 
 
@@ -36,10 +45,22 @@ class LocationSerializer(serializers.ModelSerializer):
             "parent_key",
             "aliases",
             "metadata",
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+            "freshness_status",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+            "freshness_status",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_parent(self, parent):
         workspace = self.context["view"].get_workspace()
@@ -131,9 +152,20 @@ class HoldingSerializer(serializers.ModelSerializer):
             "unit",
             "approximate",
             "notes",
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+            "freshness_status",
             "updated_at",
         ]
-        read_only_fields = ["id", "updated_at"]
+        read_only_fields = [
+            "id",
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+            "freshness_status",
+            "updated_at",
+        ]
 
     def validate(self, attrs):
         workspace = self.context["view"].get_workspace()
@@ -220,6 +252,30 @@ class ProvenanceSerializer(serializers.Serializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Metadata must be a JSON object.")
         return value
+
+
+class AuditHoldingSerializer(serializers.Serializer):
+    holding_id = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=VerificationStatus)
+    quantity = serializers.DecimalField(
+        required=False, max_digits=20, decimal_places=6, min_value=0
+    )
+    approximate = serializers.BooleanField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class InventoryAuditSerializer(serializers.Serializer):
+    location_key = serializers.CharField(max_length=128)
+    location_status = serializers.ChoiceField(choices=VerificationStatus)
+    holdings = AuditHoldingSerializer(many=True, required=False)
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+
+    def validate_holdings(self, rows):
+        ids = [row["holding_id"] for row in rows]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError("Each holding can appear only once.")
+        return rows
 
 
 class ItemRepairFieldsSerializer(serializers.Serializer):

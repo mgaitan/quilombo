@@ -385,7 +385,11 @@ def item_detail(request, workspace_slug, item_id):
     membership = _workspace_membership(request.user, workspace_slug)
     workspace = membership.workspace
     item = get_object_or_404(Item, workspace=workspace, id=item_id)
-    holdings = list(item.holdings.select_related("location").order_by("location__name", "id"))
+    holdings = list(
+        item.holdings.select_related("location", "last_observed_by").order_by(
+            "location__name", "id"
+        )
+    )
     location_paths = _location_paths(workspace.locations.only("id", "parent_id", "name"))
     for holding in holdings:
         holding.location_path = location_paths.get(holding.location_id, holding.location.name)
@@ -503,7 +507,7 @@ def holding_delete(request, workspace_slug, item_id, holding_id):
 def location_list(request, workspace_slug):
     membership = _workspace_membership(request.user, workspace_slug)
     workspace = membership.workspace
-    locations = list(workspace.locations.order_by("name", "id"))
+    locations = list(workspace.locations.select_related("last_observed_by").order_by("name", "id"))
     paths = _location_paths(locations)
     for location in locations:
         location.path_label = paths[location.id]

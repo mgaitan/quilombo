@@ -37,17 +37,18 @@
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{% translate "Location" %}</th><th>{% translate "Quantity" %}</th><th>{% translate "Notes" %}</th>{% if can_write %}<th>{% translate "Actions" %}</th>{% endif %}</tr></thead>
+      <thead><tr><th>{% translate "Location" %}</th><th>{% translate "Quantity" %}</th><th>{% translate "Verification" %}</th><th>{% translate "Notes" %}</th>{% if can_write %}<th>{% translate "Actions" %}</th>{% endif %}</tr></thead>
       <tbody>
         {% for holding in holdings %}
           <tr>
             <td>{{ holding.location_path }}<span class="row-detail">{{ holding.location.key }}</span></td>
             <td>{% if holding.approximate %}≈{% endif %}{{ holding.quantity|floatformat:"-6" }} {{ item.unit }}</td>
+            <td>{% include "inventory/_freshness.html" with record=holding %}</td>
             <td>{{ holding.notes|default:_("No notes") }}</td>
             {% if can_write %}<td><a href="{% url 'web-holding-edit' workspace.slug item.id holding.id %}">{% translate "Edit" %}</a> · <a class="danger-link" href="{% url 'web-holding-delete' workspace.slug item.id holding.id %}">{% translate "Delete" %}</a></td>{% endif %}
           </tr>
         {% empty %}
-          <tr><td colspan="4">{% translate "This item has no holdings." %}</td></tr>
+          <tr><td colspan="5">{% translate "This item has no holdings." %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

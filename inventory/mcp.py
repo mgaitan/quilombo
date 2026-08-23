@@ -13,6 +13,7 @@ from .models import Holding, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
     BulkUpsertSerializer,
+    InventoryAuditSerializer,
     ItemDeleteSerializer,
     ItemRepairSerializer,
     ProvenanceSerializer,
@@ -26,6 +27,7 @@ from .services import (
     location_scope_ids,
     search_holdings,
 )
+from .services import audit_inventory as audit_inventory_service
 from .services import (
     bulk_upsert_inventory as bulk_upsert_service,
 )
@@ -121,6 +123,14 @@ def _serialize_holding(holding, clue_context=None):
         "unit": holding.item.unit,
         "approximate": holding.approximate,
         "notes": holding.notes,
+        "verification_status": holding.verification_status,
+        "freshness": holding.freshness_status,
+        "last_observed_at": (
+            holding.last_observed_at.isoformat() if holding.last_observed_at else None
+        ),
+        "last_observed_by": (
+            holding.last_observed_by.get_username() if holding.last_observed_by_id else None
+        ),
     }
     if hasattr(holding, "_search_match"):
         serialized["search"] = holding._search_match
@@ -218,9 +228,13 @@ def get_inventory_snapshot(
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
     workspace = token.workspace
-    locations = Location.objects.filter(workspace=workspace).select_related("parent")
+    locations = Location.objects.filter(workspace=workspace).select_related(
+        "parent", "last_observed_by"
+    )
     items = Item.objects.filter(workspace=workspace)
-    holdings = Holding.objects.filter(workspace=workspace).select_related("item", "location")
+    holdings = Holding.objects.filter(workspace=workspace).select_related(
+        "item", "location", "last_observed_by"
+    )
     relations = LocationRelation.objects.filter(workspace=workspace).select_related(
         "subject", "object"
     )
@@ -264,6 +278,16 @@ def get_inventory_snapshot(
                 "parent_key": location.parent.key if location.parent_id else None,
                 "aliases": location.aliases,
                 "metadata": location.metadata,
+                "verification_status": location.verification_status,
+                "freshness": location.freshness_status,
+                "last_observed_at": (
+                    location.last_observed_at.isoformat() if location.last_observed_at else None
+                ),
+                "last_observed_by": (
+                    location.last_observed_by.get_username()
+                    if location.last_observed_by_id
+                    else None
+                ),
             }
             for location in location_rows
         ],
@@ -293,6 +317,47 @@ def get_inventory_snapshot(
         "truncated": any(truncated.values()),
         "truncated_collections": truncated,
     }
+
+
+@server.tool(
+    title="Audit an inventory location",
+    description=(
+        "Record a location audit and its provenance. Confirm or mark the location and selected "
+        "holdings unknown; optionally correct quantity, approximation, or notes for a known "
+        "holding. Holdings omitted from the request are not changed."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def audit_inventory(
+    location_key: str,
+    location_status: str,
+    idempotency_key: str,
+    ctx: Context,
+    holdings: list[dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    token = _write_token_from_context(ctx)
+    payload = {
+        "location_key": location_key,
+        "location_status": location_status,
+        "holdings": holdings or [],
+        "idempotency_key": idempotency_key,
+        "provenance": provenance or {},
+    }
+    serializer = InventoryAuditSerializer(data=payload)
+    if not serializer.is_valid():
+        raise ToolError(f"Invalid inventory audit: {serializer.errors}")
+    try:
+        event, replayed = audit_inventory_service(
+            workspace=token.workspace,
+            actor=token.user,
+            data=serializer.validated_data,
+            request_hash=hash_request(serializer.validated_data),
+        )
+    except (BulkUpsertError, IdempotencyConflict) as error:
+        raise ToolError(str(error)) from error
+    return {"event_id": str(event.id), "replayed": replayed, "audit": event.summary}
 
 
 @server.tool(

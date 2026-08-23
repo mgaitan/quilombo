@@ -389,7 +389,9 @@ def location_scope_ids(*, workspace, location_key, include_descendants=True):
 def search_holdings(
     *, workspace, query, category="", location="", include_descendants=True, limit=100
 ):
-    holdings_query = Holding.objects.filter(workspace=workspace).select_related("item", "location")
+    holdings_query = Holding.objects.filter(workspace=workspace).select_related(
+        "item", "location", "last_observed_by"
+    )
     if category:
         holdings_query = holdings_query.filter(item__category__iexact=category)
     if location:
@@ -530,6 +532,79 @@ def get_stock_status(*, workspace):
 def hash_request(payload):
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+@transaction.atomic
+def audit_inventory(*, workspace, actor, data, request_hash):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    if event := _replayed_event(workspace=workspace, data=data, request_hash=request_hash):
+        return event, True
+
+    location = (
+        Location.objects.select_for_update()
+        .filter(workspace=workspace, key=data["location_key"])
+        .first()
+    )
+    if not location:
+        raise BulkUpsertError(f"Unknown location '{data['location_key']}'.")
+
+    rows = data.get("holdings", [])
+    holdings = {
+        holding.id: holding
+        for holding in Holding.objects.select_for_update()
+        .filter(
+            workspace=workspace,
+            location=location,
+            id__in=[row["holding_id"] for row in rows],
+        )
+        .select_related("item")
+    }
+    if len(holdings) != len(rows):
+        raise BulkUpsertError("An audited holding was not found at this location.")
+
+    observed_at = data.get("provenance", {}).get("observed_at") or timezone.now()
+    location.verification_status = data["location_status"]
+    location.last_observed_at = observed_at
+    location.last_observed_by = actor
+    location.save(
+        update_fields=["verification_status", "last_observed_at", "last_observed_by", "updated_at"]
+    )
+
+    summaries = []
+    for row in rows:
+        holding = holdings[row["holding_id"]]
+        corrected_fields = []
+        for field in ("quantity", "approximate", "notes"):
+            if field in row and getattr(holding, field) != row[field]:
+                setattr(holding, field, row[field])
+                corrected_fields.append(field)
+        holding.verification_status = row["status"]
+        holding.last_observed_at = observed_at
+        holding.last_observed_by = actor
+        holding.full_clean()
+        holding.save()
+        summaries.append(
+            {
+                "holding_id": str(holding.id),
+                "item_key": holding.item.key,
+                "status": row["status"],
+                "corrected_fields": corrected_fields,
+            }
+        )
+
+    event = _mutation_event(
+        workspace=workspace,
+        actor=actor,
+        kind=InventoryEvent.Kind.AUDIT,
+        data=data,
+        request_hash=request_hash,
+        summary={
+            "location_key": location.key,
+            "location_status": data["location_status"],
+            "holdings": summaries,
+        },
+    )
+    return event, False
 
 
 def _validate_location_hierarchy(parent_by_key):

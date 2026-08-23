@@ -1,12 +1,30 @@
 import hashlib
 import secrets
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+
+class VerificationStatus(models.TextChoices):
+    CONFIRMED = "confirmed", _("Confirmed")
+    UNKNOWN = "unknown", _("Unknown")
+
+
+class FreshnessMixin:
+    @property
+    def freshness_status(self) -> str:
+        if self.verification_status != VerificationStatus.CONFIRMED:
+            return "unknown"
+        if not self.last_observed_at:
+            return "never"
+        cutoff = timezone.now() - timedelta(days=settings.INVENTORY_FRESHNESS_DAYS)
+        return "stale" if self.last_observed_at < cutoff else "current"
 
 
 class Workspace(models.Model):
@@ -48,7 +66,7 @@ class Membership(models.Model):
         return f"{self.user} @ {self.workspace} ({self.role})"
 
 
-class Location(models.Model):
+class Location(FreshnessMixin, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="locations")
     key = models.CharField(max_length=128)
@@ -64,6 +82,17 @@ class Location(models.Model):
     )
     aliases = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    verification_status = models.CharField(
+        max_length=12, choices=VerificationStatus, default=VerificationStatus.UNKNOWN
+    )
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    last_observed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observed_locations",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -197,7 +226,7 @@ class Item(models.Model):
         return f"{self.name} [{self.key}]"
 
 
-class Holding(models.Model):
+class Holding(FreshnessMixin, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="holdings")
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="holdings")
@@ -205,6 +234,17 @@ class Holding(models.Model):
     quantity = models.DecimalField(max_digits=20, decimal_places=6)
     approximate = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
+    verification_status = models.CharField(
+        max_length=12, choices=VerificationStatus, default=VerificationStatus.UNKNOWN
+    )
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    last_observed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observed_holdings",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -245,6 +285,7 @@ class InventoryEvent(models.Model):
         MOVE = "move", "Move"
         ITEM_UPDATE = "item_update", "Item update"
         ITEM_DELETE = "item_delete", "Item delete"
+        AUDIT = "audit", "Audit"
 
     class SourceKind(models.TextChoices):
         MANUAL = "manual", "Manual"

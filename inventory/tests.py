@@ -35,10 +35,12 @@ from .models import (
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
+    VerificationStatus,
     Workspace,
 )
 from .services import (
     BulkUpsertError,
+    audit_inventory,
     create_item_with_holding,
     delete_inventory_item,
     hash_request,
@@ -1764,6 +1766,117 @@ def test_health_check_includes_database(client):
     assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
 
 
+@pytest.mark.django_db
+def test_inventory_audit_corrects_and_verifies_facts_idempotently(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="screws",
+        name="Screws",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+    )
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("8")
+    )
+    observed_at = timezone.now() - timedelta(days=2)
+    data = {
+        "location_key": location.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("10"),
+                "approximate": True,
+            }
+        ],
+        "idempotency_key": "audit-drawer-001",
+        "provenance": {
+            "client_actor": "workshop-audit-agent",
+            "source_kind": InventoryEvent.SourceKind.AGENT,
+            "source_reference": "session://audit-42",
+            "observed_at": observed_at,
+        },
+    }
+
+    event, replayed = audit_inventory(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = audit_inventory(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+
+    location.refresh_from_db()
+    holding.refresh_from_db()
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert event.kind == InventoryEvent.Kind.AUDIT
+    assert event.client_actor == "workshop-audit-agent"
+    assert event.source_reference == "session://audit-42"
+    assert location.verification_status == VerificationStatus.CONFIRMED
+    assert location.last_observed_at == observed_at
+    assert location.last_observed_by == users[0]
+    assert holding.quantity == Decimal("10")
+    assert holding.approximate is True
+    assert holding.freshness_status == "current"
+    assert event.summary["holdings"][0]["corrected_fields"] == ["quantity", "approximate"]
+    assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.AUDIT).count() == 1
+
+
+@pytest.mark.django_db
+def test_inventory_audit_rejects_cross_workspace_holding_and_rolls_back(users, workspaces):
+    workshop, library = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    shelf = Location.objects.create(workspace=library, key="shelf", name="Shelf")
+    book = Item.objects.create(workspace=library, key="gelman", name="Interrupciones I")
+    library_holding = Holding.objects.create(
+        workspace=library, item=book, location=shelf, quantity=Decimal("1")
+    )
+    data = {
+        "location_key": drawer.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [{"holding_id": library_holding.id, "status": VerificationStatus.CONFIRMED}],
+        "idempotency_key": "cross-workspace-audit",
+        "provenance": {},
+    }
+
+    with pytest.raises(BulkUpsertError, match="not found"):
+        audit_inventory(
+            workspace=workshop,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+
+    drawer.refresh_from_db()
+    assert drawer.verification_status == VerificationStatus.UNKNOWN
+    assert drawer.last_observed_at is None
+    assert not workshop.inventory_events.exists()
+
+
+@pytest.mark.django_db
+def test_confirmed_fact_becomes_stale_after_configured_interval(settings, workspaces):
+    settings.INVENTORY_FRESHNESS_DAYS = 30
+    workspace, _ = workspaces
+    location = Location.objects.create(
+        workspace=workspace,
+        key="cabinet",
+        name="Cabinet",
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now() - timedelta(days=31),
+    )
+
+    assert location.freshness_status == "stale"
+
+
 def test_public_web_footer_shows_runtime_version(client):
     response = client.get("/")
 
@@ -2122,6 +2235,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     ) = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
+        "audit_inventory",
         "bulk_upsert_inventory",
         "delete_inventory_item",
         "find_inventory",
