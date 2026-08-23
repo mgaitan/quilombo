@@ -2,7 +2,7 @@
 services:
   - type: web
     plan: free
-    name: quilombo-v1-mgaitan
+    name: quilombo
     runtime: python
     autoDeployTrigger: off
     buildCommand: "./build.sh"
@@ -20,12 +20,12 @@ services:
       - key: PYTHON_VERSION
         value: 3.14.3
       - key: PUBLIC_BASE_URL
-        value: https://quilombo-v1-mgaitan.onrender.com
+        value: https://quilombo.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
-        value: https://quilombo-v1-mgaitan.onrender.com
+        value: https://quilombo.onrender.com,https://quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_HOSTS
-        value: localhost:*,127.0.0.1:*,quilombo-v1-mgaitan.onrender.com
+        value: localhost:*,127.0.0.1:*,quilombo.onrender.com,quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_ORIGINS
-        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com
+        value: http://localhost:*,http://127.0.0.1:*,https://quilombo.onrender.com,https://quilombo-v1-mgaitan.onrender.com

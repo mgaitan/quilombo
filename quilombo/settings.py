@@ -35,7 +35,7 @@ IS_PROD = os.environ.get("IS_PROD") == "1"
 DEBUG = not IS_PROD
 PUBLIC_BASE_URL = os.environ.get(
     "PUBLIC_BASE_URL",
-    "https://quilombo-v1-mgaitan.onrender.com" if IS_PROD else "http://localhost:8000",
+    "https://quilombo.onrender.com" if IS_PROD else "http://localhost:8000",
 ).rstrip("/")
 BOOK_CATALOG_USER_AGENT = os.environ.get(
     "BOOK_CATALOG_USER_AGENT",
@@ -45,7 +45,8 @@ BOOK_CATALOG_USER_AGENT = os.environ.get(
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
-        "ALLOWED_HOSTS", ".localhost,127.0.0.1,[::1],quilombo-v1-mgaitan.onrender.com"
+        "ALLOWED_HOSTS",
+        ".localhost,127.0.0.1,[::1],quilombo.onrender.com,quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if host.strip()
 ]
@@ -58,7 +59,7 @@ MCP_ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         "MCP_ALLOWED_HOSTS",
-        "localhost:*,127.0.0.1:*,testserver,quilombo-v1-mgaitan.onrender.com",
+        "localhost:*,127.0.0.1:*,testserver,quilombo.onrender.com,quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if host.strip()
 ]
@@ -66,7 +67,7 @@ MCP_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "MCP_ALLOWED_ORIGINS",
-        "http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com",
+        "http://localhost:*,http://127.0.0.1:*,https://quilombo.onrender.com,https://quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if origin.strip()
 ]

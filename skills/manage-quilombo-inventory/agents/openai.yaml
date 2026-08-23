@@ -9,4 +9,4 @@ dependencies:
       value: "quilombo"
       description: "Workspace-scoped physical inventory storage"
       transport: "streamable_http"
-      url: "https://quilombo-v1-mgaitan.onrender.com/mcp"
+      url: "https://quilombo.onrender.com/mcp"
