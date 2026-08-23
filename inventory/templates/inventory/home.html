@@ -39,12 +39,20 @@
             <img src="{% static 'inventory/home/library-es.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
           {% endif %}
         </figure>
+        <figure class="carousel-slide" data-carousel-slide aria-hidden="true">
+          {% if LANGUAGE_CODE == "en" %}
+            <img src="{% static 'inventory/home/moving-en.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+          {% else %}
+            <img src="{% static 'inventory/home/moving-es.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+          {% endif %}
+        </figure>
       </div>
       <div class="carousel-controls">
         <button class="carousel-arrow" type="button" data-carousel-prev aria-label="{% translate 'Previous illustration' %}" title="{% translate 'Previous illustration' %}">&larr;</button>
         <div class="carousel-dots" role="group" aria-label="{% translate 'Choose illustration' %}">
           <button class="carousel-dot is-active" type="button" data-carousel-index="0" aria-label="{% translate 'Show workshop' %}" aria-current="true"></button>
           <button class="carousel-dot" type="button" data-carousel-index="1" aria-label="{% translate 'Show library' %}"></button>
+          <button class="carousel-dot" type="button" data-carousel-index="2" aria-label="{% translate 'Show moving day' %}"></button>
         </div>
         <button class="carousel-arrow" type="button" data-carousel-next aria-label="{% translate 'Next illustration' %}" title="{% translate 'Next illustration' %}">&rarr;</button>
         <button class="carousel-toggle" type="button" data-carousel-toggle aria-label="{% translate 'Pause illustrations' %}" title="{% translate 'Pause illustrations' %}" aria-pressed="false"><span aria-hidden="true">&#10074;&#10074;</span></button>
@@ -52,13 +60,20 @@
     </div>
   </section>
 
-  <aside class="dictionary-entry" aria-labelledby="quilombo-definition">
-    <div>
-      <h2 id="quilombo-definition">quilombo</h2>
-      <span class="dictionary-class">{% translate "noun · lunfardo" %}</span>
+  <section class="identity-band">
+    <aside class="dictionary-entry" aria-labelledby="quilombo-definition">
+      <div>
+        <h2 id="quilombo-definition">quilombo</h2>
+        <span class="dictionary-class">{% translate "noun · lunfardo" %}</span>
+      </div>
+      <p>{% translate "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand." %}</p>
+    </aside>
+    <div class="technical-note">
+      <h2>{% translate "Built for agents" %}</h2>
+      <p>{% translate "Quilombo is an agentic inventory management system. Connect it to ChatGPT, Claude, OpenClaw, or any other MCP client." %}</p>
+      <a class="quiet-link" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %} &rarr;</a>
     </div>
-    <p>{% translate "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand." %}</p>
-  </aside>
+  </section>
 
   <section class="band" aria-labelledby="how-title">
     <h2 id="how-title">{% translate "Start with the detail you have" %}</h2>

@@ -171,6 +171,9 @@ msgstr "Un taller donde el agente señala una pequeña caja roja."
 msgid "A library where the agent points to The Aleph by Borges."
 msgstr "Una biblioteca donde el agente señala El Aleph de Borges."
 
+msgid "A new apartment full of moving boxes, with the agent pointing to the forks."
+msgstr "Un departamento nuevo lleno de cajas de mudanza, donde el agente señala los tenedores."
+
 msgid "Previous illustration"
 msgstr "Ilustración anterior"
 
@@ -183,6 +186,9 @@ msgstr "Mostrar taller"
 msgid "Show library"
 msgstr "Mostrar biblioteca"
 
+msgid "Show moving day"
+msgstr "Mostrar mudanza"
+
 msgid "Next illustration"
 msgstr "Ilustración siguiente"
 
@@ -191,6 +197,15 @@ msgstr "Pausar ilustraciones"
 
 msgid "Play illustrations"
 msgstr "Reproducir ilustraciones"
+
+msgid "Built for agents"
+msgstr "Hecho para agentes"
+
+msgid "Quilombo is an agentic inventory management system. Connect it to ChatGPT, Claude, OpenClaw, or any other MCP client."
+msgstr "Quilombo es un sistema de gestión de inventario agéntico. Conectalo a ChatGPT, Claude, OpenClaw o cualquier otro cliente MCP."
+
+msgid "Connect an agent"
+msgstr "Conectar un agente"
 
 msgid "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up."
 msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale dónde quedaron las bisagras, un libro o esa mecha de 6 mm."

@@ -1380,6 +1380,11 @@ def test_public_home_and_connector_guide(client):
     assert "La vida real es un quilombo." in home_response.content.decode()
     assert "inventory/home/workshop-es.webp" in home_response.content.decode()
     assert "inventory/home/library-es.webp" in home_response.content.decode()
+    assert "inventory/home/moving-es.webp" in home_response.content.decode()
+    assert (
+        "Quilombo es un sistema de gestión de inventario agéntico."
+        in home_response.content.decode()
+    )
     assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
@@ -1402,6 +1407,8 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
     assert "Let AI help a little." in english_content
     assert "inventory/home/workshop-en.webp" in english_content
     assert "inventory/home/library-en.webp" in english_content
+    assert "inventory/home/moving-en.webp" in english_content
+    assert "Quilombo is an agentic inventory management system." in english_content
     assert "Create account" in english_content
     assert '<html lang="es">' in spanish_content
     assert "Una memoria para las cosas que te rodean." in spanish_content

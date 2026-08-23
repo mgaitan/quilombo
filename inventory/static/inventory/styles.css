@@ -11,10 +11,14 @@ body { margin: 0; }
 a { color: inherit; }
 button, input, select, textarea { font: inherit; }
 
-.masthead,
-.page,
-.footer {
+.page {
   width: min(100% - 48px, 980px);
+  margin-inline: auto;
+}
+
+.masthead,
+.footer {
+  width: min(100% - 48px, 1160px);
   margin-inline: auto;
 }
 
@@ -34,7 +38,7 @@ button, input, select, textarea { font: inherit; }
   text-decoration: none;
 }
 
-.wordmark img { width: 27px; height: 27px; }
+.wordmark img { width: 30px; height: 30px; }
 
 .nav {
   display: flex;
@@ -183,19 +187,31 @@ p { margin: 0 0 18px; }
   margin-top: 26px;
 }
 
+.identity-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr);
+  margin-top: 38px;
+  border-block: 1px solid #d9ddda;
+}
+
 .dictionary-entry {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 32px;
-  max-width: 720px;
-  margin-top: 72px;
-  border-block: 1px solid #d9ddda;
-  padding: 24px 0;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 28px;
+  padding: 24px 36px 24px 0;
 }
 
 .dictionary-entry h2 { margin-bottom: 2px; font-size: 28px; }
 .dictionary-entry p { align-self: center; margin: 0; }
 .dictionary-class { color: #6c726e; font: 12px system-ui, sans-serif; text-transform: uppercase; }
+
+.technical-note {
+  border-left: 1px solid #e3e6e3;
+  padding: 24px 0 24px 36px;
+}
+
+.technical-note h2 { font-size: 18px; }
+.technical-note p { max-width: 34rem; margin-bottom: 9px; color: #555c57; font-size: 14px; }
 
 .button {
   display: inline-flex;
@@ -218,9 +234,7 @@ p { margin: 0 0 18px; }
 
 .band {
   max-width: 720px;
-  margin-top: 80px;
-  border-top: 1px solid #e3e6e3;
-  padding-top: 32px;
+  margin-top: 52px;
 }
 
 .feature-grid {
@@ -421,7 +435,9 @@ code {
   .home-page { width: min(100% - 32px, 980px); }
   .home-page h1 { max-width: 10em; font-size: 42px; }
   .feature-grid { grid-template-columns: 1fr; gap: 20px; }
-  .dictionary-entry { grid-template-columns: 1fr; gap: 12px; }
+  .identity-band { grid-template-columns: 1fr; margin-top: 32px; }
+  .dictionary-entry { grid-template-columns: 1fr; gap: 12px; padding: 22px 0; }
+  .technical-note { border-top: 1px solid #e3e6e3; border-left: 0; padding: 22px 0; }
   .band { margin-top: 58px; }
   .page-heading { display: block; }
   .page-heading > .button, .page-heading > .page-actions { margin-top: 20px; }
