@@ -1,12 +1,19 @@
 # Quilombo
 
+[![CI](https://github.com/mgaitan/quilombo/actions/workflows/ci.yml/badge.svg)](https://github.com/mgaitan/quilombo/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/mgaitan/quilombo)](https://github.com/mgaitan/quilombo/releases/latest)
+[![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
+
+Quilombo is an **MCP-powered inventory management system**. It keeps track of physical things so
+an AI agent can help you find them again.
+
 > **quilombo** /kee-LOM-bo/
 >
 > *noun, Rioplatense lunfardo.* A mess, a chaotic tangle, a situation that has gotten out of hand.
 
-Quilombo keeps track of physical things so an AI agent can help you find them again. It started
-after a search for some hinges ended with buying another pair, only for the originals to turn up
-later. A workshop drawer, a bookshelf, a storage room, or a whole house can all become inventories.
+The project started after a search for some hinges ended with buying another pair, only for the
+originals to turn up later. A workshop drawer, a bookshelf, a storage room, or a whole house can
+all become inventories.
 
 You describe what you have and where it is in ordinary language. An agent turns that description
 into structured facts and stores them in Quilombo. Later, the same agent can answer questions such
@@ -15,7 +22,8 @@ drawer.
 
 Vision and semantic interpretation run in the client or agent. Quilombo has the narrower job of
 storing locations, items, quantities, spatial relations, freshness, and the provenance of each
-change. It exposes that data through a web interface, a REST API, and a remote MCP server.
+change. It exposes that data through a web interface, a REST API and, most importantly, a remote
+Streamable HTTP MCP server.
 
 [Read the longer account of why the project
 exists](https://mgaitan.github.io/en/posts/quilombo-agents-to-organize-real-life/).
