@@ -19,6 +19,13 @@ def capture_inventory_state(workspace):
                 "parent_id": str(location.parent_id) if location.parent_id else None,
                 "aliases": location.aliases,
                 "metadata": location.metadata,
+                "verification_status": location.verification_status,
+                "last_observed_at": (
+                    location.last_observed_at.isoformat() if location.last_observed_at else None
+                ),
+                "last_observed_by_id": (
+                    str(location.last_observed_by_id) if location.last_observed_by_id else None
+                ),
                 "created_at": location.created_at.isoformat(),
                 "updated_at": location.updated_at.isoformat(),
             }
@@ -54,6 +61,13 @@ def capture_inventory_state(workspace):
                 "quantity": str(holding.quantity),
                 "approximate": holding.approximate,
                 "notes": holding.notes,
+                "verification_status": holding.verification_status,
+                "last_observed_at": (
+                    holding.last_observed_at.isoformat() if holding.last_observed_at else None
+                ),
+                "last_observed_by_id": (
+                    str(holding.last_observed_by_id) if holding.last_observed_by_id else None
+                ),
                 "updated_at": holding.updated_at.isoformat(),
             }
             for holding in workspace.holdings.order_by("item_id", "location_id", "id")
@@ -95,6 +109,11 @@ def restore_inventory_state(workspace, state):
             kind=row["kind"],
             aliases=row["aliases"],
             metadata=row["metadata"],
+            verification_status=row["verification_status"],
+            last_observed_at=(
+                parse_datetime(row["last_observed_at"]) if row["last_observed_at"] else None
+            ),
+            last_observed_by_id=row["last_observed_by_id"],
             created_at=parse_datetime(row["created_at"]),
             updated_at=parse_datetime(row["updated_at"]),
         )
@@ -146,6 +165,11 @@ def restore_inventory_state(workspace, state):
             quantity=Decimal(row["quantity"]),
             approximate=row["approximate"],
             notes=row["notes"],
+            verification_status=row["verification_status"],
+            last_observed_at=(
+                parse_datetime(row["last_observed_at"]) if row["last_observed_at"] else None
+            ),
+            last_observed_by_id=row["last_observed_by_id"],
             updated_at=parse_datetime(row["updated_at"]),
         )
         for row in state["holdings"]

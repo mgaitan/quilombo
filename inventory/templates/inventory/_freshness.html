@@ -1,0 +1,17 @@
+{% load i18n %}
+{% if record.freshness_status == "current" %}
+  <span class="freshness freshness-current">{% translate "Current" %}</span>
+{% elif record.freshness_status == "stale" %}
+  <span class="freshness freshness-stale">{% translate "Needs verification" %}</span>
+{% else %}
+  <span class="freshness freshness-unknown">{% translate "Unknown" %}</span>
+{% endif %}
+{% if record.last_observed_at %}
+  <span class="row-detail">
+    {% if record.last_observed_by %}
+      {% blocktranslate with date=record.last_observed_at|date:"SHORT_DATETIME_FORMAT" user=record.last_observed_by.get_username %}Observed {{ date }} by {{ user }}{% endblocktranslate %}
+    {% else %}
+      {% blocktranslate with date=record.last_observed_at|date:"SHORT_DATETIME_FORMAT" %}Observed {{ date }}{% endblocktranslate %}
+    {% endif %}
+  </span>
+{% endif %}

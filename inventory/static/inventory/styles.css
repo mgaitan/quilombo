@@ -264,6 +264,10 @@ th, td { border-bottom: 1px solid #eceeec; padding: 14px 16px 14px 0; vertical-a
 td:last-child, th:last-child { padding-right: 0; }
 .row-detail { display: block; color: #747a76; font-size: 13px; }
 .event-summary { display: block; max-width: 36rem; white-space: normal; overflow-wrap: anywhere; }
+.freshness { font-size: 13px; font-weight: 700; }
+.freshness-current { color: #28633f; }
+.freshness-stale { color: #9a4b21; }
+.freshness-unknown { color: #6c726e; }
 
 .endpoint,
 .connector-section {

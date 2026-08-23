@@ -149,3 +149,10 @@ approximation flag, or location. Each holding update requires its `holding_id`; 
 
 Use `delete_inventory_item` only for a confirmed erroneous or duplicate item. Deleting an item also
 deletes its holdings. Both commands require a unique idempotency key and accept provenance.
+
+## Audit
+
+`audit_inventory` records the verification state of one known location and selected holdings. A
+holding row requires `holding_id` and `status` (`confirmed` or `unknown`), and may also replace
+`quantity`, `approximate`, or `notes`. Holdings not listed are not inferred missing and remain
+unchanged. The operation is transactional, idempotent, and produces an immutable `audit` event.

@@ -62,3 +62,10 @@ The workspace history shows immutable inventory events and their provenance. Rec
 imports, and moves can be undone only when they are the latest event and the inventory still
 matches the state produced by that event. Undo always requires a preview, restores the preceding
 state, and appends a compensating event; it never edits or deletes the original event.
+
+## Freshness
+
+Locations and holdings can be confirmed by an audit, marked unknown, or become stale after the
+configured freshness window. A later inventory mutation invalidates the earlier verification
+unless it carries a new observation. See [Audits and freshness](audits.md) for the agent behavior
+and MCP contract.

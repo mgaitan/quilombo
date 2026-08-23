@@ -554,6 +554,9 @@ msgstr "Eliminación de objeto"
 msgid "Undo"
 msgstr "Deshacer"
 
+msgid "Audit"
+msgstr "Auditoría"
+
 msgid "Manual"
 msgstr "Manual"
 
@@ -598,3 +601,21 @@ msgstr "La vista previa de deshacer no corresponde a este evento."
 
 msgid "The inventory changed since the undo preview."
 msgstr "El inventario cambió desde la vista previa de deshacer."
+
+msgid "Confirmed"
+msgstr "Confirmado"
+
+msgid "Unknown"
+msgstr "Desconocido"
+
+msgid "Verification"
+msgstr "Verificación"
+
+msgid "Current"
+msgstr "Vigente"
+
+msgid "Needs verification"
+msgstr "Necesita verificación"
+
+msgid "Observed %(date)s by %(user)s"
+msgstr "Observado el %(date)s por %(user)s"

@@ -35,11 +35,13 @@ from .models import (
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
+    VerificationStatus,
     Workspace,
 )
 from .services import (
     BulkUpsertError,
     InventoryUndoError,
+    audit_inventory,
     create_item_with_holding,
     delete_inventory_item,
     hash_request,
@@ -416,7 +418,13 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
     destination = Location.objects.create(workspace=workspace, key="shelf-b", name="Shelf B")
     item = Item.objects.create(workspace=workspace, key="gelman", name="Interrupciones I")
     original_holding = Holding.objects.create(
-        workspace=workspace, item=item, location=source, quantity=Decimal("2")
+        workspace=workspace,
+        item=item,
+        location=source,
+        quantity=Decimal("2"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now(),
+        last_observed_by=users[0],
     )
     original_timestamps = {
         "location_created": source.created_at,
@@ -458,6 +466,9 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
     assert item.created_at == original_timestamps["item_created"]
     assert item.updated_at == original_timestamps["item_updated"]
     assert restored.updated_at == original_timestamps["holding_updated"]
+    assert restored.verification_status == VerificationStatus.CONFIRMED
+    assert restored.last_observed_at == original_holding.last_observed_at
+    assert restored.last_observed_by == users[0]
     assert not workspace.holdings.filter(location=destination).exists()
     assert undo.kind == InventoryEvent.Kind.UNDO
     assert undo.summary["original_kind"] == InventoryEvent.Kind.MOVE
@@ -1120,7 +1131,15 @@ def test_inventory_search_returns_physical_and_neighboring_clues(users, workspac
         quantity=1,
         notes="La copia tiene una marca en la esquina inferior",
     )
-    Holding.objects.create(workspace=library, item=dolina, location=shelf, quantity=1)
+    dolina_holding = Holding.objects.create(
+        workspace=library,
+        item=dolina,
+        location=shelf,
+        quantity=1,
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now() - timedelta(days=100),
+        last_observed_by=users[1],
+    )
     client = APIClient()
     client.force_authenticate(users[1])
 
@@ -1134,14 +1153,13 @@ def test_inventory_search_returns_physical_and_neighboring_clues(users, workspac
         "biblioteca",
         "estante-2-izquierda",
     ]
-    assert result["nearby_items"] == [
-        {
-            "item_key": "cronicas-angel-gris",
-            "item_name": "Crónicas del Ángel Gris",
-            "description": "Edición con lomo azul",
-            "attributes": {"schema": "book", "appearance": {"spine_color": "blue"}},
-        }
-    ]
+    assert len(result["nearby_items"]) == 1
+    nearby = result["nearby_items"][0]
+    assert nearby["holding_id"] == str(dolina_holding.id)
+    assert nearby["item_key"] == "cronicas-angel-gris"
+    assert nearby["description"] == "Edición con lomo azul"
+    assert nearby["freshness"] == "stale"
+    assert nearby["verification_status"] == VerificationStatus.CONFIRMED
 
 
 @pytest.mark.django_db
@@ -1930,6 +1948,191 @@ def test_health_check_includes_database(client):
     assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
 
 
+@pytest.mark.django_db
+def test_inventory_audit_corrects_and_verifies_facts_idempotently(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="screws",
+        name="Screws",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+    )
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("8")
+    )
+    observed_at = timezone.now() - timedelta(days=2)
+    data = {
+        "location_key": location.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("10"),
+                "approximate": True,
+            }
+        ],
+        "idempotency_key": "audit-drawer-001",
+        "provenance": {
+            "client_actor": "workshop-audit-agent",
+            "source_kind": InventoryEvent.SourceKind.AGENT,
+            "source_reference": "session://audit-42",
+            "observed_at": observed_at,
+        },
+    }
+
+    event, replayed = audit_inventory(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+    replay_event, was_replayed = audit_inventory(
+        workspace=workspace,
+        actor=users[0],
+        data=data,
+        request_hash=hash_request(data),
+    )
+
+    location.refresh_from_db()
+    holding.refresh_from_db()
+    assert replayed is False
+    assert was_replayed is True
+    assert replay_event == event
+    assert event.kind == InventoryEvent.Kind.AUDIT
+    assert event.client_actor == "workshop-audit-agent"
+    assert event.source_reference == "session://audit-42"
+    assert location.verification_status == VerificationStatus.CONFIRMED
+    assert location.last_observed_at == observed_at
+    assert location.last_observed_by == users[0]
+    assert holding.quantity == Decimal("10")
+    assert holding.approximate is True
+    assert holding.freshness_status == "current"
+    assert event.summary["holdings"][0]["corrected_fields"] == ["quantity", "approximate"]
+    assert workspace.inventory_events.filter(kind=InventoryEvent.Kind.AUDIT).count() == 1
+
+
+@pytest.mark.django_db
+def test_inventory_audit_rejects_cross_workspace_holding_and_rolls_back(users, workspaces):
+    workshop, library = workspaces
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    shelf = Location.objects.create(workspace=library, key="shelf", name="Shelf")
+    book = Item.objects.create(workspace=library, key="gelman", name="Interrupciones I")
+    library_holding = Holding.objects.create(
+        workspace=library, item=book, location=shelf, quantity=Decimal("1")
+    )
+    data = {
+        "location_key": drawer.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [{"holding_id": library_holding.id, "status": VerificationStatus.CONFIRMED}],
+        "idempotency_key": "cross-workspace-audit",
+        "provenance": {},
+    }
+
+    with pytest.raises(BulkUpsertError, match="not found"):
+        audit_inventory(
+            workspace=workshop,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+
+    drawer.refresh_from_db()
+    assert drawer.verification_status == VerificationStatus.UNKNOWN
+    assert drawer.last_observed_at is None
+    assert not workshop.inventory_events.exists()
+
+
+@pytest.mark.django_db
+def test_confirmed_fact_becomes_stale_after_configured_interval(settings, workspaces):
+    settings.INVENTORY_FRESHNESS_DAYS = 30
+    workspace, _ = workspaces
+    location = Location.objects.create(
+        workspace=workspace,
+        key="cabinet",
+        name="Cabinet",
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now() - timedelta(days=31),
+    )
+
+    assert location.freshness_status == "stale"
+
+
+@pytest.mark.django_db
+def test_holding_mutation_invalidates_previous_verification(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
+    item = Item.objects.create(workspace=workspace, key="screws", name="Screws")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("5"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now(),
+        last_observed_by=users[0],
+    )
+
+    holding.quantity = Decimal("6")
+    holding.save(update_fields=["quantity", "updated_at"])
+
+    holding.refresh_from_db()
+    assert holding.verification_status == VerificationStatus.UNKNOWN
+    assert holding.last_observed_at is None
+    assert holding.last_observed_by is None
+
+
+@pytest.mark.django_db
+def test_inventory_audit_rejects_observation_older_than_current_fact(users, workspaces):
+    workspace, _ = workspaces
+    newer = timezone.now()
+    location = Location.objects.create(
+        workspace=workspace,
+        key="shelf",
+        name="Shelf",
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=newer,
+        last_observed_by=users[0],
+    )
+    item = Item.objects.create(workspace=workspace, key="book", name="A book")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=newer,
+        last_observed_by=users[0],
+    )
+    data = {
+        "location_key": location.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("2"),
+            }
+        ],
+        "idempotency_key": "delayed-audit",
+        "provenance": {"observed_at": newer - timedelta(days=1)},
+    }
+
+    with pytest.raises(BulkUpsertError, match="newer observation"):
+        audit_inventory(
+            workspace=workspace,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+
+    holding.refresh_from_db()
+    assert holding.quantity == Decimal("1")
+    assert holding.last_observed_at == newer
+    assert not workspace.inventory_events.exists()
+
+
 def test_public_web_footer_shows_runtime_version(client):
     response = client.get("/")
 
@@ -2205,11 +2408,14 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         key="wall-plugs",
         name="Wall plugs",
     )
-    Holding.objects.create(
+    neighbor_holding = Holding.objects.create(
         workspace=workspace,
         item=neighbor,
         location=location,
         quantity=Decimal("8"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now(),
+        last_observed_by=users[0],
     )
     empty_location = Location.objects.create(
         workspace=workspace,
@@ -2288,6 +2494,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     ) = asyncio.run(exercise_mcp())
 
     assert {tool.name for tool in tools.tools} == {
+        "audit_inventory",
         "bulk_upsert_inventory",
         "delete_inventory_item",
         "find_inventory",
@@ -2312,6 +2519,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "drawer-1-a",
     ]
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
+    assert first_result["nearby_items"][0]["holding_id"] == str(neighbor_holding.id)
+    assert first_result["nearby_items"][0]["freshness"] == "current"
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
     snapshot = snapshot_result.structured_content
