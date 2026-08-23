@@ -43,16 +43,38 @@ from .services import (
 
 oauth_provider = QuilomboOAuthProvider()
 
+INVENTORY_POLICY = """# Quilombo inventory policy
+
+Quilombo records user-authorized facts about physical inventory. Recognition, semantic
+interpretation, and decisions about what to confirm belong to the client.
+
+- Search before stating where an item is or creating a possible duplicate. A missed search means
+  "not recorded," not "does not exist."
+- Treat recorded locations and quantities as claims, not current physical truth. Report useful
+  uncertainty and freshness. If the user cannot find an item, offer its recorded clues and
+  suggest checking the location.
+- Suggest opportunistic verification only when the user is already accessing the exact location
+  and one nearby holding is stale or unknown. Ask at most one short question. Do not ask about
+  recently verified holdings or expand a routine search into an audit.
+- Mutating tools write immediately. Show a compact draft and get confirmation first unless the
+  user explicitly authorized that exact write in the current request. State when the write has
+  completed.
+- Preserve uncertainty with approximate quantities, notes, and provenance. Do not infer that an
+  item is present only because of a spatial relation or an old record.
+- Use a unique idempotency key for each intended mutation. Reuse it only to retry the exact same
+  payload, and search or read the affected state before retrying an uncertain result.
+- Clients may interpret photos or videos, but Quilombo receives only facts and provenance. Never
+  claim that the server uploaded, interpreted, or retained source media.
+
+Detailed client workflows may add stricter drafting and confirmation rules without weakening
+these guidelines or any server-enforced authorization and validation.
+"""
+
 server = MCPServer(
     name="quilombo",
     title="Quilombo physical inventory",
     version=settings.APP_VERSION,
-    instructions=(
-        "Quilombo stores user-authorized physical inventory facts and does not infer facts. "
-        "Search before mutation. Mutating tools write immediately: apply any draft and human "
-        "confirmation policy in the client before calling them. Supply a unique idempotency key "
-        "and provenance for every mutation. Never claim that source media was uploaded."
-    ),
+    instructions=INVENTORY_POLICY,
     auth_server_provider=oauth_provider,
     auth=AuthSettings(
         issuer_url=settings.PUBLIC_BASE_URL.rstrip("/"),
@@ -76,12 +98,6 @@ IDEMPOTENT_WRITE = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
-MOVE_WRITE = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
-)
 
 
 def _token_from_context(ctx: Context):
@@ -94,6 +110,19 @@ def _token_from_context(ctx: Context):
     if not token:
         raise ToolError("Invalid or revoked Quilombo bearer token.")
     return token
+
+
+@server.resource(
+    "quilombo://guides/inventory-policy",
+    name="inventory-policy",
+    title="Quilombo inventory policy",
+    description=(
+        "Client guidance for searching, reporting freshness, verifying facts, and writing safely."
+    ),
+    mime_type="text/markdown",
+)
+def inventory_policy() -> str:
+    return INVENTORY_POLICY
 
 
 def _write_token_from_context(ctx: Context):
@@ -142,7 +171,9 @@ def _serialize_holding(holding, clue_context=None):
     description=(
         "Find stored items and their precise locations using deterministic text, alias, category, "
         "attribute, and location matching. Results are ranked and explain matched and unmatched "
-        "terms. Use this before telling a user where something is."
+        "terms. Use this before telling a user where something is. Treat no match as not recorded, "
+        "not proof that the item does not exist. Report relevant freshness and use nearby_items "
+        "only for identification or one opportunistic check at the exact location."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -182,8 +213,9 @@ def find_inventory(
 @server.tool(
     title="Get missing and low-stock items",
     description=(
-        "Report workspace items below their configured minimum. Returns missing or low status "
-        "and the quantity needed to reach the target."
+        "Report recorded workspace quantities below their configured minimum. Returns missing or "
+        "low status and the quantity needed to reach the target; it does not forecast consumption "
+        "or prove what is physically present."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -197,7 +229,8 @@ def get_inventory_status(ctx: Context) -> dict[str, Any]:
     title="Look up book metadata by ISBN",
     description=(
         "Look up bibliographic metadata in Open Library and return a suggested item payload. "
-        "This never writes inventory; confirm useful fields before calling bulk_upsert_inventory."
+        "This never writes inventory. Confirm useful fields and carry the source URL and retrieval "
+        "time into the provenance of any later bulk upsert."
     ),
     annotations=EXTERNAL_READ,
     structured_output=True,
@@ -214,7 +247,8 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
     title="Get inventory snapshot",
     description=(
         "Read locations, relative spatial relations, and holdings together. Use this when the user "
-        "asks for an overview or when reasoning about how items could be reorganized."
+        "asks for an overview, agrees to a broader location audit, or needs reorganization advice. "
+        "Freshness describes records, not guaranteed physical presence."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -324,7 +358,8 @@ def get_inventory_snapshot(
     description=(
         "Record a location audit and its provenance. Confirm or mark the location and selected "
         "holdings unknown; optionally correct quantity, approximation, or notes for a known "
-        "holding. Holdings omitted from the request are not changed."
+        "holding. Holdings omitted from the request are not changed. Draft corrections before "
+        "calling; do not use routine searches as a reason to audit unrelated or recent facts."
     ),
     annotations=IDEMPOTENT_WRITE,
     structured_output=True,
@@ -363,8 +398,10 @@ def audit_inventory(
 @server.tool(
     title="Bulk upsert inventory",
     description=(
-        "Create or replace many locations, items, holdings, and relative location relations in one "
-        "transaction. Quantities are set to the supplied current values. This writes immediately."
+        "Create or replace many locations, items, holdings, and relative location relations in "
+        "one transaction. Search first to reuse known records. Quantities replace current values "
+        "rather than adding deltas. Call only after the client has shown and confirmed the exact "
+        "draft; this writes immediately."
     ),
     annotations=IDEMPOTENT_WRITE,
     structured_output=True,
@@ -408,7 +445,7 @@ def bulk_upsert_inventory(
         "Move a quantity of one item between two known locations atomically. Use only after the "
         "client has applied its confirmation policy. This writes immediately."
     ),
-    annotations=MOVE_WRITE,
+    annotations=IDEMPOTENT_WRITE,
     structured_output=True,
 )
 def move_inventory(
