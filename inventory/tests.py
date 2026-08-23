@@ -2453,12 +2453,15 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                 )
                 async with Client(mcp_transport) as mcp_client:
                     tools = await mcp_client.list_tools()
+                    resources = await mcp_client.list_resources()
+                    policy = await mcp_client.read_resource("quilombo://guides/inventory-policy")
                     result = await mcp_client.call_tool(
                         "find_inventory", {"query": "tornillos madera", "limit": 1}
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
                     server_version = mcp_client.server_info.version
+                    server_instructions = mcp_client.instructions
                 http_client.headers["Authorization"] = f"Bearer {read_only_token}"
                 read_only_transport = streamable_http_client(
                     "http://testserver/mcp",
@@ -2475,20 +2478,26 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     )
                 return (
                     tools,
+                    resources,
+                    policy,
                     result,
                     status_result,
                     snapshot_result,
                     server_version,
+                    server_instructions,
                     read_result,
                     write_result,
                 )
 
     (
         tools,
+        resources,
+        policy,
         result,
         status_result,
         snapshot_result,
         server_version,
+        server_instructions,
         read_result,
         write_result,
     ) = asyncio.run(exercise_mcp())
@@ -2504,6 +2513,17 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "move_inventory",
         "update_inventory_item",
     }
+    assert [str(resource.uri) for resource in resources.resources] == [
+        "quilombo://guides/inventory-policy"
+    ]
+    assert policy.contents[0].mime_type == "text/markdown"
+    assert "Search before stating where an item is" in policy.contents[0].text
+    assert "loaded a Quilombo-specific skill" in policy.contents[0].text
+    assert server_instructions == policy.contents[0].text
+    move_tool = next(tool for tool in tools.tools if tool.name == "move_inventory")
+    assert move_tool.annotations.destructive_hint is True
+    find_tool = next(tool for tool in tools.tools if tool.name == "find_inventory")
+    assert "not recorded" in find_tool.description
     assert server_version == settings.APP_VERSION
     assert read_result.is_error is False
     assert write_result.is_error is True
