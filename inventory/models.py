@@ -26,6 +26,42 @@ class FreshnessMixin:
         cutoff = timezone.now() - timedelta(days=settings.INVENTORY_FRESHNESS_DAYS)
         return "stale" if self.last_observed_at < cutoff else "current"
 
+    def _invalidate_verification(self, *, fact_fields, update_fields):
+        if not self.pk:
+            return update_fields
+        active_fields = fact_fields
+        if update_fields is not None:
+            active_fields = {
+                field
+                for field in fact_fields
+                if field in update_fields or field.removesuffix("_id") in update_fields
+            }
+        if not active_fields:
+            return update_fields
+        observed_fields = ["verification_status", "last_observed_at", "last_observed_by_id"]
+        previous = (
+            type(self).objects.filter(pk=self.pk).values(*active_fields, *observed_fields).first()
+        )
+        if not previous or not any(
+            previous[field] != getattr(self, field) for field in active_fields
+        ):
+            return update_fields
+        verification_refreshed = any(
+            previous[field] != getattr(self, field) for field in observed_fields
+        )
+        if verification_refreshed:
+            return update_fields
+        self.verification_status = VerificationStatus.UNKNOWN
+        self.last_observed_at = None
+        self.last_observed_by = None
+        if update_fields is None:
+            return None
+        return set(update_fields) | {
+            "verification_status",
+            "last_observed_at",
+            "last_observed_by",
+        }
+
 
 class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -118,6 +154,23 @@ class Location(FreshnessMixin, models.Model):
                 raise ValidationError({"parent": "Location hierarchy cannot contain cycles."})
             seen.add(ancestor.id)
             ancestor = ancestor.parent
+
+    def save(self, *args, **kwargs):
+        kwargs["update_fields"] = self._invalidate_verification(
+            fact_fields={
+                "key",
+                "name",
+                "description",
+                "kind",
+                "parent_id",
+                "aliases",
+                "metadata",
+            },
+            update_fields=kwargs.get("update_fields"),
+        )
+        if kwargs["update_fields"] is None:
+            kwargs.pop("update_fields")
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} [{self.key}]"
@@ -272,6 +325,15 @@ class Holding(FreshnessMixin, models.Model):
             and self.quantity != self.quantity.to_integral_value()
         ):
             raise ValidationError({"quantity": "Discrete items require a whole quantity."})
+
+    def save(self, *args, **kwargs):
+        kwargs["update_fields"] = self._invalidate_verification(
+            fact_fields={"item_id", "location_id", "quantity", "approximate", "notes"},
+            update_fields=kwargs.get("update_fields"),
+        )
+        if kwargs["update_fields"] is None:
+            kwargs.pop("update_fields")
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         approximate = "~" if self.approximate else ""

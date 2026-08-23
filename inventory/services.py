@@ -563,6 +563,13 @@ def audit_inventory(*, workspace, actor, data, request_hash):
         raise BulkUpsertError("An audited holding was not found at this location.")
 
     observed_at = data.get("provenance", {}).get("observed_at") or timezone.now()
+    if location.last_observed_at and observed_at < location.last_observed_at:
+        raise BulkUpsertError("The location has a newer observation than this audit.")
+    if any(
+        holding.last_observed_at and observed_at < holding.last_observed_at
+        for holding in holdings.values()
+    ):
+        raise BulkUpsertError("A holding has a newer observation than this audit.")
     location.verification_status = data["location_status"]
     location.last_observed_at = observed_at
     location.last_observed_by = actor
@@ -660,6 +667,9 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
                 "kind",
                 "aliases",
                 "metadata",
+                "verification_status",
+                "last_observed_at",
+                "last_observed_by",
                 "updated_at",
             ],
         )
@@ -683,9 +693,15 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         parent_id = location_map[parent_key].id if parent_key else None
         if location.parent_id != parent_id:
             location.parent_id = parent_id
+            location.verification_status = "unknown"
+            location.last_observed_at = None
+            location.last_observed_by = None
             changed_parents.append(location)
     if changed_parents:
-        Location.objects.bulk_update(changed_parents, ["parent"])
+        Location.objects.bulk_update(
+            changed_parents,
+            ["parent", "verification_status", "last_observed_at", "last_observed_by"],
+        )
 
     items = [
         Item(
@@ -751,7 +767,15 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             holdings,
             update_conflicts=True,
             unique_fields=["workspace", "item", "location"],
-            update_fields=["quantity", "approximate", "notes", "updated_at"],
+            update_fields=[
+                "quantity",
+                "approximate",
+                "notes",
+                "verification_status",
+                "last_observed_at",
+                "last_observed_by",
+                "updated_at",
+            ],
         )
 
     relations = []

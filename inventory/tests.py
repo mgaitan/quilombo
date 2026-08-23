@@ -1877,6 +1877,80 @@ def test_confirmed_fact_becomes_stale_after_configured_interval(settings, worksp
     assert location.freshness_status == "stale"
 
 
+@pytest.mark.django_db
+def test_holding_mutation_invalidates_previous_verification(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
+    item = Item.objects.create(workspace=workspace, key="screws", name="Screws")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("5"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now(),
+        last_observed_by=users[0],
+    )
+
+    holding.quantity = Decimal("6")
+    holding.save(update_fields=["quantity", "updated_at"])
+
+    holding.refresh_from_db()
+    assert holding.verification_status == VerificationStatus.UNKNOWN
+    assert holding.last_observed_at is None
+    assert holding.last_observed_by is None
+
+
+@pytest.mark.django_db
+def test_inventory_audit_rejects_observation_older_than_current_fact(users, workspaces):
+    workspace, _ = workspaces
+    newer = timezone.now()
+    location = Location.objects.create(
+        workspace=workspace,
+        key="shelf",
+        name="Shelf",
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=newer,
+        last_observed_by=users[0],
+    )
+    item = Item.objects.create(workspace=workspace, key="book", name="A book")
+    holding = Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=newer,
+        last_observed_by=users[0],
+    )
+    data = {
+        "location_key": location.key,
+        "location_status": VerificationStatus.CONFIRMED,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("2"),
+            }
+        ],
+        "idempotency_key": "delayed-audit",
+        "provenance": {"observed_at": newer - timedelta(days=1)},
+    }
+
+    with pytest.raises(BulkUpsertError, match="newer observation"):
+        audit_inventory(
+            workspace=workspace,
+            actor=users[0],
+            data=data,
+            request_hash=hash_request(data),
+        )
+
+    holding.refresh_from_db()
+    assert holding.quantity == Decimal("1")
+    assert holding.last_observed_at == newer
+    assert not workspace.inventory_events.exists()
+
+
 def test_public_web_footer_shows_runtime_version(client):
     response = client.get("/")
 
