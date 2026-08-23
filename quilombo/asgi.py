@@ -11,6 +11,7 @@ from django.conf import settings  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 
 from inventory.mcp import server as mcp_server  # noqa: E402
+from quilombo.middleware import CanonicalHostASGIMiddleware  # noqa: E402
 
 
 def create_application():
@@ -26,6 +27,7 @@ def create_application():
     )
 
     mcp_application.router.routes.append(Mount("/", app=django_application))
+    mcp_application.add_middleware(CanonicalHostASGIMiddleware)
     return mcp_application
 
 
