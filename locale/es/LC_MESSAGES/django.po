@@ -494,6 +494,114 @@ msgstr "También se eliminarán todas las existencias de este objeto."
 msgid "The item itself will remain."
 msgstr "El objeto seguirá existiendo."
 
+msgid "History"
+msgstr "Historial"
+
+msgid "Event"
+msgstr "Evento"
+
+msgid "Actor"
+msgstr "Responsable"
+
+msgid "Source"
+msgstr "Origen"
+
+msgid "Recorded"
+msgstr "Registrado"
+
+msgid "Details"
+msgstr "Detalles"
+
+msgid "Preview undo"
+msgstr "Previsualizar deshacer"
+
+msgid "Undo preview"
+msgstr "Vista previa de deshacer"
+
+msgid "No inventory events recorded yet."
+msgstr "Todavía no hay eventos de inventario registrados."
+
+msgid "Observed %(date)s"
+msgstr "Observado el %(date)s"
+
+msgid "This will restore the inventory state from immediately before this event. The original event will remain in history."
+msgstr "Esto restaurará el inventario al estado inmediatamente anterior a este evento. El evento original seguirá en el historial."
+
+msgid "Relations"
+msgstr "Relaciones"
+
+msgid "Undo event"
+msgstr "Deshacer evento"
+
+msgid "Back to history"
+msgstr "Volver al historial"
+
+msgid "Bulk upsert"
+msgstr "Actualización en lote"
+
+msgid "Adjustment"
+msgstr "Ajuste"
+
+msgid "Move"
+msgstr "Movimiento"
+
+msgid "Item update"
+msgstr "Actualización de objeto"
+
+msgid "Item delete"
+msgstr "Eliminación de objeto"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "Audit"
+msgstr "Auditoría"
+
+msgid "Manual"
+msgstr "Manual"
+
+msgid "Photo"
+msgstr "Foto"
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Import"
+msgstr "Importación"
+
+msgid "Agent"
+msgstr "Agente"
+
+msgid "Other"
+msgstr "Otro"
+
+msgid "Event was not found in this workspace."
+msgstr "El evento no existe en este inventario."
+
+msgid "This event type cannot be undone."
+msgstr "Este tipo de evento no se puede deshacer."
+
+msgid "This event predates safe undo support."
+msgstr "Este evento es anterior al soporte de deshacer seguro."
+
+msgid "This event has already been undone."
+msgstr "Este evento ya fue deshecho."
+
+msgid "Only the latest inventory event can be undone."
+msgstr "Sólo se puede deshacer el último evento del inventario."
+
+msgid "The inventory changed after this event, so undo would overwrite newer work."
+msgstr "El inventario cambió después de este evento; deshacerlo sobrescribiría trabajo más reciente."
+
+msgid "The undo preview is invalid or expired."
+msgstr "La vista previa de deshacer no es válida o venció."
+
+msgid "The undo preview does not match this event."
+msgstr "La vista previa de deshacer no corresponde a este evento."
+
+msgid "The inventory changed since the undo preview."
+msgstr "El inventario cambió desde la vista previa de deshacer."
+
 msgid "Confirmed"
 msgstr "Confirmado"
 
@@ -511,6 +619,3 @@ msgstr "Necesita verificación"
 
 msgid "Observed %(date)s by %(user)s"
 msgstr "Observado el %(date)s por %(user)s"
-
-msgid "Observed %(date)s"
-msgstr "Observado el %(date)s"

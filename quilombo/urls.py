@@ -11,6 +11,8 @@ from inventory.views import (
     connector_guide,
     dashboard,
     download_skill,
+    event_history,
+    event_undo,
     first_inventory,
     holding_create,
     holding_delete,
@@ -58,6 +60,12 @@ urlpatterns = [
         name="first-inventory",
     ),
     path("app/<slug:workspace_slug>/items/", item_list, name="web-item-list"),
+    path("app/<slug:workspace_slug>/history/", event_history, name="event-history"),
+    path(
+        "app/<slug:workspace_slug>/history/<uuid:event_id>/undo/",
+        event_undo,
+        name="event-undo",
+    ),
     path("app/<slug:workspace_slug>/items/new/", item_create, name="web-item-create"),
     path(
         "app/<slug:workspace_slug>/items/<uuid:item_id>/",
