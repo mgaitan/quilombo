@@ -37,6 +37,10 @@ expand the check to other drawers or repeatedly ask about the same current facts
 A negative or uncertain answer is not proof that an item is absent. Mark the holding `unknown`
 unless the user confirms a correction or deletion.
 
+Search results include the freshness and stable holding ID of nearby items in the same location.
+This lets a client make the selective suggestion without scanning unrelated locations. A scoped
+`get_inventory_snapshot` remains available when a deliberate location-wide audit is requested.
+
 ## MCP audit
 
 `audit_inventory` audits one known location and only the holdings explicitly listed. Omitted

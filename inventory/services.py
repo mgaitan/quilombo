@@ -474,10 +474,16 @@ def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
     for holding in holding_rows:
         nearby_by_holding[holding.id] = [
             {
+                "holding_id": str(neighbor.id),
                 "item_key": neighbor.item.key,
                 "item_name": neighbor.item.name,
                 "description": neighbor.item.description,
                 "attributes": neighbor.item.attributes,
+                "verification_status": neighbor.verification_status,
+                "freshness": neighbor.freshness_status,
+                "last_observed_at": (
+                    neighbor.last_observed_at.isoformat() if neighbor.last_observed_at else None
+                ),
             }
             for neighbor in colocated_by_location.get(holding.location_id, [])
             if neighbor.item_id != holding.item_id

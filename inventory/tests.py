@@ -956,7 +956,15 @@ def test_inventory_search_returns_physical_and_neighboring_clues(users, workspac
         quantity=1,
         notes="La copia tiene una marca en la esquina inferior",
     )
-    Holding.objects.create(workspace=library, item=dolina, location=shelf, quantity=1)
+    dolina_holding = Holding.objects.create(
+        workspace=library,
+        item=dolina,
+        location=shelf,
+        quantity=1,
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now() - timedelta(days=100),
+        last_observed_by=users[1],
+    )
     client = APIClient()
     client.force_authenticate(users[1])
 
@@ -970,14 +978,13 @@ def test_inventory_search_returns_physical_and_neighboring_clues(users, workspac
         "biblioteca",
         "estante-2-izquierda",
     ]
-    assert result["nearby_items"] == [
-        {
-            "item_key": "cronicas-angel-gris",
-            "item_name": "Crónicas del Ángel Gris",
-            "description": "Edición con lomo azul",
-            "attributes": {"schema": "book", "appearance": {"spine_color": "blue"}},
-        }
-    ]
+    assert len(result["nearby_items"]) == 1
+    nearby = result["nearby_items"][0]
+    assert nearby["holding_id"] == str(dolina_holding.id)
+    assert nearby["item_key"] == "cronicas-angel-gris"
+    assert nearby["description"] == "Edición con lomo azul"
+    assert nearby["freshness"] == "stale"
+    assert nearby["verification_status"] == VerificationStatus.CONFIRMED
 
 
 @pytest.mark.django_db
@@ -2226,11 +2233,14 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         key="wall-plugs",
         name="Wall plugs",
     )
-    Holding.objects.create(
+    neighbor_holding = Holding.objects.create(
         workspace=workspace,
         item=neighbor,
         location=location,
         quantity=Decimal("8"),
+        verification_status=VerificationStatus.CONFIRMED,
+        last_observed_at=timezone.now(),
+        last_observed_by=users[0],
     )
     empty_location = Location.objects.create(
         workspace=workspace,
@@ -2334,6 +2344,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "drawer-1-a",
     ]
     assert first_result["nearby_items"][0]["item_key"] == "wall-plugs"
+    assert first_result["nearby_items"][0]["holding_id"] == str(neighbor_holding.id)
+    assert first_result["nearby_items"][0]["freshness"] == "current"
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
     snapshot = snapshot_result.structured_content

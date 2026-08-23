@@ -78,7 +78,9 @@ writing and attach the observation time and source as provenance.
 Suggest opportunistic re-verification only when the user is already accessing the exact location
 and another holding there is stale or unknown. Ask at most one compact follow-up about facts that
 are quick to check. Do not ask about recently verified holdings, widen the audit to other
-locations, or turn routine searches into repeated inventory questionnaires.
+locations, or turn routine searches into repeated inventory questionnaires. Use the freshness of
+`nearby_items` returned by search; request a location-scoped snapshot only when the user agrees to
+a broader audit.
 
 ## Record observations
 
