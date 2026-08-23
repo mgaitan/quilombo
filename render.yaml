@@ -2,6 +2,7 @@
 services:
   - type: web
     plan: free
+    # Rename the bound service in Render before syncing this Blueprint change.
     name: quilombo
     runtime: python
     autoDeployTrigger: off
