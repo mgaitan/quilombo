@@ -75,6 +75,11 @@ use `unknown` when the audit could not establish whether it remains accurate. Th
 correct a known holding's quantity, approximation flag, or notes. Show those corrections before
 writing and attach the observation time and source as provenance.
 
+Suggest opportunistic re-verification only when the user is already accessing the exact location
+and another holding there is stale or unknown. Ask at most one compact follow-up about facts that
+are quick to check. Do not ask about recently verified holdings, widen the audit to other
+locations, or turn routine searches into repeated inventory questionnaires.
+
 ## Record observations
 
 For a book with a visible ISBN, call `lookup_book_by_isbn` to obtain a bibliographic draft. Show or

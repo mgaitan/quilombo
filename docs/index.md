@@ -22,6 +22,7 @@ flowchart LR
 
 getting_started.md
 concepts.md
+audits.md
 ```
 
 ```{toctree}
