@@ -12,7 +12,7 @@
         {% translate "A memory for the things around you." %}
       </p>
       <h1 id="page-title">{% translate "Real life is messy." %} <span>{% translate "Let AI help a little." %}</span></h1>
-      <p>{% translate "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up." %}</p>
+      <p>{% translate "Tell your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up." %}</p>
       <div class="actions">
         {% if user.is_authenticated %}
           <a class="button button-primary" href="{% url 'dashboard' %}">{% translate "Open inventories" %}</a>
@@ -60,18 +60,28 @@
     </div>
   </section>
 
-  <section class="identity-band">
-    <aside class="dictionary-entry" aria-labelledby="quilombo-definition">
-      <div>
-        <h2 id="quilombo-definition">quilombo</h2>
-        <span class="dictionary-class">{% translate "noun · lunfardo" %}</span>
-      </div>
-      <p>{% translate "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand." %}</p>
-    </aside>
-    <div class="technical-note">
+  <aside class="dictionary-entry" aria-labelledby="quilombo-definition">
+    <div>
+      <h2 id="quilombo-definition">quilombo</h2>
+      <span class="dictionary-class">{% translate "noun · lunfardo" %}</span>
+    </div>
+    <p>{% translate "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand." %}</p>
+  </aside>
+
+  <section class="access-band" aria-label="{% translate 'Ways to use Quilombo' %}">
+    <div class="access-option">
       <h2>{% translate "Built for agents" %}</h2>
       <p>{% translate "Quilombo is an agentic inventory management system. Connect it to ChatGPT, Claude, OpenClaw, or any other MCP client." %}</p>
       <a class="quiet-link" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %} &rarr;</a>
+    </div>
+    <div class="access-option">
+      <h2>{% translate "On the web" %}</h2>
+      <p>{% translate "Use Quilombo as a classic web app, with search, structured editing forms, and a history of every inventory change." %}</p>
+      {% if user.is_authenticated %}
+        <a class="quiet-link" href="{% url 'dashboard' %}">{% translate "Open inventories" %} &rarr;</a>
+      {% else %}
+        <a class="quiet-link" href="{% url 'signup' %}">{% translate "Use the web app" %} &rarr;</a>
+      {% endif %}
     </div>
   </section>
 

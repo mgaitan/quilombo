@@ -204,11 +204,20 @@ msgstr "Hecho para agentes"
 msgid "Quilombo is an agentic inventory management system. Connect it to ChatGPT, Claude, OpenClaw, or any other MCP client."
 msgstr "Quilombo es un sistema de gestión de inventario agéntico. Conectalo a ChatGPT, Claude, OpenClaw o cualquier otro cliente MCP."
 
-msgid "Connect an agent"
-msgstr "Conectar un agente"
+msgid "Ways to use Quilombo"
+msgstr "Formas de usar Quilombo"
 
-msgid "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up."
-msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale dónde quedaron las bisagras, un libro o esa mecha de 6 mm."
+msgid "On the web"
+msgstr "En la web"
+
+msgid "Use Quilombo as a classic web app, with search, structured editing forms, and a history of every inventory change."
+msgstr "Usá Quilombo como una aplicación web clásica, con buscador, formularios de edición estructurados y un historial de cada cambio del inventario."
+
+msgid "Use the web app"
+msgstr "Usar la aplicación web"
+
+msgid "Tell your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up."
+msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale por esa mecha de 6 mm, un libro o los tenedores."
 
 msgid "Open inventories"
 msgstr "Abrir inventarios"

@@ -1378,6 +1378,7 @@ def test_public_home_and_connector_guide(client):
     assert home_response.status_code == 200
     assert "Una memoria para las cosas que te rodean." in home_response.content.decode()
     assert "La vida real es un quilombo." in home_response.content.decode()
+    assert "bisagras" not in home_response.content.decode()
     assert "inventory/home/workshop-es.webp" in home_response.content.decode()
     assert "inventory/home/library-es.webp" in home_response.content.decode()
     assert "inventory/home/moving-es.webp" in home_response.content.decode()
@@ -1409,6 +1410,9 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
     assert "inventory/home/library-en.webp" in english_content
     assert "inventory/home/moving-en.webp" in english_content
     assert "Quilombo is an agentic inventory management system." in english_content
+    assert "Later, ask where that 6 mm drill bit, a book, or the forks ended up." in english_content
+    assert "Use Quilombo as a classic web app" in english_content
+    assert "hinges" not in english_content
     assert "Create account" in english_content
     assert '<html lang="es">' in spanish_content
     assert "Una memoria para las cosas que te rodean." in spanish_content
