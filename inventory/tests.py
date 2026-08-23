@@ -58,11 +58,18 @@ from .services import (
     PUBLIC_BASE_URL="https://quilombo.life",
     LEGACY_PUBLIC_HOSTS=("quilombo-v1-mgaitan.onrender.com",),
 )
-def test_legacy_render_hostname_redirects_to_canonical_domain(client):
-    response = client.post(
-        "/mcp?source=legacy",
-        HTTP_HOST="quilombo-v1-mgaitan.onrender.com",
-    )
+def test_legacy_render_hostname_redirects_to_canonical_domain():
+    from quilombo.asgi import create_application
+
+    async def request_legacy_mcp():
+        transport = httpx2.ASGITransport(app=create_application())
+        async with httpx2.AsyncClient(
+            transport=transport,
+            base_url="https://quilombo-v1-mgaitan.onrender.com",
+        ) as http_client:
+            return await http_client.post("/mcp?source=legacy")
+
+    response = asyncio.run(request_legacy_mcp())
 
     assert response.status_code == 308
     assert response.headers["Location"] == "https://quilombo.life/mcp?source=legacy"
