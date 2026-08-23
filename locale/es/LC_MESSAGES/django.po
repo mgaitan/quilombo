@@ -619,3 +619,70 @@ msgstr "Necesita verificación"
 
 msgid "Observed %(date)s by %(user)s"
 msgstr "Observado el %(date)s por %(user)s"
+
+msgid "%(count)s spatial relation"
+msgid_plural "%(count)s spatial relations"
+msgstr[0] "%(count)s relación espacial"
+msgstr[1] "%(count)s relaciones espaciales"
+
+msgid "%(records)s (%(created)s created, %(updated)s updated)"
+msgstr "%(records)s (altas: %(created)s, actualizaciones: %(updated)s)"
+
+msgid "%(quantity)s %(unit)s of %(item)s"
+msgstr "%(quantity)s %(unit)s de %(item)s"
+
+msgid "unknown item"
+msgstr "objeto desconocido"
+
+msgid "From %(source)s to %(destination)s"
+msgstr "De %(source)s a %(destination)s"
+
+msgid "unknown location"
+msgstr "ubicación desconocida"
+
+msgid "Location %(location)s: %(status)s"
+msgstr "Ubicación %(location)s: %(status)s"
+
+msgid "%(count)s holding checked"
+msgid_plural "%(count)s holdings checked"
+msgstr[0] "%(count)s existencia verificada"
+msgstr[1] "%(count)s existencias verificadas"
+
+msgid "%(count)s holding corrected"
+msgid_plural "%(count)s holdings corrected"
+msgstr[0] "%(count)s existencia corregida"
+msgstr[1] "%(count)s existencias corregidas"
+
+msgid "Item: %(item)s"
+msgstr "Objeto: %(item)s"
+
+msgid "Fields: %(fields)s"
+msgstr "Campos: %(fields)s"
+
+msgid "%(count)s holding updated"
+msgid_plural "%(count)s holdings updated"
+msgstr[0] "%(count)s existencia actualizada"
+msgstr[1] "%(count)s existencias actualizadas"
+
+msgid "Deleted item: %(item)s"
+msgstr "Objeto eliminado: %(item)s"
+
+msgid "%(count)s holding removed"
+msgid_plural "%(count)s holdings removed"
+msgstr[0] "%(count)s existencia eliminada"
+msgstr[1] "%(count)s existencias eliminadas"
+
+msgid "Undid: %(event)s"
+msgstr "Se deshizo: %(event)s"
+
+msgid "inventory event"
+msgstr "evento de inventario"
+
+msgid "%(field)s: %(value)s"
+msgstr "%(field)s: %(value)s"
+
+msgid "MCP client"
+msgstr "Cliente MCP"
+
+msgid "No change details recorded."
+msgstr "No se registraron detalles del cambio."

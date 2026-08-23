@@ -21,6 +21,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import Implementation
 from rest_framework.test import APIClient
 
 from .models import (
@@ -332,6 +333,9 @@ def test_web_history_previews_and_undoes_latest_bulk_upsert(client, users, works
     api.force_authenticate(users[0])
     payload = {
         "idempotency_key": "mistaken-bulk-001",
+        "provenance": {
+            "metadata": {"server_mcp_client": {"name": "spoofed-rest-client", "version": "9.9"}}
+        },
         "locations": [{"key": "wrong-box", "name": "Wrong box"}],
         "items": [{"key": "wrong-item", "name": "Wrong item"}],
         "holdings": [{"item_key": "wrong-item", "location_key": "wrong-box", "quantity": "2"}],
@@ -340,6 +344,12 @@ def test_web_history_previews_and_undoes_latest_bulk_upsert(client, users, works
         api.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json").status_code == 201
     )
     original = workspace.inventory_events.get(kind=InventoryEvent.Kind.BULK_UPSERT)
+    assert "server_mcp_client" not in original.metadata
+    original.client_actor = "inventory-agent/2.0"
+    original.source_kind = InventoryEvent.SourceKind.AGENT
+    original.source_reference = "conversation://inventory-42"
+    original.metadata = {"server_mcp_client": {"name": "quilombo-test-client", "version": "1.2.3"}}
+    original.save(update_fields=["client_actor", "source_kind", "source_reference", "metadata"])
     original_summary = original.summary.copy()
     client.force_login(users[0])
 
@@ -351,8 +361,16 @@ def test_web_history_previews_and_undoes_latest_bulk_upsert(client, users, works
     )
 
     assert history.status_code == 200
-    assert "mistaken-bulk-001" not in history.content.decode()
-    assert f"/app/workshop/history/{original.id}/undo/" in history.content.decode()
+    history_html = history.content.decode()
+    assert "mistaken-bulk-001" not in history_html
+    assert f"/app/workshop/history/{original.id}/undo/" in history_html
+    assert "quilombo-test-client 1.2.3" in history_html
+    assert "inventory-agent/2.0" in history_html
+    assert "conversation://inventory-42" in history_html
+    assert "1 ubicación" in history_html
+    assert "1 objeto" in history_html
+    assert "1 existencia" in history_html
+    assert str(original.summary) not in history_html
     assert preview.status_code == 200
     assert preview.context["preview"]["allowed"] is True
     assert response.status_code == 302
@@ -362,6 +380,8 @@ def test_web_history_previews_and_undoes_latest_bulk_upsert(client, users, works
     assert original.summary == original_summary
     undo = workspace.inventory_events.get(kind=InventoryEvent.Kind.UNDO)
     assert undo.summary["undoes_event_id"] == str(original.id)
+    undo_history = client.get("/app/workshop/history/").content.decode()
+    assert "Se deshizo: Actualización en lote" in undo_history
 
 
 @pytest.mark.django_db
@@ -618,6 +638,7 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
         "provenance": {
             "client_actor": "test-importer",
             "source_reference": "Round-trip fixture",
+            "metadata": {"server_mcp_client": {"name": "spoofed-import-client", "version": "9.9"}},
         },
     }
     preview = client.post("/api/workspaces/workshop/import/", payload, format="json")
@@ -642,6 +663,7 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
     assert event.source_kind == InventoryEvent.SourceKind.IMPORT
     assert event.client_actor == "test-importer"
     assert event.metadata["transfer_format_version"] == "1.0"
+    assert "server_mcp_client" not in event.metadata
 
 
 @pytest.mark.django_db
@@ -2451,7 +2473,10 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     http_client=http_client,
                     terminate_on_close=False,
                 )
-                async with Client(mcp_transport) as mcp_client:
+                async with Client(
+                    mcp_transport,
+                    client_info=Implementation(name="quilombo-test-client", version="1.2.3"),
+                ) as mcp_client:
                     tools = await mcp_client.list_tools()
                     resources = await mcp_client.list_resources()
                     policy = await mcp_client.read_resource("quilombo://guides/inventory-policy")
@@ -2460,8 +2485,31 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
+                    mutation_result = await mcp_client.call_tool(
+                        "bulk_upsert_inventory",
+                        {
+                            "idempotency_key": "mcp-client-provenance",
+                            "items": [{"key": "mcp-marker", "name": "MCP marker"}],
+                        },
+                    )
                     server_version = mcp_client.server_info.version
                     server_instructions = mcp_client.instructions
+                retry_transport = streamable_http_client(
+                    "http://testserver/mcp",
+                    http_client=http_client,
+                    terminate_on_close=False,
+                )
+                async with Client(
+                    retry_transport,
+                    client_info=Implementation(name="quilombo-test-client", version="9.0.0"),
+                ) as retry_client:
+                    replay_result = await retry_client.call_tool(
+                        "bulk_upsert_inventory",
+                        {
+                            "idempotency_key": "mcp-client-provenance",
+                            "items": [{"key": "mcp-marker", "name": "MCP marker"}],
+                        },
+                    )
                 http_client.headers["Authorization"] = f"Bearer {read_only_token}"
                 read_only_transport = streamable_http_client(
                     "http://testserver/mcp",
@@ -2483,6 +2531,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     result,
                     status_result,
                     snapshot_result,
+                    mutation_result,
+                    replay_result,
                     server_version,
                     server_instructions,
                     read_result,
@@ -2496,6 +2546,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         result,
         status_result,
         snapshot_result,
+        mutation_result,
+        replay_result,
         server_version,
         server_instructions,
         read_result,
@@ -2525,6 +2577,15 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     find_tool = next(tool for tool in tools.tools if tool.name == "find_inventory")
     assert "not recorded" in find_tool.description
     assert server_version == settings.APP_VERSION
+    assert mutation_result.is_error is False
+    assert replay_result.is_error is False
+    assert replay_result.structured_content["replayed"] is True
+    mcp_event = workspace.inventory_events.get(idempotency_key="mcp-client-provenance")
+    assert mcp_event.source_kind == InventoryEvent.SourceKind.AGENT
+    assert mcp_event.metadata["server_mcp_client"] == {
+        "name": "quilombo-test-client",
+        "version": "1.2.3",
+    }
     assert read_result.is_error is False
     assert write_result.is_error is True
     assert "read-only" in write_result.content[0].text

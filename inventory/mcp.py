@@ -9,7 +9,7 @@ from mcp.types import ToolAnnotations
 
 from .catalogs import CatalogLookupError
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
-from .models import Holding, Item, Location, LocationRelation
+from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
     BulkUpsertSerializer,
@@ -131,6 +131,21 @@ def _write_token_from_context(ctx: Context):
     if not token.can_write:
         raise ToolError("This inventory is shared as read-only.")
     return token
+
+
+def _with_mcp_provenance(data: dict[str, Any], ctx: Context) -> dict[str, Any]:
+    enriched = dict(data)
+    provenance = dict(enriched.get("provenance", {}))
+    client_params = ctx.session.client_params
+    if client_params:
+        client_info = client_params.client_info
+        provenance["_mcp_client"] = {
+            "name": client_info.name,
+            "version": client_info.version,
+        }
+    provenance.setdefault("source_kind", InventoryEvent.SourceKind.AGENT)
+    enriched["provenance"] = provenance
+    return enriched
 
 
 def _serialize_holding(holding, clue_context=None):
@@ -384,12 +399,14 @@ def audit_inventory(
     serializer = InventoryAuditSerializer(data=payload)
     if not serializer.is_valid():
         raise ToolError(f"Invalid inventory audit: {serializer.errors}")
+    request_hash = hash_request(serializer.validated_data)
+    data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
         event, replayed = audit_inventory_service(
             workspace=token.workspace,
             actor=token.user,
-            data=serializer.validated_data,
-            request_hash=hash_request(serializer.validated_data),
+            data=data,
+            request_hash=request_hash,
         )
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error
@@ -428,12 +445,14 @@ def bulk_upsert_inventory(
     serializer = BulkUpsertSerializer(data=payload)
     if not serializer.is_valid():
         raise ToolError(f"Invalid bulk upsert: {serializer.errors}")
+    request_hash = hash_request(serializer.validated_data)
+    data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
         event, replayed = bulk_upsert_service(
             workspace=token.workspace,
             actor=token.user,
-            data=serializer.validated_data,
-            request_hash=hash_request(serializer.validated_data),
+            data=data,
+            request_hash=request_hash,
         )
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error
@@ -470,6 +489,9 @@ def move_inventory(
         "idempotency_key": idempotency_key,
         "provenance": provenance_serializer.validated_data,
     }
+    provenance = _with_mcp_provenance({"provenance": provenance_serializer.validated_data}, ctx)[
+        "provenance"
+    ]
     try:
         event, replayed = move_inventory_service(
             workspace=token.workspace,
@@ -479,7 +501,7 @@ def move_inventory(
             to_location_key=to_location_key,
             quantity=quantity,
             idempotency_key=idempotency_key,
-            provenance=provenance_serializer.validated_data,
+            provenance=provenance,
             request_hash=hash_request(request),
         )
     except (BulkUpsertError, IdempotencyConflict) as error:
@@ -516,12 +538,14 @@ def update_inventory_item(
     serializer = ItemRepairSerializer(data=payload)
     if not serializer.is_valid():
         raise ToolError(f"Invalid item update: {serializer.errors}")
+    request_hash = hash_request(serializer.validated_data)
+    data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
         event, replayed = update_inventory_item_service(
             workspace=token.workspace,
             actor=token.user,
-            data=serializer.validated_data,
-            request_hash=hash_request(serializer.validated_data),
+            data=data,
+            request_hash=request_hash,
         )
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error
@@ -552,12 +576,14 @@ def delete_inventory_item(
     serializer = ItemDeleteSerializer(data=payload)
     if not serializer.is_valid():
         raise ToolError(f"Invalid item deletion: {serializer.errors}")
+    request_hash = hash_request(serializer.validated_data)
+    data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
         event, replayed = delete_inventory_item_service(
             workspace=token.workspace,
             actor=token.user,
-            data=serializer.validated_data,
-            request_hash=hash_request(serializer.validated_data),
+            data=data,
+            request_hash=request_hash,
         )
     except (BulkUpsertError, IdempotencyConflict) as error:
         raise ToolError(str(error)) from error

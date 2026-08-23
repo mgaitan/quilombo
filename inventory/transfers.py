@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
 from .serializers import InventoryDocumentSerializer
+from .services import event_metadata_from_provenance
 from .state import capture_inventory_state, inventory_state_hash
 
 FORMAT_VERSION = "1.0"
@@ -384,7 +385,7 @@ def import_inventory_document(
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
         metadata={
-            **provenance.get("metadata", {}),
+            **event_metadata_from_provenance(provenance),
             "transfer_format_version": FORMAT_VERSION,
         },
         summary=summary,
