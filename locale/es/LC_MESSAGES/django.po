@@ -153,6 +153,45 @@ msgstr "Abrir inventario"
 msgid "A memory for the things around you."
 msgstr "Una memoria para las cosas que te rodean."
 
+msgid "Real life is messy."
+msgstr "La vida real es un quilombo."
+
+msgid "Let AI help a little."
+msgstr "Dejá que la IA te ayude un poco."
+
+msgid "carousel"
+msgstr "carrusel"
+
+msgid "Quilombo in real life"
+msgstr "Quilombo en la vida real"
+
+msgid "A workshop where the agent points to a small red box."
+msgstr "Un taller donde el agente señala una pequeña caja roja."
+
+msgid "A library where the agent points to The Aleph by Borges."
+msgstr "Una biblioteca donde el agente señala El Aleph de Borges."
+
+msgid "Previous illustration"
+msgstr "Ilustración anterior"
+
+msgid "Choose illustration"
+msgstr "Elegir ilustración"
+
+msgid "Show workshop"
+msgstr "Mostrar taller"
+
+msgid "Show library"
+msgstr "Mostrar biblioteca"
+
+msgid "Next illustration"
+msgstr "Ilustración siguiente"
+
+msgid "Pause illustrations"
+msgstr "Pausar ilustraciones"
+
+msgid "Play illustrations"
+msgstr "Reproducir ilustraciones"
+
 msgid "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up."
 msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale dónde quedaron las bisagras, un libro o esa mecha de 6 mm."
 

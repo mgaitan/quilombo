@@ -11,7 +11,10 @@
   </head>
   <body>
     <header class="masthead">
-      <a class="wordmark" href="{% url 'home' %}">Quilombo</a>
+      <a class="wordmark" href="{% url 'home' %}">
+        <img src="{% static 'inventory/quilombo-mark.svg' %}" alt="">
+        <span>Quilombo</span>
+      </a>
       <nav class="nav" aria-label="{% translate "Main navigation" %}">
         <a href="{% url 'connector-guide' %}">{% translate "Connect" %}</a>
         {% if user.is_authenticated %}
