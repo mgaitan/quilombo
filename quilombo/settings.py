@@ -35,8 +35,11 @@ IS_PROD = os.environ.get("IS_PROD") == "1"
 DEBUG = not IS_PROD
 PUBLIC_BASE_URL = os.environ.get(
     "PUBLIC_BASE_URL",
-    "https://quilombo.onrender.com" if IS_PROD else "http://localhost:8000",
+    "https://quilombo.life" if IS_PROD else "http://localhost:8000",
 ).rstrip("/")
+LEGACY_PUBLIC_HOSTS = ("quilombo-v1-mgaitan.onrender.com",)
+if IS_PROD and PUBLIC_BASE_URL == "https://quilombo-v1-mgaitan.onrender.com":
+    PUBLIC_BASE_URL = "https://quilombo.life"
 BOOK_CATALOG_USER_AGENT = os.environ.get(
     "BOOK_CATALOG_USER_AGENT",
     f"Quilombo/{APP_VERSION} (https://github.com/mgaitan/quilombo)",
@@ -46,7 +49,7 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         "ALLOWED_HOSTS",
-        ".localhost,127.0.0.1,[::1],quilombo.onrender.com,quilombo-v1-mgaitan.onrender.com",
+        ".localhost,127.0.0.1,[::1],quilombo.life,www.quilombo.life,quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if host.strip()
 ]
@@ -59,7 +62,7 @@ MCP_ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         "MCP_ALLOWED_HOSTS",
-        "localhost:*,127.0.0.1:*,testserver,quilombo.onrender.com,quilombo-v1-mgaitan.onrender.com",
+        "localhost:*,127.0.0.1:*,testserver,quilombo.life,www.quilombo.life,quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if host.strip()
 ]
@@ -67,10 +70,25 @@ MCP_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "MCP_ALLOWED_ORIGINS",
-        "http://localhost:*,http://127.0.0.1:*,https://quilombo.onrender.com,https://quilombo-v1-mgaitan.onrender.com",
+        "http://localhost:*,http://127.0.0.1:*,https://quilombo.life,https://www.quilombo.life,https://quilombo-v1-mgaitan.onrender.com",
     ).split(",")
     if origin.strip()
 ]
+if IS_PROD:
+    for host in ("quilombo.life", "www.quilombo.life", *LEGACY_PUBLIC_HOSTS):
+        if host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+        if host not in MCP_ALLOWED_HOSTS:
+            MCP_ALLOWED_HOSTS.append(host)
+    for origin in (
+        "https://quilombo.life",
+        "https://www.quilombo.life",
+        "https://quilombo-v1-mgaitan.onrender.com",
+    ):
+        if origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(origin)
+        if origin not in MCP_ALLOWED_ORIGINS:
+            MCP_ALLOWED_ORIGINS.append(origin)
 
 
 # Application definition
@@ -89,6 +107,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "quilombo.middleware.CanonicalHostMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",

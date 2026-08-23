@@ -60,7 +60,7 @@ such as `checked drawer 1 on 2026-08-22`; it does not upload or retain the sourc
 ## Try the hosted app
 
 The public instance is available at
-[`quilombo.onrender.com`](https://quilombo.onrender.com/). Create an account
+[`quilombo.life`](https://quilombo.life/). Create an account
 to get a private `Home` workspace, search from the browser, invite another user, or connect an
 agent. The free Render service may take a minute to wake after a period without traffic.
 
@@ -72,12 +72,12 @@ OpenAPI schema, and MCP initialization metadata.
 The hosted Streamable HTTP endpoint is:
 
 ```text
-https://quilombo.onrender.com/mcp
+https://quilombo.life/mcp
 ```
 
 ChatGPT, Claude, and other OAuth-capable clients can register dynamically, open Quilombo for login,
 and ask which workspace to authorize. Clients without OAuth can use a long-lived workspace bearer
-token. Current client-specific setup steps live at [/connect/](https://quilombo.onrender.com/connect/) in the web app.
+token. Current client-specific setup steps live at [/connect/](https://quilombo.life/connect/) in the web app.
 
 The MCP server provides these tools:
 

@@ -17,6 +17,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from mcp.client import Client
@@ -51,6 +52,20 @@ from .services import (
     undo_inventory_event,
     update_inventory_item,
 )
+
+
+@override_settings(
+    PUBLIC_BASE_URL="https://quilombo.life",
+    LEGACY_PUBLIC_HOSTS=("quilombo-v1-mgaitan.onrender.com",),
+)
+def test_legacy_render_hostname_redirects_to_canonical_domain(client):
+    response = client.post(
+        "/mcp?source=legacy",
+        HTTP_HOST="quilombo-v1-mgaitan.onrender.com",
+    )
+
+    assert response.status_code == 308
+    assert response.headers["Location"] == "https://quilombo.life/mcp?source=legacy"
 
 
 @pytest.fixture

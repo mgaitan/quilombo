@@ -3,7 +3,7 @@
 The hosted Streamable HTTP endpoint is:
 
 ```text
-https://quilombo.onrender.com/mcp
+https://quilombo.life/mcp
 ```
 
 OAuth-capable clients can discover the authorization endpoints and ask the user to authorize a
