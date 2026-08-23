@@ -28,7 +28,7 @@ The raw `qlo_...` token is displayed once. Store it securely and send it as a be
 ```bash
 curl \
   -H 'Authorization: Bearer qlo_...' \
-  https://quilombo-v1-mgaitan.onrender.com/api/workspaces/home/
+  https://quilombo.life/api/workspaces/home/
 ```
 
 ## Record inventory

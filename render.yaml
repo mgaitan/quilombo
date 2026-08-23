@@ -5,6 +5,8 @@ services:
     name: quilombo-v1-mgaitan
     runtime: python
     autoDeployTrigger: off
+    domains:
+      - quilombo.life
     buildCommand: "./build.sh"
     startCommand: "uv run --no-sync uvicorn quilombo.asgi:application --host 0.0.0.0 --port $PORT"
     healthCheckPath: /health/
@@ -20,12 +22,12 @@ services:
       - key: PYTHON_VERSION
         value: 3.14.3
       - key: PUBLIC_BASE_URL
-        value: https://quilombo-v1-mgaitan.onrender.com
+        value: https://quilombo.life
       - key: DATABASE_URL
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
-        value: https://quilombo-v1-mgaitan.onrender.com
+        value: https://quilombo.life,https://www.quilombo.life,https://quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_HOSTS
-        value: localhost:*,127.0.0.1:*,quilombo-v1-mgaitan.onrender.com
+        value: localhost:*,127.0.0.1:*,quilombo.life,www.quilombo.life,quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_ORIGINS
-        value: http://localhost:*,http://127.0.0.1:*,https://quilombo-v1-mgaitan.onrender.com
+        value: http://localhost:*,http://127.0.0.1:*,https://quilombo.life,https://www.quilombo.life,https://quilombo-v1-mgaitan.onrender.com
