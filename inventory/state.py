@@ -2,6 +2,8 @@ import hashlib
 import json
 from decimal import Decimal
 
+from django.utils.dateparse import parse_datetime
+
 from .models import Holding, Item, Location, LocationRelation
 
 
@@ -17,6 +19,8 @@ def capture_inventory_state(workspace):
                 "parent_id": str(location.parent_id) if location.parent_id else None,
                 "aliases": location.aliases,
                 "metadata": location.metadata,
+                "created_at": location.created_at.isoformat(),
+                "updated_at": location.updated_at.isoformat(),
             }
             for location in workspace.locations.order_by("key", "id")
         ],
@@ -37,6 +41,8 @@ def capture_inventory_state(workspace):
                 "target_quantity": (
                     str(item.target_quantity) if item.target_quantity is not None else None
                 ),
+                "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat(),
             }
             for item in workspace.items.order_by("key", "id")
         ],
@@ -48,6 +54,7 @@ def capture_inventory_state(workspace):
                 "quantity": str(holding.quantity),
                 "approximate": holding.approximate,
                 "notes": holding.notes,
+                "updated_at": holding.updated_at.isoformat(),
             }
             for holding in workspace.holdings.order_by("item_id", "location_id", "id")
         ],
@@ -57,6 +64,7 @@ def capture_inventory_state(workspace):
                 "subject_id": str(relation.subject_id),
                 "relation": relation.relation,
                 "object_id": str(relation.object_id),
+                "created_at": relation.created_at.isoformat(),
             }
             for relation in workspace.location_relations.order_by(
                 "subject_id", "relation", "object_id", "id"
@@ -87,14 +95,18 @@ def restore_inventory_state(workspace, state):
             kind=row["kind"],
             aliases=row["aliases"],
             metadata=row["metadata"],
+            created_at=parse_datetime(row["created_at"]),
+            updated_at=parse_datetime(row["updated_at"]),
         )
         for row in state["locations"]
     }
     Location.objects.bulk_create(locations.values())
     for row in state["locations"]:
+        locations[row["id"]].created_at = parse_datetime(row["created_at"])
+        locations[row["id"]].updated_at = parse_datetime(row["updated_at"])
         if row["parent_id"]:
             locations[row["id"]].parent_id = row["parent_id"]
-    Location.objects.bulk_update(locations.values(), ["parent"])
+    Location.objects.bulk_update(locations.values(), ["parent", "created_at", "updated_at"])
 
     items = {
         row["id"]: Item(
@@ -114,34 +126,46 @@ def restore_inventory_state(workspace, state):
             target_quantity=(
                 Decimal(row["target_quantity"]) if row["target_quantity"] is not None else None
             ),
+            created_at=parse_datetime(row["created_at"]),
+            updated_at=parse_datetime(row["updated_at"]),
         )
         for row in state["items"]
     }
     Item.objects.bulk_create(items.values())
+    for row in state["items"]:
+        items[row["id"]].created_at = parse_datetime(row["created_at"])
+        items[row["id"]].updated_at = parse_datetime(row["updated_at"])
+    Item.objects.bulk_update(items.values(), ["created_at", "updated_at"])
 
-    Holding.objects.bulk_create(
-        [
-            Holding(
-                id=row["id"],
-                workspace=workspace,
-                item_id=row["item_id"],
-                location_id=row["location_id"],
-                quantity=Decimal(row["quantity"]),
-                approximate=row["approximate"],
-                notes=row["notes"],
-            )
-            for row in state["holdings"]
-        ]
-    )
-    LocationRelation.objects.bulk_create(
-        [
-            LocationRelation(
-                id=row["id"],
-                workspace=workspace,
-                subject_id=row["subject_id"],
-                relation=row["relation"],
-                object_id=row["object_id"],
-            )
-            for row in state["location_relations"]
-        ]
-    )
+    holdings = [
+        Holding(
+            id=row["id"],
+            workspace=workspace,
+            item_id=row["item_id"],
+            location_id=row["location_id"],
+            quantity=Decimal(row["quantity"]),
+            approximate=row["approximate"],
+            notes=row["notes"],
+            updated_at=parse_datetime(row["updated_at"]),
+        )
+        for row in state["holdings"]
+    ]
+    Holding.objects.bulk_create(holdings)
+    for holding, row in zip(holdings, state["holdings"], strict=True):
+        holding.updated_at = parse_datetime(row["updated_at"])
+    Holding.objects.bulk_update(holdings, ["updated_at"])
+    relations = [
+        LocationRelation(
+            id=row["id"],
+            workspace=workspace,
+            subject_id=row["subject_id"],
+            relation=row["relation"],
+            object_id=row["object_id"],
+            created_at=parse_datetime(row["created_at"]),
+        )
+        for row in state["location_relations"]
+    ]
+    LocationRelation.objects.bulk_create(relations)
+    for relation, row in zip(relations, state["location_relations"], strict=True):
+        relation.created_at = parse_datetime(row["created_at"])
+    LocationRelation.objects.bulk_update(relations, ["created_at"])

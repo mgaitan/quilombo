@@ -418,6 +418,13 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
     original_holding = Holding.objects.create(
         workspace=workspace, item=item, location=source, quantity=Decimal("2")
     )
+    original_timestamps = {
+        "location_created": source.created_at,
+        "location_updated": source.updated_at,
+        "item_created": item.created_at,
+        "item_updated": item.updated_at,
+        "holding_updated": original_holding.updated_at,
+    }
     request = {
         "item_key": item.key,
         "from_location_key": source.key,
@@ -442,8 +449,15 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
     )
 
     restored = workspace.holdings.get(location=source)
+    source.refresh_from_db()
+    item.refresh_from_db()
     assert restored.id == original_holding.id
     assert restored.quantity == Decimal("2")
+    assert source.created_at == original_timestamps["location_created"]
+    assert source.updated_at == original_timestamps["location_updated"]
+    assert item.created_at == original_timestamps["item_created"]
+    assert item.updated_at == original_timestamps["item_updated"]
+    assert restored.updated_at == original_timestamps["holding_updated"]
     assert not workspace.holdings.filter(location=destination).exists()
     assert undo.kind == InventoryEvent.Kind.UNDO
     assert undo.summary["original_kind"] == InventoryEvent.Kind.MOVE
