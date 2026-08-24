@@ -1,3 +1,4 @@
+from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.db import transaction
 
@@ -16,5 +17,13 @@ class QuilomboSocialAccountAdapter(DefaultSocialAccountAdapter):
     @transaction.atomic
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)
+        ensure_home_workspace(user)
+        return user
+
+
+class QuilomboAccountAdapter(DefaultAccountAdapter):
+    @transaction.atomic
+    def save_user(self, request, user, form, commit=True):
+        user = super().save_user(request, user, form, commit)
         ensure_home_workspace(user)
         return user

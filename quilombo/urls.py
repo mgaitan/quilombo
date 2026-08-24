@@ -1,3 +1,4 @@
+from allauth.account import views as account_views
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
@@ -7,7 +8,6 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from inventory.views import (
-    SignupView,
     connector_guide,
     dashboard,
     download_skill,
@@ -117,9 +117,17 @@ urlpatterns = [
     path("skills/manage-quilombo-inventory.zip", download_skill, name="skill-download"),
     path("health/", health_check, name="health-check"),
     path("admin/", admin.site.urls),
-    path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
+    path(
+        "accounts/login/",
+        account_views.LoginView.as_view(template_name="registration/login.html"),
+        name="login",
+    ),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
-    path("accounts/signup/", SignupView.as_view(), name="signup"),
+    path(
+        "accounts/signup/",
+        account_views.SignupView.as_view(template_name="registration/signup.html"),
+        name="signup",
+    ),
     path("accounts/", include("allauth.urls")),
     path("oauth/consent/", oauth_consent, name="oauth-consent"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
