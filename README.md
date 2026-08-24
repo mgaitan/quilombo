@@ -204,6 +204,10 @@ The published documentation is at
 connection string. A deployment installs from `uv.lock`, collects static files, and runs
 migrations. `/health/` checks both the application and its database connection.
 
+To promote an existing account during an official production deploy, set
+`QUILOMBO_ADMIN_USERNAME` in the service environment. `build.sh` runs `ensure_admin` only when
+`IS_PROD=1`; installations that do not opt in are unchanged.
+
 `main` is the development branch. Production deploys only when a GitHub release is published:
 
 ```bash

@@ -14,8 +14,11 @@ import httpx2
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, connection, transaction
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -26,6 +29,7 @@ from mcp.types import Implementation
 from rest_framework.test import APIClient
 
 from .models import (
+    AccessEvent,
     ApiToken,
     Holding,
     InventoryEvent,
@@ -1383,6 +1387,86 @@ def test_public_signup_logs_user_in(client):
     assert workspace.name == "Home"
     assert workspace.slug == f"home-{str(user.id)[:8]}"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_shows_recent_users_items_and_locations(client):
+    admin_user = get_user_model().objects.create_superuser(
+        username="admin", email="admin@example.com", password="password"
+    )
+    recent_user = get_user_model().objects.create_user(username="recent-user")
+    old_user = get_user_model().objects.create_user(username="old-user")
+    get_user_model().objects.filter(pk=old_user.pk).update(
+        date_joined=timezone.now() - timedelta(days=8)
+    )
+    workspace = Workspace.objects.create(name="Admin test", slug="admin-test")
+    recent_item = Item.objects.create(workspace=workspace, key="recent-item", name="Recent item")
+    old_item = Item.objects.create(workspace=workspace, key="old-item", name="Old item")
+    recent_location = Location.objects.create(
+        workspace=workspace, key="recent-location", name="Recent location"
+    )
+    old_location = Location.objects.create(
+        workspace=workspace, key="old-location", name="Old location"
+    )
+    old_date = timezone.now() - timedelta(days=8)
+    Item.objects.filter(pk=old_item.pk).update(created_at=old_date)
+    Location.objects.filter(pk=old_location.pk).update(created_at=old_date)
+    AccessEvent.objects.create(
+        user=recent_user, channel=AccessEvent.Channel.MCP, client_name="Claude"
+    )
+
+    client.force_login(admin_user)
+    response = client.get("/admin/")
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert AccessEvent.objects.filter(user=admin_user, channel=AccessEvent.Channel.WEB).exists()
+    assert "Last 7 days" in content
+    assert recent_user.username in content
+    assert recent_item.name in content
+    assert recent_location.name in content
+    assert "Web logins" in content
+    assert "MCP logins" in content
+    assert "Claude" in content
+    assert old_user.username not in content
+    assert old_item.name not in content
+    assert old_location.name not in content
+
+
+@pytest.mark.django_db
+def test_ensure_admin_command_only_promotes_an_existing_named_user():
+    tin = get_user_model().objects.create_user(username="tin")
+
+    call_command("ensure_admin", "tin")
+    call_command("ensure_admin", "tin")
+
+    tin.refresh_from_db()
+    assert tin.is_staff is True
+    assert tin.is_superuser is True
+    with pytest.raises(CommandError, match="does not exist"):
+        call_command("ensure_admin", "missing-user")
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_hides_models_without_view_permission(client):
+    staff_user = get_user_model().objects.create_user(username="limited-staff", is_staff=True)
+    workspace = Workspace.objects.create(name="Private workspace", slug="private-workspace")
+    Item.objects.create(workspace=workspace, key="private-item", name="Private item")
+    Location.objects.create(workspace=workspace, key="private-location", name="Private location")
+    staff_user.user_permissions.add(
+        Permission.objects.get(codename="view_item", content_type__app_label="inventory")
+    )
+
+    client.force_login(staff_user)
+    content = client.get("/admin/").content.decode()
+
+    assert "Objects" in content
+    assert "Private item" in content
+    assert "Users" not in content
+    assert "Locations" not in content
+    assert "Private location" not in content
+    assert "Web logins" not in content
+    assert "MCP logins" not in content
 
 
 @pytest.mark.django_db
@@ -2878,3 +2962,9 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
         kind=OAuthCredential.Kind.ACCESS, revoked_at__isnull=False
     ).exists()
     assert OAuthCredential.objects.filter(can_write=True).exists()
+    assert (
+        AccessEvent.objects.filter(
+            user=users[0], channel=AccessEvent.Channel.MCP, client_name="Quilombo test client"
+        ).count()
+        == 1
+    )

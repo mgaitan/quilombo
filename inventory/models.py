@@ -395,6 +395,28 @@ class InventoryEvent(models.Model):
         return f"{self.kind} @ {self.workspace} ({self.created_at})"
 
 
+class AccessEvent(models.Model):
+    class Channel(models.TextChoices):
+        WEB = "web", "Web"
+        MCP = "mcp", "MCP"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="access_events"
+    )
+    channel = models.CharField(max_length=8, choices=Channel)
+    client_name = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        label = f"{self.get_channel_display()} · {self.user or 'unknown user'}"
+        if self.client_name:
+            return f"{label} · {self.client_name}"
+        return label
+
+
 class ApiToken(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="api_tokens")

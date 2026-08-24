@@ -1,0 +1,47 @@
+{% extends "admin/base_site.html" %}
+{% load admin_dashboard i18n %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .weekly-dashboard { margin-bottom: 28px; }
+    .weekly-dashboard h2 { margin-bottom: 12px; }
+    .weekly-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+    .weekly-panel { grid-column: span 2; border: 1px solid var(--hairline-color); padding: 16px; }
+    .weekly-panel:nth-child(n + 4) { grid-column: span 3; }
+    .weekly-panel h3 { margin: 0 0 4px; font-size: 15px; }
+    .weekly-count { margin: 0 0 14px; color: var(--body-quiet-color); }
+    .weekly-count strong { color: var(--body-fg); font-size: 28px; }
+    .weekly-panel ul { min-height: 7em; margin: 0 0 12px; padding-left: 18px; }
+    .weekly-panel li { margin-bottom: 5px; }
+    @media (max-width: 1000px) {
+      .weekly-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+      .weekly-panel, .weekly-panel:nth-child(n + 4) { grid-column: auto; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  {% admin_weekly_stats as dashboard %}
+  <section class="weekly-dashboard" aria-labelledby="weekly-title">
+    <h2 id="weekly-title">Last 7 days</h2>
+    <div class="weekly-grid">
+      {% for section in dashboard.sections %}
+        <article class="weekly-panel">
+          <h3>{{ section.label }}</h3>
+          <p class="weekly-count"><strong>{{ section.recent_count }}</strong> new · {{ section.total }} total</p>
+          <ul>
+            {% for object in section.recent %}
+              {% admin_change_url section.change_url_name object.pk as change_url %}
+              <li><a href="{{ change_url }}">{{ object }}</a></li>
+            {% empty %}
+              <li>No new records.</li>
+            {% endfor %}
+          </ul>
+          <a href="{{ section.list_url }}">View all {{ section.label|lower }} →</a>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+{% endblock %}
