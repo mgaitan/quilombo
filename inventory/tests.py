@@ -1380,8 +1380,19 @@ def test_public_home_and_connector_guide(client):
     assert "La vida real es un quilombo." in home_response.content.decode()
     assert "bisagras" not in home_response.content.decode()
     assert "inventory/home/workshop-es.webp" in home_response.content.decode()
+    assert "inventory/home/workshop-es-mobile.webp" in home_response.content.decode()
     assert "inventory/home/library-es.webp" in home_response.content.decode()
+    assert "inventory/home/library-es-mobile.webp" in home_response.content.decode()
     assert "inventory/home/moving-es.webp" in home_response.content.decode()
+    assert "inventory/home/moving-es-mobile.webp" in home_response.content.decode()
+    assert '<meta name="twitter:card" content="summary_large_image">' in (
+        home_response.content.decode()
+    )
+    assert (
+        '<meta property="og:image" '
+        'content="http://localhost:8000/static/inventory/home/workshop-es-social.jpg">'
+        in home_response.content.decode()
+    )
     assert (
         "Quilombo es un sistema de gestión de inventario agéntico."
         in home_response.content.decode()
@@ -1407,8 +1418,11 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
     assert "Real life is messy." in english_content
     assert "Let AI help a little." in english_content
     assert "inventory/home/workshop-en.webp" in english_content
+    assert "inventory/home/workshop-en-mobile.webp" in english_content
     assert "inventory/home/library-en.webp" in english_content
     assert "inventory/home/moving-en.webp" in english_content
+    assert "inventory/home/moving-en-mobile.webp" in english_content
+    assert "http://localhost:8000/static/inventory/home/workshop-en-social.jpg" in english_content
     assert "Quilombo is an agentic inventory management system." in english_content
     assert "Tell or show your AI agent" in english_content
     assert "Later, ask where that 6 mm drill bit, a book, or the forks ended up." in english_content
@@ -2536,7 +2550,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                             "items": [{"key": "mcp-marker", "name": "MCP marker"}],
                         },
                     )
-                    server_version = mcp_client.server_info.version
+                    server_info = mcp_client.server_info
                     server_instructions = mcp_client.instructions
                 retry_transport = streamable_http_client(
                     "http://testserver/mcp",
@@ -2577,7 +2591,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     snapshot_result,
                     mutation_result,
                     replay_result,
-                    server_version,
+                    server_info,
                     server_instructions,
                     read_result,
                     write_result,
@@ -2592,7 +2606,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         snapshot_result,
         mutation_result,
         replay_result,
-        server_version,
+        server_info,
         server_instructions,
         read_result,
         write_result,
@@ -2620,7 +2634,14 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert move_tool.annotations.destructive_hint is True
     find_tool = next(tool for tool in tools.tools if tool.name == "find_inventory")
     assert "not recorded" in find_tool.description
-    assert server_version == settings.APP_VERSION
+    assert server_info.version == settings.APP_VERSION
+    assert server_info.website_url == settings.PUBLIC_BASE_URL
+    assert len(server_info.icons) == 1
+    assert server_info.icons[0].src == (
+        f"{settings.PUBLIC_BASE_URL}/static/inventory/quilombo-mark.png"
+    )
+    assert server_info.icons[0].mime_type == "image/png"
+    assert server_info.icons[0].sizes == ["64x64"]
     assert mutation_result.is_error is False
     assert replay_result.is_error is False
     assert replay_result.structured_content["replayed"] is True
