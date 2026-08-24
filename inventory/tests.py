@@ -1434,6 +1434,8 @@ def test_social_signup_creates_the_private_home_workspace():
 def test_public_home_and_connector_guide(client):
     home_response = client.get("/")
     connector_response = client.get("/connect/")
+    privacy_response = client.get("/privacy/")
+    terms_response = client.get("/terms/")
     login_response = client.get("/accounts/login/")
     signup_response = client.get("/accounts/signup/")
 
@@ -1461,6 +1463,11 @@ def test_public_home_and_connector_guide(client):
     )
     assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
+    assert privacy_response.status_code == 200
+    assert "Política de privacidad" in privacy_response.content.decode()
+    assert "no sube ni procesa fotos o videos" in privacy_response.content.decode()
+    assert terms_response.status_code == 200
+    assert "Términos de servicio" in terms_response.content.decode()
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
     assert "ChatGPT" in connector_response.content.decode()
     assert "Claude" in connector_response.content.decode()

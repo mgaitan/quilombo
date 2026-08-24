@@ -121,6 +121,14 @@ def home(request):
     )
 
 
+def privacy_policy(request):
+    return render(request, "inventory/privacy.html")
+
+
+def terms_of_service(request):
+    return render(request, "inventory/terms.html")
+
+
 @login_required
 def dashboard(request):
     workspaces = (

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+
+{% block title %}{% if LANGUAGE_CODE == "en" %}Terms of service{% else %}Términos de servicio{% endif %} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <article class="legal-page">
+    {% if LANGUAGE_CODE == "en" %}
+      <h1>Terms of service</h1>
+      <p class="lede">Effective August 24, 2026. By using the hosted Quilombo service, you agree to these terms.</p>
+
+      <section>
+        <h2>Your account and data</h2>
+        <p>You are responsible for your account, the inventory information you submit, and the clients and people you authorize. Do not use Quilombo to store unlawful content, secrets that require a dedicated credential manager, or information you do not have permission to process.</p>
+      </section>
+
+      <section>
+        <h2>Recorded facts</h2>
+        <p>Quilombo stores claims about physical inventory. Locations, quantities, freshness, and agent suggestions may be incomplete or outdated. Verify information before relying on it for safety-critical, financial, medical, or legal decisions.</p>
+      </section>
+
+      <section>
+        <h2>Availability and warranty</h2>
+        <p>The hosted service is provided on an as-available basis without warranties of uninterrupted operation or fitness for a particular purpose. Features may change, and access may be limited to protect users, the service, or comply with law.</p>
+      </section>
+
+      <section>
+        <h2>Open-source software</h2>
+        <p>The Quilombo source code is publicly available in its repository. These terms govern the hosted service, not independent installations operated by third parties.</p>
+      </section>
+
+      <section>
+        <h2>Contact</h2>
+        <p>Questions about these terms can be sent to <a href="mailto:gaitan@gmail.com">gaitan@gmail.com</a>.</p>
+      </section>
+    {% else %}
+      <h1>Términos de servicio</h1>
+      <p class="lede">Vigentes desde el 24 de agosto de 2026. Al usar el servicio alojado de Quilombo aceptás estos términos.</p>
+
+      <section>
+        <h2>Tu cuenta y tus datos</h2>
+        <p>Sos responsable de tu cuenta, de la información de inventario que ingreses y de los clientes y personas que autorices. No uses Quilombo para guardar contenido ilegal, secretos que requieran un gestor de credenciales dedicado o información que no tengas permiso para procesar.</p>
+      </section>
+
+      <section>
+        <h2>Hechos registrados</h2>
+        <p>Quilombo almacena afirmaciones sobre inventario físico. Las ubicaciones, cantidades, vigencia y sugerencias de agentes pueden estar incompletas o desactualizadas. Verificá la información antes de usarla para decisiones críticas de seguridad, financieras, médicas o legales.</p>
+      </section>
+
+      <section>
+        <h2>Disponibilidad y garantías</h2>
+        <p>El servicio alojado se ofrece según disponibilidad, sin garantizar funcionamiento ininterrumpido ni adecuación a un propósito particular. Las funciones pueden cambiar y el acceso puede limitarse para proteger a los usuarios, al servicio o cumplir la ley.</p>
+      </section>
+
+      <section>
+        <h2>Software libre</h2>
+        <p>El código fuente de Quilombo está disponible públicamente en su repositorio. Estos términos regulan el servicio alojado, no las instalaciones independientes operadas por terceros.</p>
+      </section>
+
+      <section>
+        <h2>Contacto</h2>
+        <p>Las consultas sobre estos términos pueden enviarse a <a href="mailto:gaitan@gmail.com">gaitan@gmail.com</a>.</p>
+      </section>
+    {% endif %}
+  </article>
+{% endblock %}

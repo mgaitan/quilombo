@@ -420,6 +420,11 @@ code {
 .field .helptext ul { margin: 8px 0 0; padding-left: 20px; }
 .errorlist { margin: 7px 0 0; padding-left: 20px; color: #9e2d27; font-size: 14px; }
 .auth-alternate { margin-top: 30px; color: #636965; }
+.legal-page { max-width: 720px; }
+.legal-page .lede { margin-bottom: 38px; }
+.legal-page section { margin-top: 34px; }
+.legal-page h2 { margin-bottom: 10px; font-size: 22px; }
+.legal-page ul { padding-left: 22px; }
 
 .footer {
   display: flex;
