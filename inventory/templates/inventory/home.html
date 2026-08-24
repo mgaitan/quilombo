@@ -4,6 +4,24 @@
 
 {% block page_class %}home-page{% endblock %}
 
+{% block social_meta %}
+    <link rel="canonical" href="{{ canonical_url }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Quilombo">
+    <meta property="og:title" content="Quilombo">
+    <meta property="og:description" content="{% translate 'An inventory your AI agent can read and update.' %}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    <meta property="og:image" content="{{ social_image_url }}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:alt" content="{% translate 'A workshop where the agent points to a small red box.' %}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Quilombo">
+    <meta name="twitter:description" content="{% translate 'An inventory your AI agent can read and update.' %}">
+    <meta name="twitter:image" content="{{ social_image_url }}">
+{% endblock %}
+
 {% block content %}
   <section class="intro" aria-labelledby="page-title">
     <div class="intro-copy">
@@ -27,23 +45,41 @@
       <div class="carousel-viewport" aria-live="off">
         <figure class="carousel-slide is-active" data-carousel-slide aria-hidden="false">
           {% if LANGUAGE_CODE == "en" %}
-            <img src="{% static 'inventory/home/workshop-en.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/workshop-en-mobile.webp' %}">
+              <img src="{% static 'inventory/home/workshop-en.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+            </picture>
           {% else %}
-            <img src="{% static 'inventory/home/workshop-es.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/workshop-es-mobile.webp' %}">
+              <img src="{% static 'inventory/home/workshop-es.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+            </picture>
           {% endif %}
         </figure>
         <figure class="carousel-slide" data-carousel-slide aria-hidden="true">
           {% if LANGUAGE_CODE == "en" %}
-            <img src="{% static 'inventory/home/library-en.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/library-en-mobile.webp' %}">
+              <img src="{% static 'inventory/home/library-en.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+            </picture>
           {% else %}
-            <img src="{% static 'inventory/home/library-es.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/library-es-mobile.webp' %}">
+              <img src="{% static 'inventory/home/library-es.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+            </picture>
           {% endif %}
         </figure>
         <figure class="carousel-slide" data-carousel-slide aria-hidden="true">
           {% if LANGUAGE_CODE == "en" %}
-            <img src="{% static 'inventory/home/moving-en.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/moving-en-mobile.webp' %}">
+              <img src="{% static 'inventory/home/moving-en.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+            </picture>
           {% else %}
-            <img src="{% static 'inventory/home/moving-es.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+            <picture>
+              <source media="(max-width: 600px)" srcset="{% static 'inventory/home/moving-es-mobile.webp' %}">
+              <img src="{% static 'inventory/home/moving-es.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+            </picture>
           {% endif %}
         </figure>
       </div>

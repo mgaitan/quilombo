@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Count
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -105,7 +106,18 @@ from .transfers import (
 
 
 def home(request):
-    return render(request, "inventory/home.html")
+    language = getattr(request, "LANGUAGE_CODE", "es")
+    workshop_image = "workshop-en-social.jpg" if language == "en" else "workshop-es-social.jpg"
+    return render(
+        request,
+        "inventory/home.html",
+        {
+            "canonical_url": f"{settings.PUBLIC_BASE_URL}/",
+            "social_image_url": (
+                f"{settings.PUBLIC_BASE_URL}{static(f'inventory/home/{workshop_image}')}"
+            ),
+        },
+    )
 
 
 @login_required

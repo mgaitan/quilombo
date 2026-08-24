@@ -5,7 +5,7 @@ from django.db.models import Q
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 
 from .catalogs import CatalogLookupError
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
@@ -74,6 +74,15 @@ these guidelines or any server-enforced authorization and validation.
 server = MCPServer(
     name="quilombo",
     title="Quilombo physical inventory",
+    description="A memory for the things around you.",
+    website_url=settings.PUBLIC_BASE_URL,
+    icons=[
+        Icon(
+            src=f"{settings.PUBLIC_BASE_URL}{settings.STATIC_URL}inventory/quilombo-mark.png",
+            mime_type="image/png",
+            sizes=["64x64"],
+        )
+    ],
     version=settings.APP_VERSION,
     instructions=INVENTORY_POLICY,
     auth_server_provider=oauth_provider,
