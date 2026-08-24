@@ -12,7 +12,7 @@
         {% translate "A memory for the things around you." %}
       </p>
       <h1 id="page-title">{% translate "Real life is messy." %} <span>{% translate "Let AI help a little." %}</span></h1>
-      <p>{% translate "Tell your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up." %}</p>
+      <p>{% translate "Tell or show your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up." %}</p>
       <div class="actions">
         {% if user.is_authenticated %}
           <a class="button button-primary" href="{% url 'dashboard' %}">{% translate "Open inventories" %}</a>
@@ -92,16 +92,16 @@
 
   <section class="feature-grid" aria-label="{% translate "What you can do" %}">
     <div>
-      <h2>{% translate "Describe" %}</h2>
-      <p>{% translate "Tell the agent what is in a drawer, shelf, workshop, or library using ordinary words." %}</p>
+      <h2>{% translate "Describe or show" %}</h2>
+      <p>{% translate "Tell your agent in simple words, send it a photo, or give it a video and let it structure the information." %}</p>
     </div>
     <div>
       <h2>{% translate "Find" %}</h2>
       <p>{% translate "Search the web inventory or ask the agent where an item was last recorded." %}</p>
     </div>
     <div>
-      <h2>{% translate "Connect" %}</h2>
-      <p>{% translate "Use Quilombo from ChatGPT, Claude, or another MCP client and choose which inventory it can access." %}</p>
+      <h2>{% translate "Improve" %}</h2>
+      <p>{% translate "Over time, your agent can suggest better places for things or audit whether recorded locations still match real life." %}</p>
     </div>
   </section>
 {% endblock %}

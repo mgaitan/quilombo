@@ -216,8 +216,8 @@ msgstr "Usá Quilombo como una aplicación web clásica, con buscador, formulari
 msgid "Use the web app"
 msgstr "Usar la aplicación web"
 
-msgid "Tell your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up."
-msgstr "Decile a tu agente de IA qué tenés y dónde está. Después preguntale por esa mecha de 6 mm, un libro o los tenedores."
+msgid "Tell or show your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up."
+msgstr "Decile o mostrale a tu agente de IA qué tenés y dónde está. Después preguntale por esa mecha de 6 mm, un libro o los tenedores."
 
 msgid "Open inventories"
 msgstr "Abrir inventarios"
@@ -243,11 +243,11 @@ msgstr "Hoy podés registrar que las cosas de electrónica están en la caja roj
 msgid "What you can do"
 msgstr "Qué podés hacer"
 
-msgid "Describe"
-msgstr "Describir"
+msgid "Describe or show"
+msgstr "Describir o mostrar"
 
-msgid "Tell the agent what is in a drawer, shelf, workshop, or library using ordinary words."
-msgstr "Contale al agente qué hay en un cajón, un estante, un taller o una biblioteca con palabras comunes."
+msgid "Tell your agent in simple words, send it a photo, or give it a video and let it structure the information."
+msgstr "Contale a tu agente con palabras simples, enviale una foto o dale un video para que se encargue de estructurar la información."
 
 msgid "Find"
 msgstr "Encontrar"
@@ -255,8 +255,11 @@ msgstr "Encontrar"
 msgid "Search the web inventory or ask the agent where an item was last recorded."
 msgstr "Buscá en el inventario web o preguntale al agente dónde se registró un objeto por última vez."
 
-msgid "Use Quilombo from ChatGPT, Claude, or another MCP client and choose which inventory it can access."
-msgstr "Usá Quilombo desde ChatGPT, Claude u otro cliente MCP y elegí a qué inventario puede acceder."
+msgid "Improve"
+msgstr "Mejorar"
+
+msgid "Over time, your agent can suggest better places for things or audit whether recorded locations still match real life."
+msgstr "Con el uso, tu agente puede recomendarte mejores lugares para las cosas o auditar si las ubicaciones registradas todavía coinciden con la realidad."
 
 msgid "Authorize access"
 msgstr "Autorizar acceso"

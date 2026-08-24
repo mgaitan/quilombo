@@ -1410,8 +1410,12 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
     assert "inventory/home/library-en.webp" in english_content
     assert "inventory/home/moving-en.webp" in english_content
     assert "Quilombo is an agentic inventory management system." in english_content
+    assert "Tell or show your AI agent" in english_content
     assert "Later, ask where that 6 mm drill bit, a book, or the forks ended up." in english_content
     assert "Use Quilombo as a classic web app" in english_content
+    assert "Describe or show" in english_content
+    assert "send it a photo" in english_content
+    assert "suggest better places for things" in english_content
     assert "hinges" not in english_content
     assert "Create account" in english_content
     assert '<html lang="es">' in spanish_content
