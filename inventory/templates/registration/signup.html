@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n socialaccount %}
 
 {% block title %}{% translate "Create account" %} | Quilombo{% endblock %}
 {% block page_class %}auth-page{% endblock %}
@@ -8,6 +8,23 @@
   <section class="auth-panel">
     <h1>{% translate "Create account" %}</h1>
     <p class="lede">{% translate "Your account starts with a private inventory named Home." %}</p>
+    {% if google_login_enabled or github_login_enabled %}
+      <div class="social-auth" aria-label="{% translate 'Social sign in' %}">
+        {% if google_login_enabled %}
+          <form method="post" action="{% provider_login_url 'google' process='login' %}">
+            {% csrf_token %}
+            <button class="button social-button" type="submit">{% translate "Continue with Google" %}</button>
+          </form>
+        {% endif %}
+        {% if github_login_enabled %}
+          <form method="post" action="{% provider_login_url 'github' process='login' %}">
+            {% csrf_token %}
+            <button class="button social-button" type="submit">{% translate "Continue with GitHub" %}</button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="auth-divider"><span>{% translate "or" %}</span></div>
+    {% endif %}
     <form method="post" class="stacked-form">
       {% csrf_token %}
       {% for field in form %}

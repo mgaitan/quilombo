@@ -117,6 +117,26 @@ uv run python manage.py runserver
 Open `http://127.0.0.1:8000/` for the web app. REST API documentation is available at
 `http://127.0.0.1:8000/api/docs/`.
 
+Password login works without additional configuration. To enable Google or GitHub login, set the
+matching pair of environment variables:
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GITHUB_OAUTH_CLIENT_ID=...
+GITHUB_OAUTH_CLIENT_SECRET=...
+```
+
+Configure the provider applications with these production callback URLs:
+
+```text
+https://quilombo.life/accounts/google/login/callback/
+https://quilombo.life/accounts/github/login/callback/
+```
+
+For local provider applications, replace the origin with `http://127.0.0.1:8000`. A provider whose
+credential pair is absent is not shown on the login or signup page.
+
 Run the project checks with:
 
 ```bash

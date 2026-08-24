@@ -14,6 +14,7 @@ import httpx2
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
@@ -55,6 +56,23 @@ from .services import (
     undo_inventory_event,
     update_inventory_item,
 )
+
+SOCIAL_PROVIDER_SETTINGS = {
+    "github": {
+        "APPS": [{"client_id": "github-client", "secret": "github-secret", "key": ""}],
+        "SCOPE": ["user:email"],
+        "EMAIL_AUTHENTICATION": True,
+        "EMAIL_AUTHENTICATION_AUTO_CONNECT": True,
+    },
+    "google": {
+        "APPS": [{"client_id": "google-client", "secret": "google-secret", "key": ""}],
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {"access_type": "online"},
+        "OAUTH_PKCE_ENABLED": True,
+        "EMAIL_AUTHENTICATION": True,
+        "EMAIL_AUTHENTICATION_AUTO_CONNECT": True,
+    },
+}
 
 
 @override_settings(
@@ -1430,9 +1448,78 @@ def test_ensure_admin_command_only_promotes_an_existing_named_user():
 
 
 @pytest.mark.django_db
+def test_admin_dashboard_hides_models_without_view_permission(client):
+    staff_user = get_user_model().objects.create_user(username="limited-staff", is_staff=True)
+    workspace = Workspace.objects.create(name="Private workspace", slug="private-workspace")
+    Item.objects.create(workspace=workspace, key="private-item", name="Private item")
+    Location.objects.create(workspace=workspace, key="private-location", name="Private location")
+    staff_user.user_permissions.add(
+        Permission.objects.get(codename="view_item", content_type__app_label="inventory")
+    )
+
+    client.force_login(staff_user)
+    content = client.get("/admin/").content.decode()
+
+    assert "Objects" in content
+    assert "Private item" in content
+    assert "Users" not in content
+    assert "Locations" not in content
+    assert "Private location" not in content
+    assert "Web logins" not in content
+    assert "MCP logins" not in content
+
+
+@pytest.mark.django_db
+@override_settings(SOCIALACCOUNT_PROVIDERS=SOCIAL_PROVIDER_SETTINGS)
+def test_google_and_github_login_are_post_actions_when_configured(client):
+    login_content = client.get("/accounts/login/", HTTP_ACCEPT_LANGUAGE="en").content.decode()
+    signup_content = client.get("/accounts/signup/", HTTP_ACCEPT_LANGUAGE="en").content.decode()
+
+    assert 'method="post" action="/accounts/google/login/?process=login"' in login_content
+    assert 'method="post" action="/accounts/github/login/?process=login"' in login_content
+    assert "Continue with Google" in login_content
+    assert "Continue with GitHub" in signup_content
+
+    google = client.post("/accounts/google/login/")
+    github = client.post("/accounts/github/login/")
+
+    assert google.status_code == 302
+    assert google.url.startswith("https://accounts.google.com/")
+    assert github.status_code == 302
+    assert github.url.startswith("https://github.com/")
+
+
+@pytest.mark.django_db
+def test_social_login_buttons_are_hidden_without_provider_credentials(client):
+    content = client.get("/accounts/login/").content.decode()
+
+    assert "/accounts/google/login/" not in content
+    assert "/accounts/github/login/" not in content
+
+
+@pytest.mark.django_db
+def test_social_signup_creates_the_private_home_workspace():
+    from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+
+    from .accounts import QuilomboSocialAccountAdapter
+
+    user = get_user_model().objects.create_user(username="social-user")
+    adapter = QuilomboSocialAccountAdapter()
+    with patch.object(DefaultSocialAccountAdapter, "save_user", return_value=user):
+        saved_user = adapter.save_user(None, object())
+
+    assert saved_user == user
+    workspace = user.workspaces.get()
+    assert workspace.name == "Home"
+    assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
 def test_public_home_and_connector_guide(client):
     home_response = client.get("/")
     connector_response = client.get("/connect/")
+    privacy_response = client.get("/privacy/")
+    terms_response = client.get("/terms/")
     login_response = client.get("/accounts/login/")
     signup_response = client.get("/accounts/signup/")
 
@@ -1460,6 +1547,11 @@ def test_public_home_and_connector_guide(client):
     )
     assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
+    assert privacy_response.status_code == 200
+    assert "Política de privacidad" in privacy_response.content.decode()
+    assert "no sube ni procesa fotos o videos" in privacy_response.content.decode()
+    assert terms_response.status_code == 200
+    assert "Términos de servicio" in terms_response.content.decode()
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
     assert "ChatGPT" in connector_response.content.decode()
     assert "Claude" in connector_response.content.decode()

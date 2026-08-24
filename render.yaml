@@ -27,6 +27,14 @@ services:
         sync: false
       - key: QUILOMBO_ADMIN_USERNAME
         sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_OAUTH_CLIENT_ID
+        sync: false
+      - key: GITHUB_OAUTH_CLIENT_SECRET
+        sync: false
       - key: CSRF_TRUSTED_ORIGINS
         value: https://quilombo.life,https://www.quilombo.life,https://quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_HOSTS

@@ -10,66 +10,82 @@ from inventory.models import AccessEvent, Item, Location
 register = template.Library()
 
 
-@register.simple_tag
-def admin_weekly_stats():
+@register.simple_tag(takes_context=True)
+def admin_weekly_stats(context):
     cutoff = timezone.now() - timedelta(days=7)
     user_model = get_user_model()
-    sections = (
-        {
-            "label": "Users",
-            "total": user_model.objects.count(),
-            "recent": user_model.objects.filter(date_joined__gte=cutoff).order_by("-date_joined")[
-                :5
-            ],
-            "recent_count": user_model.objects.filter(date_joined__gte=cutoff).count(),
-            "list_url": reverse("admin:auth_user_changelist"),
-            "change_url_name": "admin:auth_user_change",
-        },
-        {
-            "label": "Objects",
-            "total": Item.objects.count(),
-            "recent": Item.objects.select_related("workspace")
-            .filter(created_at__gte=cutoff)
-            .order_by("-created_at")[:5],
-            "recent_count": Item.objects.filter(created_at__gte=cutoff).count(),
-            "list_url": reverse("admin:inventory_item_changelist"),
-            "change_url_name": "admin:inventory_item_change",
-        },
-        {
-            "label": "Locations",
-            "total": Location.objects.count(),
-            "recent": Location.objects.select_related("workspace")
-            .filter(created_at__gte=cutoff)
-            .order_by("-created_at")[:5],
-            "recent_count": Location.objects.filter(created_at__gte=cutoff).count(),
-            "list_url": reverse("admin:inventory_location_changelist"),
-            "change_url_name": "admin:inventory_location_change",
-        },
-        {
-            "label": "Web logins",
-            "total": AccessEvent.objects.filter(channel=AccessEvent.Channel.WEB).count(),
-            "recent": AccessEvent.objects.select_related("user")
-            .filter(channel=AccessEvent.Channel.WEB, created_at__gte=cutoff)
-            .order_by("-created_at")[:5],
-            "recent_count": AccessEvent.objects.filter(
-                channel=AccessEvent.Channel.WEB, created_at__gte=cutoff
-            ).count(),
-            "list_url": f"{reverse('admin:inventory_accessevent_changelist')}?channel__exact=web",
-            "change_url_name": "admin:inventory_accessevent_change",
-        },
-        {
-            "label": "MCP logins",
-            "total": AccessEvent.objects.filter(channel=AccessEvent.Channel.MCP).count(),
-            "recent": AccessEvent.objects.select_related("user")
-            .filter(channel=AccessEvent.Channel.MCP, created_at__gte=cutoff)
-            .order_by("-created_at")[:5],
-            "recent_count": AccessEvent.objects.filter(
-                channel=AccessEvent.Channel.MCP, created_at__gte=cutoff
-            ).count(),
-            "list_url": f"{reverse('admin:inventory_accessevent_changelist')}?channel__exact=mcp",
-            "change_url_name": "admin:inventory_accessevent_change",
-        },
-    )
+    request = context["request"]
+    sections = []
+
+    if request.user.has_perm("auth.view_user"):
+        sections.append(
+            {
+                "label": "Users",
+                "total": user_model.objects.count(),
+                "recent": user_model.objects.filter(date_joined__gte=cutoff).order_by(
+                    "-date_joined"
+                )[:5],
+                "recent_count": user_model.objects.filter(date_joined__gte=cutoff).count(),
+                "list_url": reverse("admin:auth_user_changelist"),
+                "change_url_name": "admin:auth_user_change",
+            }
+        )
+    if request.user.has_perm("inventory.view_item"):
+        sections.append(
+            {
+                "label": "Objects",
+                "total": Item.objects.count(),
+                "recent": Item.objects.select_related("workspace")
+                .filter(created_at__gte=cutoff)
+                .order_by("-created_at")[:5],
+                "recent_count": Item.objects.filter(created_at__gte=cutoff).count(),
+                "list_url": reverse("admin:inventory_item_changelist"),
+                "change_url_name": "admin:inventory_item_change",
+            }
+        )
+    if request.user.has_perm("inventory.view_location"):
+        sections.append(
+            {
+                "label": "Locations",
+                "total": Location.objects.count(),
+                "recent": Location.objects.select_related("workspace")
+                .filter(created_at__gte=cutoff)
+                .order_by("-created_at")[:5],
+                "recent_count": Location.objects.filter(created_at__gte=cutoff).count(),
+                "list_url": reverse("admin:inventory_location_changelist"),
+                "change_url_name": "admin:inventory_location_change",
+            }
+        )
+    if request.user.has_perm("inventory.view_accessevent"):
+        access_event_url = reverse("admin:inventory_accessevent_changelist")
+        sections.extend(
+            (
+                {
+                    "label": "Web logins",
+                    "total": AccessEvent.objects.filter(channel=AccessEvent.Channel.WEB).count(),
+                    "recent": AccessEvent.objects.select_related("user")
+                    .filter(channel=AccessEvent.Channel.WEB, created_at__gte=cutoff)
+                    .order_by("-created_at")[:5],
+                    "recent_count": AccessEvent.objects.filter(
+                        channel=AccessEvent.Channel.WEB, created_at__gte=cutoff
+                    ).count(),
+                    "list_url": f"{access_event_url}?channel__exact=web",
+                    "change_url_name": "admin:inventory_accessevent_change",
+                },
+                {
+                    "label": "MCP logins",
+                    "total": AccessEvent.objects.filter(channel=AccessEvent.Channel.MCP).count(),
+                    "recent": AccessEvent.objects.select_related("user")
+                    .filter(channel=AccessEvent.Channel.MCP, created_at__gte=cutoff)
+                    .order_by("-created_at")[:5],
+                    "recent_count": AccessEvent.objects.filter(
+                        channel=AccessEvent.Channel.MCP, created_at__gte=cutoff
+                    ).count(),
+                    "list_url": f"{access_event_url}?channel__exact=mcp",
+                    "change_url_name": "admin:inventory_accessevent_change",
+                },
+            )
+        )
     return {"cutoff": cutoff, "sections": sections}
 
 

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+
+{% block title %}{% if LANGUAGE_CODE == "en" %}Privacy policy{% else %}Política de privacidad{% endif %} | Quilombo{% endblock %}
+{% block page_class %}narrow{% endblock %}
+
+{% block content %}
+  <article class="legal-page">
+    {% if LANGUAGE_CODE == "en" %}
+      <h1>Privacy policy</h1>
+      <p class="lede">Effective August 24, 2026. This policy applies to the hosted service at quilombo.life. Independent self-hosted installations are operated by their respective administrators.</p>
+
+      <section>
+        <h2>Information we process</h2>
+        <p>Quilombo stores account details, workspace memberships, inventory facts, locations, quantities, notes, provenance supplied by clients, and technical access records. When you sign in with Google or GitHub, we receive the account identifier and basic profile information needed to create or find your account. Quilombo does not retain social-provider access tokens.</p>
+        <p>Quilombo does not upload or process source photos or videos. A connected client may interpret media and send only the resulting inventory facts and provenance.</p>
+      </section>
+
+      <section>
+        <h2>How we use information</h2>
+        <p>We use this information to provide and secure the service, synchronize authorized inventory clients, diagnose failures, and maintain an audit history. We do not sell personal information or use inventory data for advertising.</p>
+      </section>
+
+      <section>
+        <h2>Sharing and retention</h2>
+        <p>Information is shared only with infrastructure providers needed to operate Quilombo, clients and workspace members you authorize, or when legally required. Records are retained while your account or workspace is active and as reasonably necessary for security and recovery.</p>
+      </section>
+
+      <section>
+        <h2>Cookies and third parties</h2>
+        <p>Quilombo uses essential session and security cookies. Google, GitHub, and any MCP client you connect process information under their own policies.</p>
+      </section>
+
+      <section>
+        <h2>Your choices</h2>
+        <p>You can edit inventory facts, revoke connected clients, or request account access or deletion by contacting <a href="mailto:gaitan@gmail.com">gaitan@gmail.com</a>.</p>
+      </section>
+    {% else %}
+      <h1>Política de privacidad</h1>
+      <p class="lede">Vigente desde el 24 de agosto de 2026. Esta política se aplica al servicio alojado en quilombo.life. Las instalaciones independientes son administradas por sus respectivos operadores.</p>
+
+      <section>
+        <h2>Información que procesamos</h2>
+        <p>Quilombo guarda datos de cuenta, membresías, objetos, ubicaciones, cantidades, notas, procedencia aportada por los clientes y registros técnicos de acceso. Al ingresar con Google o GitHub, recibimos el identificador de la cuenta y la información básica de perfil necesaria para crear o encontrar tu cuenta. Quilombo no conserva tokens de acceso del proveedor social.</p>
+        <p>Quilombo no sube ni procesa fotos o videos fuente. Un cliente conectado puede interpretar esos medios y enviar únicamente los hechos de inventario resultantes y su procedencia.</p>
+      </section>
+
+      <section>
+        <h2>Cómo usamos la información</h2>
+        <p>Usamos esta información para prestar y proteger el servicio, sincronizar clientes autorizados, diagnosticar fallas y mantener un historial de auditoría. No vendemos información personal ni usamos los inventarios para publicidad.</p>
+      </section>
+
+      <section>
+        <h2>Divulgación y conservación</h2>
+        <p>La información sólo se comparte con proveedores de infraestructura necesarios para operar Quilombo, clientes y miembros que autorices, o por una obligación legal. Conservamos los registros mientras la cuenta o el inventario estén activos y durante el tiempo razonablemente necesario para seguridad y recuperación.</p>
+      </section>
+
+      <section>
+        <h2>Cookies y terceros</h2>
+        <p>Quilombo usa cookies esenciales de sesión y seguridad. Google, GitHub y cualquier cliente MCP conectado procesan información según sus propias políticas.</p>
+      </section>
+
+      <section>
+        <h2>Tus opciones</h2>
+        <p>Podés editar los hechos del inventario, revocar clientes conectados o solicitar acceso o eliminación de tu cuenta escribiendo a <a href="mailto:gaitan@gmail.com">gaitan@gmail.com</a>.</p>
+      </section>
+    {% endif %}
+  </article>
+{% endblock %}
