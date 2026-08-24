@@ -21,6 +21,7 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from .models import (
+    AccessEvent,
     ApiToken,
     Membership,
     OAuthAuthorizationGrant,
@@ -189,7 +190,7 @@ class QuilomboOAuthProvider:
             ) from error
         grant.used_at = timezone.now()
         grant.save(update_fields=["used_at"])
-        return self._issue_token_pair(
+        token = self._issue_token_pair(
             client=grant.client,
             user=grant.user,
             workspace=grant.workspace,
@@ -197,6 +198,12 @@ class QuilomboOAuthProvider:
             scopes=grant.scopes,
             resource=grant.resource,
         )
+        AccessEvent.objects.create(
+            user=grant.user,
+            channel=AccessEvent.Channel.MCP,
+            client_name=grant.client.metadata.get("client_name") or grant.client_id,
+        )
+        return token
 
     async def load_refresh_token(self, client, refresh_token):
         return await sync_to_async(self._load_refresh_token)(client, refresh_token)

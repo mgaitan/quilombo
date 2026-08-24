@@ -25,6 +25,8 @@ services:
         value: https://quilombo.life
       - key: DATABASE_URL
         sync: false
+      - key: QUILOMBO_ADMIN_USERNAME
+        sync: false
       - key: CSRF_TRUSTED_ORIGINS
         value: https://quilombo.life,https://www.quilombo.life,https://quilombo-v1-mgaitan.onrender.com
       - key: MCP_ALLOWED_HOSTS

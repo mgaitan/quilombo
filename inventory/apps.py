@@ -9,3 +9,4 @@ class InventoryConfig(AppConfig):
 
     def ready(self):
         import_module("inventory.schema")
+        import_module("inventory.signals")
