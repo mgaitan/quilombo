@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% load i18n static %}
+{% get_current_language as LANGUAGE_CODE %}
+
+{% block page_class %}home-page{% endblock %}
 
 {% block content %}
   <section class="intro" aria-labelledby="page-title">
     <div class="intro-copy">
-      <h1 id="page-title">Quilombo</h1>
-      <p class="lede">{% translate "A memory for the things around you." %}</p>
-      <p>{% translate "Tell your AI agent what you have and where it is. Later, ask where the hinges, a book, or that 6 mm drill bit ended up." %}</p>
+      <p class="hero-kicker">
+        <img src="{% static 'inventory/quilombo-mark.png' %}" alt="">
+        {% translate "A memory for the things around you." %}
+      </p>
+      <h1 id="page-title">{% translate "Real life is messy." %} <span>{% translate "Let AI help a little." %}</span></h1>
+      <p>{% translate "Tell or show your AI agent what you have and where it is. Later, ask where that 6 mm drill bit, a book, or the forks ended up." %}</p>
       <div class="actions">
         {% if user.is_authenticated %}
           <a class="button button-primary" href="{% url 'dashboard' %}">{% translate "Open inventories" %}</a>
@@ -16,7 +22,42 @@
         {% endif %}
       </div>
     </div>
-    <img class="intro-image" src="{% static 'inventory/organized-storage.webp' %}" alt="{% translate "Workshop drawers and compartments next to a bookcase." %}">
+
+    <div class="hero-carousel" data-carousel aria-roledescription="{% translate 'carousel' %}" aria-label="{% translate 'Quilombo in real life' %}">
+      <div class="carousel-viewport" aria-live="off">
+        <figure class="carousel-slide is-active" data-carousel-slide aria-hidden="false">
+          {% if LANGUAGE_CODE == "en" %}
+            <img src="{% static 'inventory/home/workshop-en.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+          {% else %}
+            <img src="{% static 'inventory/home/workshop-es.webp' %}" alt="{% translate 'A workshop where the agent points to a small red box.' %}" width="1200" height="800">
+          {% endif %}
+        </figure>
+        <figure class="carousel-slide" data-carousel-slide aria-hidden="true">
+          {% if LANGUAGE_CODE == "en" %}
+            <img src="{% static 'inventory/home/library-en.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+          {% else %}
+            <img src="{% static 'inventory/home/library-es.webp' %}" alt="{% translate 'A library where the agent points to The Aleph by Borges.' %}" width="1200" height="800">
+          {% endif %}
+        </figure>
+        <figure class="carousel-slide" data-carousel-slide aria-hidden="true">
+          {% if LANGUAGE_CODE == "en" %}
+            <img src="{% static 'inventory/home/moving-en.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+          {% else %}
+            <img src="{% static 'inventory/home/moving-es.webp' %}" alt="{% translate 'A new apartment full of moving boxes, with the agent pointing to the forks.' %}" width="1200" height="800">
+          {% endif %}
+        </figure>
+      </div>
+      <div class="carousel-controls">
+        <button class="carousel-arrow" type="button" data-carousel-prev aria-label="{% translate 'Previous illustration' %}" title="{% translate 'Previous illustration' %}">&larr;</button>
+        <div class="carousel-dots" role="group" aria-label="{% translate 'Choose illustration' %}">
+          <button class="carousel-dot is-active" type="button" data-carousel-index="0" aria-label="{% translate 'Show workshop' %}" aria-current="true"></button>
+          <button class="carousel-dot" type="button" data-carousel-index="1" aria-label="{% translate 'Show library' %}"></button>
+          <button class="carousel-dot" type="button" data-carousel-index="2" aria-label="{% translate 'Show moving day' %}"></button>
+        </div>
+        <button class="carousel-arrow" type="button" data-carousel-next aria-label="{% translate 'Next illustration' %}" title="{% translate 'Next illustration' %}">&rarr;</button>
+        <button class="carousel-toggle" type="button" data-carousel-toggle aria-label="{% translate 'Pause illustrations' %}" title="{% translate 'Pause illustrations' %}" aria-pressed="false"><span aria-hidden="true">&#10074;&#10074;</span></button>
+      </div>
+    </div>
   </section>
 
   <aside class="dictionary-entry" aria-labelledby="quilombo-definition">
@@ -27,6 +68,23 @@
     <p>{% translate "From the slang of the Río de la Plata: a mess, a chaotic tangle, or a situation that has gotten out of hand." %}</p>
   </aside>
 
+  <section class="access-band" aria-label="{% translate 'Ways to use Quilombo' %}">
+    <div class="access-option">
+      <h2>{% translate "Built for agents" %}</h2>
+      <p>{% translate "Quilombo is an agentic inventory management system. Connect it to ChatGPT, Claude, OpenClaw, or any other MCP client." %}</p>
+      <a class="quiet-link" href="{% url 'connector-guide' %}">{% translate "Connect an agent" %} &rarr;</a>
+    </div>
+    <div class="access-option">
+      <h2>{% translate "On the web" %}</h2>
+      <p>{% translate "Use Quilombo as a classic web app, with search, structured editing forms, and a history of every inventory change." %}</p>
+      {% if user.is_authenticated %}
+        <a class="quiet-link" href="{% url 'dashboard' %}">{% translate "Open inventories" %} &rarr;</a>
+      {% else %}
+        <a class="quiet-link" href="{% url 'signup' %}">{% translate "Use the web app" %} &rarr;</a>
+      {% endif %}
+    </div>
+  </section>
+
   <section class="band" aria-labelledby="how-title">
     <h2 id="how-title">{% translate "Start with the detail you have" %}</h2>
     <p>{% translate "You can record that the electronics are in the red box today. Add the shelf, organizer, and exact compartment later. Both descriptions remain useful." %}</p>
@@ -34,16 +92,71 @@
 
   <section class="feature-grid" aria-label="{% translate "What you can do" %}">
     <div>
-      <h2>{% translate "Describe" %}</h2>
-      <p>{% translate "Tell the agent what is in a drawer, shelf, workshop, or library using ordinary words." %}</p>
+      <h2>{% translate "Describe or show" %}</h2>
+      <p>{% translate "Tell your agent in simple words, send it a photo, or give it a video and let it structure the information." %}</p>
     </div>
     <div>
       <h2>{% translate "Find" %}</h2>
       <p>{% translate "Search the web inventory or ask the agent where an item was last recorded." %}</p>
     </div>
     <div>
-      <h2>{% translate "Connect" %}</h2>
-      <p>{% translate "Use Quilombo from ChatGPT, Claude, or another MCP client and choose which inventory it can access." %}</p>
+      <h2>{% translate "Improve" %}</h2>
+      <p>{% translate "Over time, your agent can suggest better places for things or audit whether recorded locations still match real life." %}</p>
     </div>
   </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      const carousel = document.querySelector("[data-carousel]");
+      if (!carousel) return;
+
+      const slides = [...carousel.querySelectorAll("[data-carousel-slide]")];
+      const dots = [...carousel.querySelectorAll("[data-carousel-index]")];
+      const toggle = carousel.querySelector("[data-carousel-toggle]");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const labels = {
+        pause: "{% translate 'Pause illustrations' %}",
+        play: "{% translate 'Play illustrations' %}",
+      };
+      let current = 0;
+      let paused = reducedMotion.matches;
+      let timer;
+
+      const render = (index) => {
+        current = (index + slides.length) % slides.length;
+        slides.forEach((slide, slideIndex) => {
+          const active = slideIndex === current;
+          slide.classList.toggle("is-active", active);
+          slide.setAttribute("aria-hidden", String(!active));
+          dots[slideIndex].classList.toggle("is-active", active);
+          if (active) dots[slideIndex].setAttribute("aria-current", "true");
+          else dots[slideIndex].removeAttribute("aria-current");
+        });
+      };
+
+      const schedule = () => {
+        window.clearInterval(timer);
+        if (!paused) timer = window.setInterval(() => render(current + 1), 5500);
+      };
+
+      const renderToggle = () => {
+        const label = paused ? labels.play : labels.pause;
+        toggle.setAttribute("aria-label", label);
+        toggle.setAttribute("title", label);
+        toggle.setAttribute("aria-pressed", String(paused));
+        toggle.firstElementChild.textContent = paused ? "\u25B6" : "\u275A\u275A";
+      };
+
+      carousel.querySelector("[data-carousel-prev]").addEventListener("click", () => { render(current - 1); schedule(); });
+      carousel.querySelector("[data-carousel-next]").addEventListener("click", () => { render(current + 1); schedule(); });
+      dots.forEach((dot, index) => dot.addEventListener("click", () => { render(index); schedule(); }));
+      toggle.addEventListener("click", () => { paused = !paused; renderToggle(); schedule(); });
+      reducedMotion.addEventListener("change", (event) => { paused = event.matches; renderToggle(); schedule(); });
+
+      renderToggle();
+      schedule();
+    })();
+  </script>
 {% endblock %}

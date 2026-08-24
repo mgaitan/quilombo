@@ -1377,6 +1377,15 @@ def test_public_home_and_connector_guide(client):
 
     assert home_response.status_code == 200
     assert "Una memoria para las cosas que te rodean." in home_response.content.decode()
+    assert "La vida real es un quilombo." in home_response.content.decode()
+    assert "bisagras" not in home_response.content.decode()
+    assert "inventory/home/workshop-es.webp" in home_response.content.decode()
+    assert "inventory/home/library-es.webp" in home_response.content.decode()
+    assert "inventory/home/moving-es.webp" in home_response.content.decode()
+    assert (
+        "Quilombo es un sistema de gestión de inventario agéntico."
+        in home_response.content.decode()
+    )
     assert "Quilombo guarda hechos" not in home_response.content.decode()
     assert connector_response.status_code == 200
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
@@ -1395,6 +1404,19 @@ def test_web_detects_english_and_spanish_from_accept_language(client):
     spanish_content = spanish.content.decode()
     assert '<html lang="en">' in english_content
     assert "A memory for the things around you." in english_content
+    assert "Real life is messy." in english_content
+    assert "Let AI help a little." in english_content
+    assert "inventory/home/workshop-en.webp" in english_content
+    assert "inventory/home/library-en.webp" in english_content
+    assert "inventory/home/moving-en.webp" in english_content
+    assert "Quilombo is an agentic inventory management system." in english_content
+    assert "Tell or show your AI agent" in english_content
+    assert "Later, ask where that 6 mm drill bit, a book, or the forks ended up." in english_content
+    assert "Use Quilombo as a classic web app" in english_content
+    assert "Describe or show" in english_content
+    assert "send it a photo" in english_content
+    assert "suggest better places for things" in english_content
+    assert "hinges" not in english_content
     assert "Create account" in english_content
     assert '<html lang="es">' in spanish_content
     assert "Una memoria para las cosas que te rodean." in spanish_content
