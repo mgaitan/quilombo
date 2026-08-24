@@ -385,6 +385,12 @@ code {
   padding-top: 32px;
 }
 
+.social-auth { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 30px; }
+.social-auth form { margin: 0; }
+.social-button { width: 100%; background: #fff; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 26px 0 0; color: #737975; font: 12px system-ui, sans-serif; }
+.auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: #e3e6e3; content: ""; }
+
 .stacked-form { display: grid; gap: 20px; margin-top: 34px; }
 .stacked-form > .button { justify-self: start; }
 .settings-form { max-width: 520px; }
@@ -414,6 +420,11 @@ code {
 .field .helptext ul { margin: 8px 0 0; padding-left: 20px; }
 .errorlist { margin: 7px 0 0; padding-left: 20px; color: #9e2d27; font-size: 14px; }
 .auth-alternate { margin-top: 30px; color: #636965; }
+.legal-page { max-width: 720px; }
+.legal-page .lede { margin-bottom: 38px; }
+.legal-page section { margin-top: 34px; }
+.legal-page h2 { margin-bottom: 10px; font-size: 22px; }
+.legal-page ul { padding-left: 22px; }
 
 .footer {
   display: flex;
@@ -460,6 +471,7 @@ code {
   h1 { font-size: 32px; }
   .home-page h1 { font-size: 36px; }
   .hero-kicker { align-items: flex-start; }
+  .social-auth { grid-template-columns: 1fr; }
   .carousel-controls { justify-content: center; }
   .copy-row { align-items: stretch; flex-direction: column; }
   .copy-row .button { align-self: flex-start; }
