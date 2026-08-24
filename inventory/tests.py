@@ -75,6 +75,10 @@ SOCIAL_PROVIDER_SETTINGS = {
 }
 
 
+def test_database_disables_server_side_cursors_for_transaction_poolers():
+    assert settings.DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] is True
+
+
 @override_settings(
     PUBLIC_BASE_URL="https://quilombo.life",
     LEGACY_PUBLIC_HOSTS=("quilombo-v1-mgaitan.onrender.com",),
