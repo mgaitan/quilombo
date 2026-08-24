@@ -24,6 +24,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from .accounts import ensure_home_workspace
 from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
 from .forms import (
     HoldingForm,
@@ -1129,13 +1130,8 @@ class SignupView(FormView):
     @transaction.atomic
     def form_valid(self, form):
         user = form.save()
-        workspace = Workspace.objects.create(name="Home", slug=f"home-{str(user.id)[:8]}")
-        Membership.objects.create(
-            workspace=workspace,
-            user=user,
-            role=Membership.Role.OWNER,
-        )
-        login(self.request, user)
+        ensure_home_workspace(user)
+        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         return HttpResponseRedirect(reverse("dashboard"))
 
 

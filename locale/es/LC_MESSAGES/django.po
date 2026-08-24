@@ -752,3 +752,15 @@ msgstr "Cliente MCP"
 
 msgid "No change details recorded."
 msgstr "No se registraron detalles del cambio."
+
+msgid "Social sign in"
+msgstr "Acceso con otra cuenta"
+
+msgid "Continue with Google"
+msgstr "Continuar con Google"
+
+msgid "Continue with GitHub"
+msgstr "Continuar con GitHub"
+
+msgid "or"
+msgstr "o"

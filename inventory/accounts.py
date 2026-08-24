@@ -1,0 +1,20 @@
+from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from django.db import transaction
+
+from .models import Membership, Workspace
+
+
+def ensure_home_workspace(user):
+    if user.memberships.exists():
+        return user.workspaces.first()
+    workspace = Workspace.objects.create(name="Home", slug=f"home-{str(user.id)[:8]}")
+    Membership.objects.create(workspace=workspace, user=user, role=Membership.Role.OWNER)
+    return workspace
+
+
+class QuilomboSocialAccountAdapter(DefaultSocialAccountAdapter):
+    @transaction.atomic
+    def save_user(self, request, sociallogin, form=None):
+        user = super().save_user(request, sociallogin, form)
+        ensure_home_workspace(user)
+        return user

@@ -116,6 +116,7 @@ urlpatterns = [
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("accounts/signup/", SignupView.as_view(), name="signup"),
+    path("accounts/", include("allauth.urls")),
     path("oauth/consent/", oauth_consent, name="oauth-consent"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
