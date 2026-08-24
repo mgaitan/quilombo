@@ -426,11 +426,14 @@ code {
 
 .footer a:first-child { margin-right: auto; }
 
+@media (max-width: 900px) {
+  .intro { grid-template-columns: 1fr; gap: 32px; }
+}
+
 @media (max-width: 760px) {
   .masthead, .page, .footer { width: min(100% - 32px, 980px); }
   .page { padding: 44px 0 64px; }
   .nav { gap: 13px; }
-  .intro { grid-template-columns: 1fr; gap: 32px; }
   .home-page { width: min(100% - 32px, 980px); }
   .home-page h1 { max-width: 10em; font-size: 42px; }
   .feature-grid { grid-template-columns: 1fr; gap: 20px; }
