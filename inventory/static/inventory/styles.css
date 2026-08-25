@@ -387,7 +387,9 @@ code {
 
 .social-auth { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 30px; }
 .social-auth form { margin: 0; }
-.social-button { width: 100%; background: #fff; }
+.social-button { width: 100%; gap: 9px; background: #fff; }
+.social-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+.github-icon { color: #24292f; }
 .auth-divider { display: flex; align-items: center; gap: 12px; margin: 26px 0 0; color: #737975; font: 12px system-ui, sans-serif; }
 .auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: #e3e6e3; content: ""; }
 

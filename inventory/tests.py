@@ -1548,6 +1548,8 @@ def test_google_and_github_login_are_post_actions_when_configured(client):
     assert 'method="post" action="/accounts/github/login/?process=login"' in login_content
     assert "Continue with Google" in login_content
     assert "Continue with GitHub" in signup_content
+    assert 'class="social-icon google-icon"' in login_content
+    assert 'class="social-icon github-icon"' in signup_content
 
     google = client.post("/accounts/google/login/")
     github = client.post("/accounts/github/login/")
