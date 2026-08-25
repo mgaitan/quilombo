@@ -26,7 +26,7 @@ isolation and idempotency.
 ## Evidence
 
 - Package schemas: run `uv run python scripts/validate_plugin_package.py`.
-- OpenAI package ingestion: run the plugin-creator validator documented in `docs/plugin.md`.
+- OpenAI package ingestion: run the plugin-creator validator documented in `docs/plugin/index.md`.
 - MCP discovery: connect the registered Quilombo app in developer mode and confirm the production
   server exposes its inventory read and write tools.
 - Server behavior: `uv run pytest` covers OAuth, tool annotations, workspace isolation,

@@ -19,9 +19,9 @@ Run both schema and package validation before changing the package:
 uv run python scripts/validate_plugin_package.py
 ```
 
-The repository-owned validator checks both published Agent Plugins schemas and the OpenAI package
-paths. During development, the package should also pass the `plugin-creator` validator available
-inside ChatGPT and Codex.
+The repository-owned validator checks both published Agent Plugins schemas and the complete OpenAI
+manifest contract, including companion paths and assets. During development, the package should
+also pass the `plugin-creator` validator available inside ChatGPT and Codex.
 
 ## Versioning and ownership
 

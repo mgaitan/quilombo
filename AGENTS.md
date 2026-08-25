@@ -4,6 +4,9 @@
 
 - Track implementation work in a GitHub issue before editing code.
 - Work on a dedicated branch and open a separate pull request for each issue.
+- Never merge a pull request unless the user explicitly asks to merge that specific pull request.
+- Never publish a GitHub Release unless the user explicitly asks to publish that specific release.
+- Requests to implement work, open a pull request, or prepare a release do not authorize merging or publishing.
 - Merge reviewed pull requests before preparing a release.
 - Deploy production only by publishing a GitHub Release; branch pushes must not deploy.
 - Use Conventional Commits and reference completed issues in commit bodies.
