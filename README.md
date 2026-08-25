@@ -106,7 +106,7 @@ verification.
 The repository is also an [Agent Plugins 1.0](https://agent-plugins.org/) package. Compatible
 clients discover the same skill and hosted MCP endpoint from `plugin.json` and `mcp.json`; ChatGPT
 and Codex use the OpenAI metadata in `.codex-plugin/plugin.json`. See the
-[plugin packaging guide](docs/plugin.md) and [submission evaluation](docs/plugin_evaluation.md).
+[plugin packaging guide](docs/plugin/index.md) and [submission evaluation](docs/plugin/evaluation.md).
 
 ## Run locally
 

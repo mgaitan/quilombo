@@ -35,8 +35,8 @@
       "Help me inventory one shelf without guessing quantities.",
       "Plan how to reorganize my workshop and ask before moving anything."
     ],
-    "brandColor": "#167D68",
-    "composerIcon": "./inventory/static/inventory/quilombo-mark.png",
-    "logo": "./inventory/static/inventory/quilombo-mark.png"
+    "brandColor": "#262626",
+    "composerIcon": "./inventory/static/inventory/quilombo-google-logo.png",
+    "logo": "./inventory/static/inventory/quilombo-google-logo.png"
   }
 }

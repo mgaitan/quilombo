@@ -15,6 +15,112 @@ PORTABLE_MANIFEST = ROOT / "plugin.json"
 PORTABLE_MCP = ROOT / "mcp.json"
 OPENAI_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 OPENAI_APP = ROOT / ".app.json"
+SEMVER_PATTERN = (
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+HTTPS_PATTERN = r"^https://[^\s]+$"
+NON_EMPTY_STRING = {"type": "string", "minLength": 1}
+HTTPS_URL = {"type": "string", "pattern": HTTPS_PATTERN}
+OPENAI_MANIFEST_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["name", "version", "description", "author", "interface"],
+    "properties": {
+        "id": NON_EMPTY_STRING,
+        "name": NON_EMPTY_STRING,
+        "version": {"type": "string", "pattern": SEMVER_PATTERN},
+        "description": NON_EMPTY_STRING,
+        "skills": NON_EMPTY_STRING,
+        "apps": NON_EMPTY_STRING,
+        "mcpServers": {"oneOf": [NON_EMPTY_STRING, {"type": "object"}]},
+        "author": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name"],
+            "properties": {
+                "name": NON_EMPTY_STRING,
+                "email": NON_EMPTY_STRING,
+                "url": HTTPS_URL,
+            },
+        },
+        "homepage": HTTPS_URL,
+        "repository": HTTPS_URL,
+        "license": NON_EMPTY_STRING,
+        "keywords": {
+            "type": "array",
+            "items": NON_EMPTY_STRING,
+        },
+        "interface": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "displayName",
+                "shortDescription",
+                "longDescription",
+                "developerName",
+                "category",
+                "capabilities",
+            ],
+            "anyOf": [
+                {"required": ["defaultPrompt"]},
+                {"required": ["default_prompt"]},
+            ],
+            "properties": {
+                "displayName": NON_EMPTY_STRING,
+                "shortDescription": NON_EMPTY_STRING,
+                "longDescription": NON_EMPTY_STRING,
+                "developerName": NON_EMPTY_STRING,
+                "category": NON_EMPTY_STRING,
+                "capabilities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": NON_EMPTY_STRING,
+                },
+                "websiteURL": HTTPS_URL,
+                "privacyPolicyURL": HTTPS_URL,
+                "termsOfServiceURL": HTTPS_URL,
+                "brandColor": {"type": "string", "pattern": r"^#[0-9A-Fa-f]{6}$"},
+                "composerIcon": NON_EMPTY_STRING,
+                "logo": NON_EMPTY_STRING,
+                "logoDark": NON_EMPTY_STRING,
+                "screenshots": {
+                    "type": "array",
+                    "items": NON_EMPTY_STRING,
+                },
+                "defaultPrompt": {
+                    "oneOf": [
+                        NON_EMPTY_STRING,
+                        {"type": "array", "minItems": 1, "items": NON_EMPTY_STRING},
+                    ]
+                },
+                "default_prompt": NON_EMPTY_STRING,
+            },
+        },
+    },
+}
+OPENAI_APP_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["apps"],
+    "properties": {
+        "apps": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["id"],
+                "properties": {
+                    "id": {"type": "string", "pattern": r"^asdk_app_[0-9A-Za-z]+$"},
+                    "category": NON_EMPTY_STRING,
+                },
+            },
+        }
+    },
+}
 
 
 def load_json(path: Path) -> dict:
@@ -30,6 +136,11 @@ def validate_published_schema(document: dict) -> None:
     with urlopen(schema_url, timeout=15) as response:  # noqa: S310 - canonical HTTPS schemas
         schema = json.load(response)
     Draft202012Validator(schema).validate(document)
+
+
+def validate_openai_contract(manifest: dict, app: dict) -> None:
+    Draft202012Validator(OPENAI_MANIFEST_SCHEMA).validate(manifest)
+    Draft202012Validator(OPENAI_APP_SCHEMA).validate(app)
 
 
 def require_file(raw_path: str) -> None:
@@ -48,6 +159,7 @@ def main() -> None:
 
     validate_published_schema(portable)
     validate_published_schema(portable_mcp)
+    validate_openai_contract(openai, app)
     if portable["$schema"].rsplit("/", 1)[0] != portable_mcp["$schema"].rsplit("/", 1)[0]:
         raise ValueError("portable manifest and MCP config target different spec versions")
 
