@@ -63,9 +63,6 @@ msgstr "Elegí OAuth, dejá que ChatGPT detecte la configuración avanzada, acep
 msgid "Select Connect, then sign in to Quilombo and choose an inventory and its access level."
 msgstr "Elegí Conectar, ingresá a Quilombo y seleccioná un inventario y su nivel de acceso."
 
-msgid "Add the Quilombo skill so ChatGPT follows the recommended inventory workflow."
-msgstr "Agregá la skill de Quilombo para que ChatGPT siga el flujo recomendado para inventarios."
-
 msgid "Open ChatGPT Plugins"
 msgstr "Abrir Complementos de ChatGPT"
 
@@ -96,11 +93,8 @@ msgstr "Ejecutá opencode mcp list para verificar la conexión."
 msgid "Recommended skill"
 msgstr "Skill recomendada"
 
-msgid "For Codex, OpenCode, and other local agents, install the Quilombo skill globally from its repository:"
-msgstr "Para Codex, OpenCode y otros agentes locales, instalá globalmente la skill de Quilombo desde su repositorio:"
-
-msgid "The ZIP download is for clients such as ChatGPT that require manual skill upload."
-msgstr "La descarga ZIP es para clientes como ChatGPT que requieren subir la skill manualmente."
+msgid "The complete Quilombo plugin already includes its skill. When you connect the MCP server separately in OpenCode or another local agent, install the skill globally from the repository:"
+msgstr "El complemento completo de Quilombo ya incluye su skill. Cuando conectes el servidor MCP por separado en OpenCode u otro agente local, instalá globalmente la skill desde el repositorio:"
 
 msgid "Download skill"
 msgstr "Descargar skill"

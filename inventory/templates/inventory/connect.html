@@ -24,11 +24,9 @@
       <li>{% translate "Open Plugins, select the plus button, enter Quilombo as the name, and paste the server URL above." %}</li>
       <li>{% translate "Choose OAuth, let ChatGPT detect the advanced OAuth settings, acknowledge the security notice, and create the plugin." %}</li>
       <li>{% translate "Select Connect, then sign in to Quilombo and choose an inventory and its access level." %}</li>
-      <li>{% translate "Add the Quilombo skill so ChatGPT follows the recommended inventory workflow." %}</li>
     </ol>
     <div class="actions">
       <a class="button button-primary" href="https://chatgpt.com/plugins">{% translate "Open ChatGPT Plugins" %}</a>
-      <a class="button" href="{% url 'skill-download' %}">{% translate "Download skill" %}</a>
       <a class="quiet-link" href="https://developers.openai.com/plugins/deploy/connect-chatgpt">{% translate "Official guide" %}</a>
     </div>
   </section>
@@ -74,9 +72,8 @@
 
   <section class="connector-section" aria-labelledby="skill-title">
     <h2 id="skill-title">{% translate "Recommended skill" %}</h2>
-    <p>{% translate "For Codex, OpenCode, and other local agents, install the Quilombo skill globally from its repository:" %}</p>
+    <p>{% translate "The complete Quilombo plugin already includes its skill. When you connect the MCP server separately in OpenCode or another local agent, install the skill globally from the repository:" %}</p>
     <code>npx skills add mgaitan/quilombo --skill manage-quilombo-inventory -g</code>
-    <p class="note">{% translate "The ZIP download is for clients such as ChatGPT that require manual skill upload." %}</p>
   </section>
 
   <p class="note">{% translate "Custom MCP servers are added from each client's settings. There is no shared installation link." %}</p>
