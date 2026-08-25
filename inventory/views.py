@@ -3,9 +3,8 @@ from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
-from django.contrib.auth import get_user_model, login
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -18,13 +17,11 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
-from django.views.generic import FormView
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from .accounts import ensure_home_workspace
 from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
 from .forms import (
     HoldingForm,
@@ -1129,18 +1126,6 @@ class StockStatusView(WorkspaceAccessMixin, GenericAPIView):
     def get(self, request, *args, **kwargs):
         result = get_stock_status(workspace=self.get_workspace())
         return Response(StockStatusResultSerializer(result).data)
-
-
-class SignupView(FormView):
-    template_name = "registration/signup.html"
-    form_class = UserCreationForm
-
-    @transaction.atomic
-    def form_valid(self, form):
-        user = form.save()
-        ensure_home_workspace(user)
-        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
-        return HttpResponseRedirect(reverse("dashboard"))
 
 
 @login_required

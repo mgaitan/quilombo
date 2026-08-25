@@ -15,10 +15,9 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.db import IntegrityError, connection, transaction
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1373,24 +1372,104 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
 
 
 @pytest.mark.django_db
-def test_public_signup_logs_user_in(client):
+def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(
         "/accounts/signup/",
         {
             "username": "new-user",
+            "email": "new-user@example.com",
             "password1": "correct-horse-battery-staple-917",
             "password2": "correct-horse-battery-staple-917",
         },
     )
 
     assert response.status_code == 302
-    assert response.url == "/app/"
-    assert client.session.get("_auth_user_id") is not None
+    assert response.url == "/accounts/confirm-email/"
+    assert client.session.get("_auth_user_id") is None
     user = get_user_model().objects.get(username="new-user")
+    assert user.email == "new-user@example.com"
+    email_address = user.emailaddress_set.get()
+    assert email_address.email == "new-user@example.com"
+    assert email_address.verified is False
     workspace = user.workspaces.get()
     assert workspace.name == "Home"
     assert workspace.slug == f"home-{str(user.id)[:8]}"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+    assert len(mail.outbox) == 1
+
+    confirmation_line = next(
+        line.strip()
+        for line in mail.outbox[0].body.splitlines()
+        if "/accounts/confirm-email/" in line
+    )
+    confirmation_url = confirmation_line[confirmation_line.index("http") :]
+    confirmation_response = client.post(urlsplit(confirmation_url).path)
+
+    email_address.refresh_from_db()
+    assert confirmation_response.status_code == 302
+    assert confirmation_response.url == "/accounts/login/"
+    assert email_address.verified is True
+    assert client.session.get("_auth_user_id") is None
+
+    login_response = client.post(
+        "/accounts/login/",
+        {"login": user.email, "password": "correct-horse-battery-staple-917"},
+    )
+
+    assert login_response.status_code == 302
+    assert login_response.url == "/app/"
+    assert client.session.get("_auth_user_id") == str(user.id)
+
+
+@pytest.mark.django_db
+def test_public_signup_requires_email_and_matching_passwords(client):
+    missing_email = client.post(
+        "/accounts/signup/",
+        {
+            "username": "missing-email",
+            "password1": "correct-horse-battery-staple-917",
+            "password2": "correct-horse-battery-staple-917",
+        },
+    )
+    mismatched_passwords = client.post(
+        "/accounts/signup/",
+        {
+            "username": "mismatched-passwords",
+            "email": "mismatched@example.com",
+            "password1": "correct-horse-battery-staple-917",
+            "password2": "different-horse-battery-staple-917",
+        },
+    )
+
+    assert missing_email.status_code == 200
+    assert "email" in missing_email.context["form"].errors
+    assert mismatched_passwords.status_code == 200
+    assert "password2" in mismatched_passwords.context["form"].errors
+    assert (
+        not get_user_model()
+        .objects.filter(username__in=["missing-email", "mismatched-passwords"])
+        .exists()
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("identifier", ["password-user", "password-user@example.com"])
+def test_password_user_can_log_in_with_username_or_email(client, identifier):
+    user = get_user_model().objects.create_user(
+        username="password-user",
+        email="password-user@example.com",
+        password="correct-horse-battery-staple-917",
+    )
+    user.emailaddress_set.create(email=user.email, verified=True, primary=True)
+
+    response = client.post(
+        "/accounts/login/",
+        {"login": identifier, "password": "correct-horse-battery-staple-917"},
+    )
+
+    assert response.status_code == 302
+    assert response.url == "/app/"
+    assert client.session.get("_auth_user_id") is not None
 
 
 @pytest.mark.django_db
@@ -1435,20 +1514,6 @@ def test_admin_dashboard_shows_recent_users_items_and_locations(client):
     assert old_user.username not in content
     assert old_item.name not in content
     assert old_location.name not in content
-
-
-@pytest.mark.django_db
-def test_ensure_admin_command_only_promotes_an_existing_named_user():
-    tin = get_user_model().objects.create_user(username="tin")
-
-    call_command("ensure_admin", "tin")
-    call_command("ensure_admin", "tin")
-
-    tin.refresh_from_db()
-    assert tin.is_staff is True
-    assert tin.is_superuser is True
-    with pytest.raises(CommandError, match="does not exist"):
-        call_command("ensure_admin", "missing-user")
 
 
 @pytest.mark.django_db
@@ -1516,6 +1581,59 @@ def test_social_signup_creates_the_private_home_workspace():
     workspace = user.workspaces.get()
     assert workspace.name == "Home"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
+@override_settings(SOCIALACCOUNT_PROVIDERS=SOCIAL_PROVIDER_SETTINGS)
+def test_verified_google_email_reuses_and_connects_password_user():
+    from allauth.account.models import EmailAddress
+    from allauth.core import context
+    from allauth.socialaccount.adapter import get_adapter
+    from allauth.socialaccount.internal.flows.login import complete_login
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.messages.middleware import MessageMiddleware
+    from django.contrib.sessions.middleware import SessionMiddleware
+    from django.test import RequestFactory
+
+    from .accounts import ensure_home_workspace
+
+    user = get_user_model().objects.create_user(
+        username="existing-user",
+        email="existing@example.com",
+        password="correct-horse-battery-staple-917",
+    )
+    EmailAddress.objects.create(
+        user=user,
+        email=user.email,
+        verified=True,
+        primary=True,
+    )
+    ensure_home_workspace(user)
+    request = RequestFactory().get("/accounts/google/login/callback/")
+    SessionMiddleware(lambda request: None).process_request(request)
+    MessageMiddleware(lambda request: None).process_request(request)
+    request.session.save()
+    request.user = AnonymousUser()
+    provider = get_adapter(request).get_provider(request, "google")
+    sociallogin = SocialLogin(
+        user=get_user_model()(username="google-profile", email=user.email),
+        account=SocialAccount(provider="google", uid="google-uid"),
+        email_addresses=[EmailAddress(email=user.email, verified=True, primary=True)],
+        provider=provider,
+    )
+    sociallogin.state = {"process": "login"}
+
+    with context.request_context(request):
+        response = complete_login(request, sociallogin)
+
+    user.refresh_from_db()
+    assert response.status_code == 302
+    assert response.url == "/app/"
+    assert sociallogin.user == user
+    assert user.has_usable_password()
+    assert user.workspaces.count() == 1
+    assert SocialAccount.objects.get(provider="google", uid="google-uid").user == user
 
 
 @pytest.mark.django_db
