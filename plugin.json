@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "quilombo",
+  "version": "0.3.7",
+  "description": "Find, record, and reorganize physical inventory with a workspace-scoped MCP server.",
+  "author": {
+    "name": "Martin Gaitan",
+    "email": "gaitan@gmail.com",
+    "url": "https://github.com/mgaitan"
+  },
+  "homepage": "https://quilombo.life",
+  "repository": "https://github.com/mgaitan/quilombo",
+  "keywords": [
+    "inventory",
+    "mcp",
+    "agent-skill",
+    "workshop",
+    "library"
+  ]
+}

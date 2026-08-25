@@ -2977,6 +2977,7 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
                 follow_redirects=False,
             ) as http_client:
                 metadata = await http_client.get("/.well-known/oauth-authorization-server")
+                openid_metadata = await http_client.get("/.well-known/openid-configuration")
                 registration = await http_client.post(
                     "/register",
                     json={
@@ -3002,11 +3003,21 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
                         "state": "test-state",
                     },
                 )
-                return metadata, registration, registered_client, authorization
+                return (
+                    metadata,
+                    openid_metadata,
+                    registration,
+                    registered_client,
+                    authorization,
+                )
 
-    metadata, registration, registered_client, authorization = asyncio.run(begin_authorization())
+    metadata, openid_metadata, registration, registered_client, authorization = asyncio.run(
+        begin_authorization()
+    )
 
     assert metadata.status_code == 200
+    assert openid_metadata.status_code == 200
+    assert openid_metadata.json() == metadata.json()
     assert metadata.json()["registration_endpoint"] == "http://localhost:8000/register"
     assert registration.status_code == 201
     assert authorization.status_code == 302

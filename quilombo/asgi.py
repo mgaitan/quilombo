@@ -1,7 +1,7 @@
 import os
 
 from django.core.asgi import get_asgi_application
-from starlette.routing import Mount
+from starlette.routing import Mount, Route
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quilombo.settings")
 
@@ -26,6 +26,18 @@ def create_application():
         ),
     )
 
+    oauth_metadata_route = next(
+        route
+        for route in mcp_application.router.routes
+        if getattr(route, "path", None) == "/.well-known/oauth-authorization-server"
+    )
+    mcp_application.router.routes.append(
+        Route(
+            "/.well-known/openid-configuration",
+            endpoint=oauth_metadata_route.endpoint,
+            methods=["GET", "OPTIONS"],
+        )
+    )
     mcp_application.router.routes.append(Mount("/", app=django_application))
     mcp_application.add_middleware(CanonicalHostASGIMiddleware)
     return mcp_application
