@@ -81,6 +81,27 @@ msgstr "Ingresá a Quilombo en el navegador y elegí un inventario y su nivel de
 msgid "Run codex mcp list or use /mcp in Codex to verify the connection."
 msgstr "Ejecutá codex mcp list o usá /mcp en Codex para verificar la conexión."
 
+msgid "Run opencode mcp add and choose a remote MCP server."
+msgstr "Ejecutá opencode mcp add y elegí un servidor MCP remoto."
+
+msgid "Enter quilombo as the name and paste the server URL above."
+msgstr "Ingresá quilombo como nombre y pegá la URL del servidor de arriba."
+
+msgid "Run opencode mcp auth quilombo, then sign in and choose an inventory and its access level."
+msgstr "Ejecutá opencode mcp auth quilombo, ingresá y elegí un inventario y su nivel de acceso."
+
+msgid "Run opencode mcp list to verify the connection."
+msgstr "Ejecutá opencode mcp list para verificar la conexión."
+
+msgid "Recommended skill"
+msgstr "Skill recomendada"
+
+msgid "For Codex, OpenCode, and other local agents, install the Quilombo skill globally from its repository:"
+msgstr "Para Codex, OpenCode y otros agentes locales, instalá globalmente la skill de Quilombo desde su repositorio:"
+
+msgid "The ZIP download is for clients such as ChatGPT that require manual skill upload."
+msgstr "La descarga ZIP es para clientes como ChatGPT que requieren subir la skill manualmente."
+
 msgid "Download skill"
 msgstr "Descargar skill"
 

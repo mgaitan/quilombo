@@ -42,8 +42,20 @@
       <li>{% translate "Run codex mcp list or use /mcp in Codex to verify the connection." %}</li>
     </ol>
     <div class="actions">
-      <a class="button" href="{% url 'skill-download' %}">{% translate "Download skill" %}</a>
       <a class="quiet-link" href="https://developers.openai.com/codex/mcp">{% translate "Official guide" %}</a>
+    </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="opencode-title">
+    <h2 id="opencode-title">OpenCode</h2>
+    <ol>
+      <li>{% translate "Run opencode mcp add and choose a remote MCP server." %}</li>
+      <li>{% translate "Enter quilombo as the name and paste the server URL above." %}</li>
+      <li>{% translate "Run opencode mcp auth quilombo, then sign in and choose an inventory and its access level." %}</li>
+      <li>{% translate "Run opencode mcp list to verify the connection." %}</li>
+    </ol>
+    <div class="actions">
+      <a class="quiet-link" href="https://opencode.ai/v2/docs/mcp-servers">{% translate "Official guide" %}</a>
     </div>
   </section>
 
@@ -58,6 +70,13 @@
       <a class="button button-primary" href="https://claude.ai/">{% translate "Open Claude" %}</a>
       <a class="quiet-link" href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">{% translate "Official guide" %}</a>
     </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="skill-title">
+    <h2 id="skill-title">{% translate "Recommended skill" %}</h2>
+    <p>{% translate "For Codex, OpenCode, and other local agents, install the Quilombo skill globally from its repository:" %}</p>
+    <code>npx skills add mgaitan/quilombo --skill manage-quilombo-inventory -g</code>
+    <p class="note">{% translate "The ZIP download is for clients such as ChatGPT that require manual skill upload." %}</p>
   </section>
 
   <p class="note">{% translate "Custom MCP servers are added from each client's settings. There is no shared installation link." %}</p>

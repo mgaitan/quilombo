@@ -1682,6 +1682,13 @@ def test_public_home_and_connector_guide(client):
         connector_response.content.decode()
     )
     assert "codex mcp login quilombo" in connector_response.content.decode()
+    assert "opencode mcp add" in connector_response.content.decode()
+    assert "opencode mcp auth quilombo" in connector_response.content.decode()
+    assert "opencode mcp list" in connector_response.content.decode()
+    assert (
+        "npx skills add mgaitan/quilombo --skill manage-quilombo-inventory -g"
+        in connector_response.content.decode()
+    )
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
