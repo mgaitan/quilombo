@@ -127,6 +127,10 @@ GITHUB_OAUTH_CLIENT_ID=...
 GITHUB_OAUTH_CLIENT_SECRET=...
 ```
 
+On Render, use these exact variable names and redeploy after saving them. The GitHub OAuth app
+must also use `https://quilombo.life/accounts/github/login/callback/` as its authorization callback
+URL. The Google callback is `https://quilombo.life/accounts/google/login/callback/`.
+
 Configure the provider applications with these production callback URLs:
 
 ```text

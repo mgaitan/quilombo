@@ -1,0 +1,32 @@
+{% load i18n socialaccount %}
+
+{% if google_login_enabled or github_login_enabled %}
+  <div class="social-auth" aria-label="{% translate 'Social sign in' %}">
+    {% if google_login_enabled %}
+      <form method="post" action="{% provider_login_url 'google' process='login' next=next %}">
+        {% csrf_token %}
+        <button class="button social-button" type="submit">
+          <svg class="social-icon google-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path fill="#4285F4" d="M21.35 12.23c0-.79-.07-1.55-.22-2.27H12v4.3h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.7 2.91-4.2 2.91-7.42Z"/>
+            <path fill="#34A853" d="M12 21.5c2.63 0 4.84-.87 6.45-2.35l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.54 0-4.7-1.72-5.47-4.04H3.28v2.53A9.74 9.74 0 0 0 12 21.5Z"/>
+            <path fill="#FBBC05" d="M6.53 13.58A5.85 5.85 0 0 1 6.22 12c0-.55.11-1.09.31-1.58V7.89H3.28A9.5 9.5 0 0 0 2.25 12c0 1.48.35 2.88 1.03 4.11l3.25-2.53Z"/>
+            <path fill="#EA4335" d="M12 6.38c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.48 14.63 2.5 12 2.5a9.74 9.74 0 0 0-8.72 5.39l3.25 2.53c.77-2.32 2.93-4.04 5.47-4.04Z"/>
+          </svg>
+          <span>{% translate "Continue with Google" %}</span>
+        </button>
+      </form>
+    {% endif %}
+    {% if github_login_enabled %}
+      <form method="post" action="{% provider_login_url 'github' process='login' next=next %}">
+        {% csrf_token %}
+        <button class="button social-button" type="submit">
+          <svg class="social-icon github-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path fill="currentColor" d="M12 2.5a9.5 9.5 0 0 0-3 18.51c.47.09.65-.2.65-.45v-1.6c-2.65.58-3.2-1.12-3.2-1.12-.43-1.1-1.06-1.4-1.06-1.4-.86-.59.07-.58.07-.58.95.07 1.45.98 1.45.98.85 1.45 2.23 1.03 2.77.79.09-.62.33-1.03.6-1.27-2.12-.24-4.35-1.06-4.35-4.7 0-1.04.37-1.9.98-2.57-.1-.24-.43-1.22.09-2.54 0 0 .8-.26 2.62.98a9.1 9.1 0 0 1 4.76 0c1.82-1.24 2.62-.98 2.62-.98.52 1.32.19 2.3.09 2.54.61.67.98 1.53.98 2.57 0 3.65-2.23 4.46-4.36 4.7.34.29.65.86.65 1.74v2.58c0 .25.17.54.66.45A9.5 9.5 0 0 0 12 2.5Z"/>
+          </svg>
+          <span>{% translate "Continue with GitHub" %}</span>
+        </button>
+      </form>
+    {% endif %}
+  </div>
+  <div class="auth-divider"><span>{% translate "or" %}</span></div>
+{% endif %}
