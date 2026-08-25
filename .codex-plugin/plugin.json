@@ -1,0 +1,42 @@
+{
+  "name": "quilombo",
+  "version": "0.3.7",
+  "description": "Find, record, and reorganize physical inventory with Quilombo.",
+  "author": {
+    "name": "Martin Gaitan",
+    "email": "gaitan@gmail.com",
+    "url": "https://github.com/mgaitan"
+  },
+  "homepage": "https://quilombo.life/connect/",
+  "repository": "https://github.com/mgaitan/quilombo",
+  "keywords": [
+    "inventory",
+    "mcp",
+    "workshop",
+    "library"
+  ],
+  "skills": "./skills/",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "Quilombo",
+    "shortDescription": "Find and organize physical inventory",
+    "longDescription": "Keep track of objects in workshops, libraries, and storage. Search recorded locations, capture observations, audit stale facts, and plan confirmed moves.",
+    "developerName": "Martin Gaitan",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://quilombo.life",
+    "privacyPolicyURL": "https://quilombo.life/privacy/",
+    "termsOfServiceURL": "https://quilombo.life/terms/",
+    "defaultPrompt": [
+      "Where did I store my soldering iron?",
+      "Help me inventory one shelf without guessing quantities.",
+      "Plan how to reorganize my workshop and ask before moving anything."
+    ],
+    "brandColor": "#167D68",
+    "composerIcon": "./inventory/static/inventory/quilombo-mark.png",
+    "logo": "./inventory/static/inventory/quilombo-mark.png"
+  }
+}

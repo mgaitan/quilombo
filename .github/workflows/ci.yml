@@ -64,5 +64,8 @@ jobs:
       - name: Validate OpenAPI schema
         run: uv run python manage.py spectacular --file /tmp/openapi.yml --validate
 
+      - name: Validate plugin package
+        run: uv run python scripts/validate_plugin_package.py
+
       - name: Run tests
         run: uv run pytest

@@ -31,6 +31,8 @@ audits.md
 
 mcp.md
 import_export.md
+plugin.md
+plugin_evaluation.md
 ```
 
 ```{toctree}
