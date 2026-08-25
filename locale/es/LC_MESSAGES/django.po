@@ -51,20 +51,50 @@ msgstr "URL del servidor"
 msgid "Copy"
 msgstr "Copiar"
 
-msgid "Open Settings, then Apps & Connectors, Advanced settings, and enable Developer mode."
-msgstr "Abrí Configuración, Apps y conectores, Configuración avanzada, y activá el modo desarrollador."
+msgid "Open Settings, select Security and login, and enable Developer mode."
+msgstr "Abrí Configuración, elegí Seguridad e inicio de sesión y activá el modo desarrollador."
 
-msgid "Create an app, choose Server URL, and paste the URL above."
-msgstr "Creá una app, elegí URL del servidor y pegá la URL de arriba."
+msgid "Open Plugins, select the plus button, enter Quilombo as the name, and paste the server URL above."
+msgstr "Abrí Complementos, tocá el botón más, ingresá Quilombo como nombre y pegá la URL del servidor de arriba."
 
-msgid "Choose OAuth authentication. ChatGPT will open Quilombo so you can sign in and select an inventory."
-msgstr "Elegí OAuth como autenticación. ChatGPT abrirá Quilombo para que ingreses y elijas un inventario."
+msgid "Choose OAuth, let ChatGPT detect the advanced OAuth settings, acknowledge the security notice, and create the plugin."
+msgstr "Elegí OAuth, dejá que ChatGPT detecte la configuración avanzada, aceptá el aviso de seguridad y creá el complemento."
 
-msgid "Upload the Quilombo skill so the agent follows the recommended inventory workflow."
-msgstr "Subí la skill de Quilombo para que el agente siga el flujo recomendado para inventarios."
+msgid "Select Connect, then sign in to Quilombo and choose an inventory and its access level."
+msgstr "Elegí Conectar, ingresá a Quilombo y seleccioná un inventario y su nivel de acceso."
 
-msgid "Open ChatGPT"
-msgstr "Abrir ChatGPT"
+msgid "Open ChatGPT Plugins"
+msgstr "Abrir Complementos de ChatGPT"
+
+msgid "Add Quilombo as a Streamable HTTP MCP server:"
+msgstr "Agregá Quilombo como servidor MCP Streamable HTTP:"
+
+msgid "Start OAuth authentication:"
+msgstr "Iniciá la autenticación OAuth:"
+
+msgid "Sign in to Quilombo in the browser and choose an inventory and its access level."
+msgstr "Ingresá a Quilombo en el navegador y elegí un inventario y su nivel de acceso."
+
+msgid "Run codex mcp list or use /mcp in Codex to verify the connection."
+msgstr "Ejecutá codex mcp list o usá /mcp en Codex para verificar la conexión."
+
+msgid "Run opencode mcp add and choose a remote MCP server."
+msgstr "Ejecutá opencode mcp add y elegí un servidor MCP remoto."
+
+msgid "Enter quilombo as the name and paste the server URL above."
+msgstr "Ingresá quilombo como nombre y pegá la URL del servidor de arriba."
+
+msgid "Run opencode mcp auth quilombo, then sign in and choose an inventory and its access level."
+msgstr "Ejecutá opencode mcp auth quilombo, ingresá y elegí un inventario y su nivel de acceso."
+
+msgid "Run opencode mcp list to verify the connection."
+msgstr "Ejecutá opencode mcp list para verificar la conexión."
+
+msgid "Recommended skill"
+msgstr "Skill recomendada"
+
+msgid "The complete Quilombo plugin already includes its skill. When you connect the MCP server separately in OpenCode or another local agent, install the skill globally from the repository:"
+msgstr "El complemento completo de Quilombo ya incluye su skill. Cuando conectes el servidor MCP por separado en OpenCode u otro agente local, instalá globalmente la skill desde el repositorio:"
 
 msgid "Download skill"
 msgstr "Descargar skill"

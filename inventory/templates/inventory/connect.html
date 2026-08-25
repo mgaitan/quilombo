@@ -20,15 +20,40 @@
   <section class="connector-section" aria-labelledby="chatgpt-title">
     <h2 id="chatgpt-title">ChatGPT</h2>
     <ol>
-      <li>{% translate "Open Settings, then Apps & Connectors, Advanced settings, and enable Developer mode." %}</li>
-      <li>{% translate "Create an app, choose Server URL, and paste the URL above." %}</li>
-      <li>{% translate "Choose OAuth authentication. ChatGPT will open Quilombo so you can sign in and select an inventory." %}</li>
-      <li>{% translate "Upload the Quilombo skill so the agent follows the recommended inventory workflow." %}</li>
+      <li>{% translate "Open Settings, select Security and login, and enable Developer mode." %}</li>
+      <li>{% translate "Open Plugins, select the plus button, enter Quilombo as the name, and paste the server URL above." %}</li>
+      <li>{% translate "Choose OAuth, let ChatGPT detect the advanced OAuth settings, acknowledge the security notice, and create the plugin." %}</li>
+      <li>{% translate "Select Connect, then sign in to Quilombo and choose an inventory and its access level." %}</li>
     </ol>
     <div class="actions">
-      <a class="button button-primary" href="https://chatgpt.com/">{% translate "Open ChatGPT" %}</a>
-      <a class="button" href="{% url 'skill-download' %}">{% translate "Download skill" %}</a>
-      <a class="quiet-link" href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">{% translate "Official guide" %}</a>
+      <a class="button button-primary" href="https://chatgpt.com/plugins">{% translate "Open ChatGPT Plugins" %}</a>
+      <a class="quiet-link" href="https://developers.openai.com/plugins/deploy/connect-chatgpt">{% translate "Official guide" %}</a>
+    </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="codex-title">
+    <h2 id="codex-title">Codex</h2>
+    <ol>
+      <li>{% translate "Add Quilombo as a Streamable HTTP MCP server:" %} <code>codex mcp add quilombo --url {{ mcp_url }}</code></li>
+      <li>{% translate "Start OAuth authentication:" %} <code>codex mcp login quilombo</code></li>
+      <li>{% translate "Sign in to Quilombo in the browser and choose an inventory and its access level." %}</li>
+      <li>{% translate "Run codex mcp list or use /mcp in Codex to verify the connection." %}</li>
+    </ol>
+    <div class="actions">
+      <a class="quiet-link" href="https://developers.openai.com/codex/mcp">{% translate "Official guide" %}</a>
+    </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="opencode-title">
+    <h2 id="opencode-title">OpenCode</h2>
+    <ol>
+      <li>{% translate "Run opencode mcp add and choose a remote MCP server." %}</li>
+      <li>{% translate "Enter quilombo as the name and paste the server URL above." %}</li>
+      <li>{% translate "Run opencode mcp auth quilombo, then sign in and choose an inventory and its access level." %}</li>
+      <li>{% translate "Run opencode mcp list to verify the connection." %}</li>
+    </ol>
+    <div class="actions">
+      <a class="quiet-link" href="https://opencode.ai/v2/docs/mcp-servers">{% translate "Official guide" %}</a>
     </div>
   </section>
 
@@ -43,6 +68,12 @@
       <a class="button button-primary" href="https://claude.ai/">{% translate "Open Claude" %}</a>
       <a class="quiet-link" href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">{% translate "Official guide" %}</a>
     </div>
+  </section>
+
+  <section class="connector-section" aria-labelledby="skill-title">
+    <h2 id="skill-title">{% translate "Recommended skill" %}</h2>
+    <p>{% translate "The complete Quilombo plugin already includes its skill. When you connect the MCP server separately in OpenCode or another local agent, install the skill globally from the repository:" %}</p>
+    <code>npx skills add mgaitan/quilombo --skill manage-quilombo-inventory -g</code>
   </section>
 
   <p class="note">{% translate "Custom MCP servers are added from each client's settings. There is no shared installation link." %}</p>

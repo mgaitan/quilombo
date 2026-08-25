@@ -1678,6 +1678,17 @@ def test_public_home_and_connector_guide(client):
     assert "Términos de servicio" in terms_response.content.decode()
     assert "http://localhost:8000/mcp" in connector_response.content.decode()
     assert "ChatGPT" in connector_response.content.decode()
+    assert "codex mcp add quilombo --url http://localhost:8000/mcp" in (
+        connector_response.content.decode()
+    )
+    assert "codex mcp login quilombo" in connector_response.content.decode()
+    assert "opencode mcp add" in connector_response.content.decode()
+    assert "opencode mcp auth quilombo" in connector_response.content.decode()
+    assert "opencode mcp list" in connector_response.content.decode()
+    assert (
+        "npx skills add mgaitan/quilombo --skill manage-quilombo-inventory -g"
+        in connector_response.content.decode()
+    )
     assert "Claude" in connector_response.content.decode()
     assert login_response.status_code == 200
     assert signup_response.status_code == 200
@@ -3016,8 +3027,7 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
     )
 
     assert metadata.status_code == 200
-    assert openid_metadata.status_code == 200
-    assert openid_metadata.json() == metadata.json()
+    assert openid_metadata.status_code == 404
     assert metadata.json()["registration_endpoint"] == "http://localhost:8000/register"
     assert registration.status_code == 201
     assert authorization.status_code == 302
