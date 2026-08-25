@@ -19,8 +19,9 @@
           {{ field.errors }}
         </div>
       {% endfor %}
+      {{ redirect_field }}
       <button class="button button-primary" type="submit">{% translate "Create account" %}</button>
     </form>
-    <p class="auth-alternate">{% translate "Already have an account?" %} <a href="{% url 'login' %}">{% translate "Sign in" %}</a></p>
+    <p class="auth-alternate">{% translate "Already have an account?" %} <a href="{% url 'login' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">{% translate "Sign in" %}</a></p>
   </section>
 {% endblock %}
