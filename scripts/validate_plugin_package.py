@@ -6,9 +6,10 @@ from __future__ import annotations
 import json
 import tomllib
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parent.parent
 PORTABLE_MANIFEST = ROOT / "plugin.json"
@@ -20,9 +21,22 @@ SEMVER_PATTERN = (
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
-HTTPS_PATTERN = r"^https://[^\s]+$"
-NON_EMPTY_STRING = {"type": "string", "minLength": 1}
-HTTPS_URL = {"type": "string", "pattern": HTTPS_PATTERN}
+NON_EMPTY_STRING = {"type": "string", "pattern": r"\S"}
+HTTPS_URL = {"type": "string", "format": "https-url"}
+OPENAI_FORMAT_CHECKER = FormatChecker()
+
+
+@OPENAI_FORMAT_CHECKER.checks("https-url")
+def is_absolute_https_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return True
+    try:
+        parsed = urlsplit(value)
+        return parsed.scheme == "https" and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
 OPENAI_MANIFEST_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -139,14 +153,29 @@ def validate_published_schema(document: dict) -> None:
 
 
 def validate_openai_contract(manifest: dict, app: dict) -> None:
-    Draft202012Validator(OPENAI_MANIFEST_SCHEMA).validate(manifest)
+    Draft202012Validator(
+        OPENAI_MANIFEST_SCHEMA,
+        format_checker=OPENAI_FORMAT_CHECKER,
+    ).validate(manifest)
     Draft202012Validator(OPENAI_APP_SCHEMA).validate(app)
 
 
 def require_file(raw_path: str) -> None:
-    path = (ROOT / raw_path).resolve()
+    declared_path = Path(raw_path)
+    if declared_path.is_absolute():
+        raise ValueError(f"plugin path must be relative: {raw_path}")
+    path = (ROOT / declared_path).resolve()
     if not path.is_relative_to(ROOT) or not path.is_file():
         raise ValueError(f"plugin path does not resolve to a file: {raw_path}")
+
+
+def validate_openai_assets(manifest: dict) -> None:
+    interface = manifest["interface"]
+    for field in ("composerIcon", "logo", "logoDark"):
+        if field in interface:
+            require_file(interface[field])
+    for screenshot in interface.get("screenshots", []):
+        require_file(screenshot)
 
 
 def main() -> None:
@@ -178,8 +207,7 @@ def main() -> None:
     if openai.get("apps") != "./.app.json":
         raise ValueError("OpenAI package must reference .app.json")
     require_file(openai["apps"])
-    for field in ("composerIcon", "logo"):
-        require_file(openai["interface"][field])
+    validate_openai_assets(openai)
 
     app_id = app["apps"]["quilombo"]["id"]
     if not app_id.startswith("asdk_app_"):
