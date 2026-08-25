@@ -1,6 +1,6 @@
 [project]
 name = "quilombo"
-version = "0.3.7"
+version = "0.3.8"
 description = "Agent-first storage for physical inventories"
 requires-python = ">=3.14,<3.15"
 dependencies = [
