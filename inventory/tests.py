@@ -1561,6 +1561,38 @@ def test_google_and_github_login_are_post_actions_when_configured(client):
 
 
 @pytest.mark.django_db
+@override_settings(SOCIALACCOUNT_PROVIDERS=SOCIAL_PROVIDER_SETTINGS)
+def test_auth_pages_preserve_pending_oauth_consent_return(client):
+    consent_url = "/oauth/consent/?request=12345678-1234-1234-1234-123456789abc"
+
+    login = client.get("/accounts/login/", {"next": consent_url})
+    login_content = login.content.decode()
+
+    assert (
+        'action="/accounts/google/login/?process=login&amp;next=%2Foauth%2Fconsent%2F%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in login_content
+    )
+    assert f'<input type="hidden" name="next" value="{consent_url}">' in login_content
+    assert (
+        'href="/accounts/signup/?next=/oauth/consent/%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in login_content
+    )
+
+    signup = client.get("/accounts/signup/", {"next": consent_url})
+    signup_content = signup.content.decode()
+
+    assert (
+        'action="/accounts/google/login/?process=login&amp;next=%2Foauth%2Fconsent%2F%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in signup_content
+    )
+    assert f'<input type="hidden" name="next" value="{consent_url}">' in signup_content
+    assert (
+        'href="/accounts/login/?next=/oauth/consent/%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in signup_content
+    )
+
+
+@pytest.mark.django_db
 def test_social_login_buttons_are_hidden_without_provider_credentials(client):
     content = client.get("/accounts/login/").content.decode()
 
@@ -1583,6 +1615,43 @@ def test_social_signup_creates_the_private_home_workspace():
     workspace = user.workspaces.get()
     assert workspace.name == "Home"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+
+
+@pytest.mark.django_db
+@override_settings(SOCIALACCOUNT_PROVIDERS=SOCIAL_PROVIDER_SETTINGS)
+def test_new_google_signup_returns_to_pending_oauth_consent():
+    from allauth.account.models import EmailAddress
+    from allauth.core import context
+    from allauth.socialaccount.adapter import get_adapter
+    from allauth.socialaccount.internal.flows.login import complete_login
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.messages.middleware import MessageMiddleware
+    from django.contrib.sessions.middleware import SessionMiddleware
+    from django.test import RequestFactory
+
+    consent_url = "/oauth/consent/?request=12345678-1234-1234-1234-123456789abc"
+    request = RequestFactory().get("/accounts/google/login/callback/")
+    SessionMiddleware(lambda request: None).process_request(request)
+    MessageMiddleware(lambda request: None).process_request(request)
+    request.session.save()
+    request.user = AnonymousUser()
+    provider = get_adapter(request).get_provider(request, "google")
+    sociallogin = SocialLogin(
+        user=get_user_model()(username="new-google-user", email="new-google@example.com"),
+        account=SocialAccount(provider="google", uid="new-google-uid"),
+        email_addresses=[EmailAddress(email="new-google@example.com", verified=True, primary=True)],
+        provider=provider,
+    )
+    sociallogin.state = {"process": "login", "next": consent_url}
+
+    with context.request_context(request):
+        response = complete_login(request, sociallogin)
+
+    assert response.status_code == 302
+    assert response.url == consent_url
+    assert sociallogin.user.pk is not None
+    assert sociallogin.user.workspaces.get().name == "Home"
 
 
 @pytest.mark.django_db

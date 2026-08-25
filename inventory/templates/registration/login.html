@@ -19,9 +19,9 @@
           {{ field.errors }}
         </div>
       {% endfor %}
-      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      {{ redirect_field }}
       <button class="button button-primary" type="submit">{% translate "Sign in" %}</button>
     </form>
-    <p class="auth-alternate">{% translate "New to Quilombo?" %} <a href="{% url 'signup' %}">{% translate "Create an account" %}</a></p>
+    <p class="auth-alternate">{% translate "New to Quilombo?" %} <a href="{% url 'signup' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">{% translate "Create an account" %}</a></p>
   </section>
 {% endblock %}

@@ -3,7 +3,7 @@
 {% if google_login_enabled or github_login_enabled %}
   <div class="social-auth" aria-label="{% translate 'Social sign in' %}">
     {% if google_login_enabled %}
-      <form method="post" action="{% provider_login_url 'google' process='login' next=next %}">
+      <form method="post" action="{% provider_login_url 'google' process='login' next=redirect_field_value %}">
         {% csrf_token %}
         <button class="button social-button" type="submit">
           <svg class="social-icon google-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
@@ -17,7 +17,7 @@
       </form>
     {% endif %}
     {% if github_login_enabled %}
-      <form method="post" action="{% provider_login_url 'github' process='login' next=next %}">
+      <form method="post" action="{% provider_login_url 'github' process='login' next=redirect_field_value %}">
         {% csrf_token %}
         <button class="button social-button" type="submit">
           <svg class="social-icon github-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
