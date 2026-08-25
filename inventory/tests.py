@@ -15,6 +15,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
@@ -1371,7 +1372,7 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
 
 
 @pytest.mark.django_db
-def test_public_signup_logs_user_in(client):
+def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(
         "/accounts/signup/",
         {
@@ -1383,15 +1384,41 @@ def test_public_signup_logs_user_in(client):
     )
 
     assert response.status_code == 302
-    assert response.url == "/app/"
-    assert client.session.get("_auth_user_id") is not None
+    assert response.url == "/accounts/confirm-email/"
+    assert client.session.get("_auth_user_id") is None
     user = get_user_model().objects.get(username="new-user")
     assert user.email == "new-user@example.com"
-    assert user.emailaddress_set.get().email == "new-user@example.com"
+    email_address = user.emailaddress_set.get()
+    assert email_address.email == "new-user@example.com"
+    assert email_address.verified is False
     workspace = user.workspaces.get()
     assert workspace.name == "Home"
     assert workspace.slug == f"home-{str(user.id)[:8]}"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
+    assert len(mail.outbox) == 1
+
+    confirmation_line = next(
+        line.strip()
+        for line in mail.outbox[0].body.splitlines()
+        if "/accounts/confirm-email/" in line
+    )
+    confirmation_url = confirmation_line[confirmation_line.index("http") :]
+    confirmation_response = client.post(urlsplit(confirmation_url).path)
+
+    email_address.refresh_from_db()
+    assert confirmation_response.status_code == 302
+    assert confirmation_response.url == "/accounts/login/"
+    assert email_address.verified is True
+    assert client.session.get("_auth_user_id") is None
+
+    login_response = client.post(
+        "/accounts/login/",
+        {"login": user.email, "password": "correct-horse-battery-staple-917"},
+    )
+
+    assert login_response.status_code == 302
+    assert login_response.url == "/app/"
+    assert client.session.get("_auth_user_id") == str(user.id)
 
 
 @pytest.mark.django_db
@@ -1428,11 +1455,12 @@ def test_public_signup_requires_email_and_matching_passwords(client):
 @pytest.mark.django_db
 @pytest.mark.parametrize("identifier", ["password-user", "password-user@example.com"])
 def test_password_user_can_log_in_with_username_or_email(client, identifier):
-    get_user_model().objects.create_user(
+    user = get_user_model().objects.create_user(
         username="password-user",
         email="password-user@example.com",
         password="correct-horse-battery-staple-917",
     )
+    user.emailaddress_set.create(email=user.email, verified=True, primary=True)
 
     response = client.post(
         "/accounts/login/",
