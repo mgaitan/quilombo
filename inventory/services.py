@@ -5,10 +5,12 @@ import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.postgres.lookups import Unaccent
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.core import signing
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
-from django.db.models import Q, TextField
+from django.db import IntegrityError, connection, transaction
+from django.db.models import BooleanField, Case, FloatField, Q, TextField, Value, When
 from django.db.models.functions import Cast
 from django.utils import timezone
 from django.utils.text import slugify
@@ -298,6 +300,89 @@ def _candidate_holdings(queryset, terms, limit):
     )
 
 
+def _postgres_search_holdings(queryset, terms, limit):
+    """Search and rank holdings in PostgreSQL before Django evaluates the page."""
+    fields = (
+        ("item_key", "item__key", "A"),
+        ("item_name", "item__name", "A"),
+        ("item_aliases", Cast("item__aliases", TextField()), "B"),
+        ("item_category", "item__category", "B"),
+        ("item_attributes", Cast("item__attributes", TextField()), "C"),
+        ("item_description", "item__description", "C"),
+        ("location_key", "location__key", "C"),
+        ("location_name", "location__name", "C"),
+        ("location_aliases", Cast("location__aliases", TextField()), "D"),
+        ("location_description", "location__description", "D"),
+        ("location_kind", "location__kind", "D"),
+        ("holding_notes", "notes", "D"),
+        ("location_metadata", Cast("location__metadata", TextField()), "D"),
+    )
+    search_vector = sum(
+        (
+            SearchVector(Unaccent(expression), weight=weight, config="simple")
+            for _, expression, weight in fields
+        ),
+        SearchVector(Value(""), config="simple"),
+    )
+    conditions = []
+    for _raw_term, term in terms:
+        variants = _token_variants(term)
+        if _is_exact_token(term):
+            raw_query = term
+        else:
+            raw_query = " | ".join(f"{variant}:*" for variant in variants)
+        conditions.append(
+            Q(search_vector=SearchQuery(raw_query, search_type="raw", config="simple"))
+        )
+
+    complete = Q()
+    any_match = Q()
+    score = Value(0.0, output_field=FloatField())
+    for condition, (_raw_term, term) in zip(conditions, terms):
+        any_match |= condition
+        complete &= condition
+        score += Case(
+            When(condition, then=Value(max(1, len(term)))),
+            default=Value(0),
+            output_field=FloatField(),
+        )
+
+    rank_query = SearchQuery(
+        " | ".join(f"{variant}:*" for _, term in terms for variant in _token_variants(term)),
+        search_type="raw",
+        config="simple",
+    )
+    return (
+        queryset.annotate(search_vector=search_vector)
+        .filter(any_match)
+        .annotate(
+            search_complete=Case(
+                When(complete, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            search_score=score,
+            search_rank=SearchRank("search_vector", rank_query),
+        )
+        .order_by(
+            "-search_complete",
+            "-search_score",
+            "-search_rank",
+            "item__name",
+            "location__name",
+            "id",
+        )[:limit]
+    )
+
+
+def add_search_match_details(holdings, query):
+    """Explain only the already-paginated rows returned by the database."""
+    terms = _query_terms(query)
+    for holding in holdings:
+        holding._search_match = _score_holding(holding, query, terms)
+    return holdings
+
+
 def _is_exact_token(term):
     """Avoid treating AA as a substring of AAA or 35 as a substring of 35mm."""
     return len(term) <= 3 or any(character.isdigit() for character in term)
@@ -420,6 +505,9 @@ def search_holdings(
     terms = _query_terms(query)
     if not terms:
         return list(holdings_query.order_by("item__name", "location__name", "id")[:limit])
+
+    if connection.vendor == "postgresql":
+        return _postgres_search_holdings(holdings_query, terms, limit)
 
     candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
     holdings = _candidate_holdings(holdings_query, terms, candidate_limit)

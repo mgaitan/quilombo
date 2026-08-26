@@ -2,6 +2,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import Q
+from django.db.models.query import QuerySet
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -21,6 +22,7 @@ from .serializers import (
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
+    add_search_match_details,
     build_holding_clue_context,
     get_stock_status,
     hash_request,
@@ -223,13 +225,15 @@ def find_inventory(
         include_descendants=include_descendants,
         limit=bounded_limit + 1,
     )
-    truncated = len(results) > bounded_limit
+    result_count = results.count() if isinstance(results, QuerySet) else len(results)
+    truncated = result_count > bounded_limit
     results = results[:bounded_limit]
+    add_search_match_details(results, query)
     clue_context = build_holding_clue_context(workspace=token.workspace, holdings=results)
     return {
         "workspace": token.workspace.slug,
         "query": query,
-        "count": len(results),
+        "count": min(result_count, bounded_limit),
         "truncated": truncated,
         "results": [_serialize_holding(holding, clue_context) for holding in results],
     }

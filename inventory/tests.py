@@ -2424,6 +2424,30 @@ def test_human_inventory_pagination_preserves_search_and_location(client, users,
 
 
 @pytest.mark.django_db
+def test_human_inventory_initial_page_paginates_holdings_in_database(client, users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index in range(26):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"item-{index:02}",
+            name=f"Item {index:02}",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=location, quantity=Decimal("1")
+        )
+    client.force_login(users[0])
+
+    with patch("inventory.views.search_holdings") as search_mock:
+        response = client.get("/app/workshop/")
+
+    assert response.status_code == 200
+    assert response.context["page_obj"].paginator.count == 26
+    assert len(response.context["holdings"]) == 25
+    search_mock.assert_not_called()
+
+
+@pytest.mark.django_db
 def test_health_check_includes_database(client):
     response = client.get("/health/")
 
