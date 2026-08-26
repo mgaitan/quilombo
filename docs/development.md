@@ -43,7 +43,10 @@ uv run ruff check .
 uv run python manage.py check
 ```
 
-The repository `Makefile` provides the same common entry points:
+The repository `Makefile` provides shortcuts for the recurring workflows. `make install` is the
+equivalent of `uv sync --all-groups`, so it also installs the optional documentation dependencies.
+`make qa` runs the complete local quality gate: linting, format checks, tests, and a strict docs
+build.
 
 ```bash
 make install
