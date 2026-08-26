@@ -1573,6 +1573,46 @@ def test_admin_dashboard_shows_recent_users_items_and_locations(client):
 
 
 @pytest.mark.django_db
+def test_admin_login_uses_quilombo_authentication_and_preserves_next(client):
+    from allauth.account.models import EmailAddress
+
+    admin_user = get_user_model().objects.create_superuser(
+        username="admin-login",
+        email="admin-login@example.com",
+        password="correct-horse-battery-staple-917",
+    )
+    EmailAddress.objects.create(
+        user=admin_user,
+        email=admin_user.email,
+        verified=True,
+        primary=True,
+    )
+
+    response = client.get("/admin/")
+
+    assert response.status_code == 302
+    assert response.url == "/admin/login/?next=/admin/"
+
+    login_page = client.get(response.url)
+    content = login_page.content.decode()
+    assert login_page.status_code == 200
+    assert 'href="/static/inventory/styles.css"' in content
+    assert '<input type="hidden" name="next" value="/admin/">' in content
+
+    login_response = client.post(
+        "/admin/login/",
+        {
+            "login": admin_user.username,
+            "password": "correct-horse-battery-staple-917",
+            "next": "/admin/",
+        },
+    )
+
+    assert login_response.status_code == 302
+    assert login_response.url == "/admin/"
+
+
+@pytest.mark.django_db
 def test_admin_dashboard_hides_models_without_view_permission(client):
     staff_user = get_user_model().objects.create_user(username="limited-staff", is_staff=True)
     workspace = Workspace.objects.create(name="Private workspace", slug="private-workspace")
