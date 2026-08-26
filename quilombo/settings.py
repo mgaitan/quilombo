@@ -210,18 +210,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 LOGIN_REDIRECT_URL = "/app/"
 LOGOUT_REDIRECT_URL = "/"
 
-EMAIL_HOST = "smtp.resend.com"
-EMAIL_PORT = 587
-EMAIL_HOST_USER = "resend"
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = "Quilombo <no-reply@quilombo.life>"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 if RESEND_API_KEY:
     EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
     ANYMAIL = {"RESEND_API_KEY": RESEND_API_KEY}
-elif EMAIL_HOST_PASSWORD:
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
