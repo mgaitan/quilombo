@@ -2011,6 +2011,10 @@ def test_dashboard_requires_login_and_only_lists_member_workspaces(client, users
     assert workshop.name in authenticated.content.decode()
     assert library.name not in authenticated.content.decode()
     assert f"/app/{workshop.slug}/first-inventory/" in authenticated.content.decode()
+    dashboard_workspace = authenticated.context["workspaces"][0]
+    assert dashboard_workspace.location_count == workshop.locations.count()
+    assert dashboard_workspace.item_count == workshop.items.count()
+    assert dashboard_workspace.holding_count == workshop.holdings.count()
 
     guide = client.get(f"/app/{workshop.slug}/first-inventory/")
     other_workspace = client.get(f"/app/{library.slug}/first-inventory/")
