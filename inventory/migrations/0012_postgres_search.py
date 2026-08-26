@@ -12,10 +12,11 @@ def enable_postgres_search(apps, schema_editor):
             CREATE INDEX IF NOT EXISTS inventory_item_search_gin
             ON inventory_item USING gin (
                 (
-                    to_tsvector('simple', coalesce(key, '')) ||
-                    to_tsvector('simple', coalesce(name, '')) ||
-                    to_tsvector('simple', coalesce(description, '')) ||
-                    to_tsvector('simple', coalesce(category, ''))
+                    to_tsvector(
+                        'simple',
+                        coalesce(key, '') || ' ' || coalesce(name, '') || ' ' ||
+                        coalesce(description, '') || ' ' || coalesce(category, '')
+                    )
                 )
             )
             """
@@ -25,10 +26,11 @@ def enable_postgres_search(apps, schema_editor):
             CREATE INDEX IF NOT EXISTS inventory_location_search_gin
             ON inventory_location USING gin (
                 (
-                    to_tsvector('simple', coalesce(key, '')) ||
-                    to_tsvector('simple', coalesce(name, '')) ||
-                    to_tsvector('simple', coalesce(description, '')) ||
-                    to_tsvector('simple', coalesce(kind, ''))
+                    to_tsvector(
+                        'simple',
+                        coalesce(key, '') || ' ' || coalesce(name, '') || ' ' ||
+                        coalesce(description, '') || ' ' || coalesce(kind, '')
+                    )
                 )
             )
             """
