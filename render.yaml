@@ -25,7 +25,7 @@ services:
         value: https://quilombo.life
       - key: DATABASE_URL
         sync: false
-      - key: EMAIL_HOST_PASSWORD
+      - key: RESEND_API_KEY
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false
