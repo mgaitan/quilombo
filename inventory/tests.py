@@ -1127,6 +1127,31 @@ def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(use
 
 
 @pytest.mark.django_db
+def test_inventory_search_excludes_partial_matches_when_complete_matches_exist(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    complete_item = Item.objects.create(
+        workspace=workshop,
+        key="red-batteries",
+        name="Red batteries",
+    )
+    partial_item = Item.objects.create(
+        workspace=workshop,
+        key="red",
+        name="Red",
+    )
+    Holding.objects.create(workspace=workshop, item=complete_item, location=location, quantity=1)
+    Holding.objects.create(workspace=workshop, item=partial_item, location=location, quantity=1)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get("/api/workspaces/workshop/search/", {"q": "red batteries"})
+
+    assert response.status_code == 200
+    assert [result["item_key"] for result in response.json()["results"]] == ["red-batteries"]
+
+
+@pytest.mark.django_db
 def test_inventory_search_tokenizes_hyphenated_keys(users, workspaces):
     workshop, _ = workspaces
     location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")

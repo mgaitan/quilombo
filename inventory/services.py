@@ -324,6 +324,20 @@ def _postgres_search_holdings(queryset, terms, limit):
         ),
         SearchVector(Value(""), config="simple"),
     )
+    item_index_vector = SearchVector(
+        "item__key",
+        "item__name",
+        "item__description",
+        "item__category",
+        config="simple",
+    )
+    location_index_vector = SearchVector(
+        "location__key",
+        "location__name",
+        "location__description",
+        "location__kind",
+        config="simple",
+    )
     conditions = []
     for _raw_term, term in terms:
         variants = _token_variants(term)
@@ -331,8 +345,11 @@ def _postgres_search_holdings(queryset, terms, limit):
             raw_query = term
         else:
             raw_query = " | ".join(f"{variant}:*" for variant in variants)
+        term_query = SearchQuery(raw_query, search_type="raw", config="simple")
         conditions.append(
-            Q(search_vector=SearchQuery(raw_query, search_type="raw", config="simple"))
+            Q(search_vector=term_query)
+            | Q(item_index_vector=term_query)
+            | Q(location_index_vector=term_query)
         )
 
     complete = Q()
@@ -352,27 +369,31 @@ def _postgres_search_holdings(queryset, terms, limit):
         search_type="raw",
         config="simple",
     )
-    return (
-        queryset.annotate(search_vector=search_vector)
-        .filter(any_match)
-        .annotate(
-            search_complete=Case(
-                When(complete, then=Value(True)),
-                default=Value(False),
-                output_field=BooleanField(),
-            ),
-            search_score=score,
-            search_rank=SearchRank("search_vector", rank_query),
-        )
-        .order_by(
-            "-search_complete",
-            "-search_score",
-            "-search_rank",
-            "item__name",
-            "location__name",
-            "id",
-        )[:limit]
+    ranked_queryset = queryset.annotate(
+        search_vector=search_vector,
+        item_index_vector=item_index_vector,
+        location_index_vector=location_index_vector,
     )
+    if ranked_queryset.filter(complete).exists():
+        ranked_queryset = ranked_queryset.filter(complete)
+    else:
+        ranked_queryset = ranked_queryset.filter(any_match)
+    return ranked_queryset.annotate(
+        search_complete=Case(
+            When(complete, then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField(),
+        ),
+        search_score=score,
+        search_rank=SearchRank("search_vector", rank_query),
+    ).order_by(
+        "-search_complete",
+        "-search_score",
+        "-search_rank",
+        "item__name",
+        "location__name",
+        "id",
+    )[:limit]
 
 
 def add_search_match_details(holdings, query):
@@ -406,7 +427,7 @@ def _term_matches(term, candidate_tokens):
         return term in candidate_tokens
     variants = _token_variants(term)
     return any(
-        candidate == variant or candidate.startswith(variant) or variant.startswith(candidate)
+        candidate == variant or candidate.startswith(variant)
         for candidate in candidate_tokens
         for variant in variants
     )
