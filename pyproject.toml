@@ -5,6 +5,7 @@ description = "Agent-first storage for physical inventories"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "dj-database-url>=3.0,<4",
+    "django-anymail[resend]>=15.1,<16",
     "django>=6.0.8,<6.1",
     "django-allauth[socialaccount]>=65.19.1,<66",
     "djangorestframework>=3.16,<3.17",
