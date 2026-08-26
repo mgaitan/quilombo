@@ -116,7 +116,6 @@ urlpatterns = [
     path("terms/", terms_of_service, name="terms-of-service"),
     path("skills/manage-quilombo-inventory.zip", download_skill, name="skill-download"),
     path("health/", health_check, name="health-check"),
-    path("admin/login/", account_views.login, name="admin-login"),
     path("admin/", admin.site.urls),
     path(
         "accounts/login/",

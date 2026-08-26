@@ -41,7 +41,14 @@
             <td>{{ event.created_at|date:"SHORT_DATETIME_FORMAT" }}{% if event.observed_at %}<span class="row-detail">{% blocktranslate with date=event.observed_at|date:"SHORT_DATETIME_FORMAT" %}Observed {{ date }}{% endblocktranslate %}</span>{% endif %}</td>
             <td>
               {% if event.change_lines %}
-                <ul class="event-summary">{% for line in event.change_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+                <ul class="event-summary">
+                  {% if event.updated_item %}
+                    <li>{{ event.updated_item_line }}</li>
+                    {% for line in event.change_lines %}{% if not forloop.first %}<li>{{ line }}</li>{% endif %}{% endfor %}
+                  {% else %}
+                    {% for line in event.change_lines %}<li>{{ line }}</li>{% endfor %}
+                  {% endif %}
+                </ul>
               {% else %}
                 <span class="row-detail">{% translate "No change details recorded." %}</span>
               {% endif %}
