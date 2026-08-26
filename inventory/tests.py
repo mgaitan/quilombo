@@ -1047,6 +1047,52 @@ def test_inventory_search_uses_aliases_attributes_and_locations(users, workspace
 
 
 @pytest.mark.django_db
+def test_inventory_search_returns_stable_ids_for_item_repairs(users, workspaces):
+    _, library = workspaces
+    suite = Location.objects.create(workspace=library, key="suite", name="Biblioteca de la suite")
+    shelf = Location.objects.create(
+        workspace=library,
+        key="shelf-3-left",
+        name="Estante 3 izquierda",
+        parent=suite,
+    )
+    book = Item.objects.create(
+        workspace=library,
+        key="golden-boys",
+        name="Golden Boys",
+        category="book",
+        tracking_mode=Item.TrackingMode.DISCRETE,
+        unit="copy",
+    )
+    holding = Holding.objects.create(
+        workspace=library,
+        item=book,
+        location=shelf,
+        quantity=Decimal("1"),
+    )
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    response = client.get(
+        "/api/workspaces/workshop/search/",
+        {"q": "Golden Boys", "location": "shelf-3-left"},
+    )
+
+    assert response.status_code == 404
+
+    response = client.get(
+        "/api/workspaces/library/search/",
+        {"q": "Golden Boys", "location": "shelf-3-left"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["item"] == str(book.id)
+    assert result["id"] == str(holding.id)
+    assert result["location"] == str(shelf.id)
+
+
+@pytest.mark.django_db
 def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(users, workspaces):
     workshop, _ = workspaces
     location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
