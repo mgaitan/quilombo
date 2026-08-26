@@ -1442,6 +1442,16 @@ def test_public_signup_requires_email_verification_before_login(client):
     assert workspace.slug == f"home-{str(user.id)[:8]}"
     assert workspace.memberships.get(user=user).role == Membership.Role.OWNER
     assert len(mail.outbox) == 1
+    verification_page = client.get(response.url)
+    verification_content = verification_page.content.decode()
+    assert verification_page.status_code == 200
+    assert 'href="/static/inventory/styles.css"' in verification_content
+    assert "Mensajes:" not in verification_content
+    assert "Has iniciado sesión" not in verification_content
+    assert mail.outbox[0].subject.endswith("Confirmá tu dirección de correo electrónico | Quilombo")
+    assert "¡Hola de parte de Quilombo!" in mail.outbox[0].body
+    assert "registrar una cuenta en Quilombo" in mail.outbox[0].body
+    assert "Hello from quilombo.life" not in mail.outbox[0].body
 
     confirmation_line = next(
         line.strip()

@@ -35,6 +35,13 @@
         </form>
       </nav>
     </header>
+    {% if messages %}
+      <div class="flash-messages" role="status">
+        {% for message in messages %}
+          <p class="flash-message flash-{{ message.tags|default:'info' }}">{{ message }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
     <main class="page {% block page_class %}{% endblock %}">
       {% block content %}{% endblock %}
     </main>
