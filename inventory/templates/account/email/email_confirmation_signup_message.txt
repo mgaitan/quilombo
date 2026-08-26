@@ -1,0 +1,8 @@
+{% extends "account/email/base_message.txt" %}
+{% load account i18n %}
+
+{% block content %}{% autoescape off %}{% user_display user as user_display %}{% get_current_language as LANGUAGE_CODE %}{% if LANGUAGE_CODE == "es" %}Estás recibiendo este correo porque el usuario {{ user_display }} facilitó tu dirección de correo electrónico para registrar una cuenta en Quilombo.{% else %}You're receiving this email because user {{ user_display }} provided your email address to register an account on Quilombo.{% endif %}
+
+{% if code %}{% if LANGUAGE_CODE == "es" %}Tu código de verificación es el siguiente. Ingresalo en la ventana del navegador:{% else %}Your email verification code is below. Enter it in the open browser window:{% endif %}
+
+{{ code }}{% else %}{% if LANGUAGE_CODE == "es" %}Para confirmar que esto es correcto, visitá {{ activate_url }}{% else %}To confirm this is correct, go to {{ activate_url }}{% endif %}{% endif %}{% endautoescape %}{% endblock content %}

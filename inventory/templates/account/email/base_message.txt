@@ -1,0 +1,5 @@
+{% load i18n %}{% autoescape off %}{% get_current_language as LANGUAGE_CODE %}{% if LANGUAGE_CODE == "es" %}¡Hola de parte de Quilombo!{% else %}Hello from Quilombo!{% endif %}
+
+{% block content %}{% endblock content %}
+
+{% if LANGUAGE_CODE == "es" %}¡Gracias por usar Quilombo!{% else %}Thank you for using Quilombo!{% endif %}{% endautoescape %}

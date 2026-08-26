@@ -1,0 +1,1 @@
+{% load i18n %}{% get_current_language as LANGUAGE_CODE %}{% if LANGUAGE_CODE == "es" %}Confirmá tu dirección de correo electrónico | Quilombo{% else %}Confirm your email address | Quilombo{% endif %}
