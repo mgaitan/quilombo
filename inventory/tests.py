@@ -1127,6 +1127,31 @@ def test_inventory_search_normalizes_ranks_partial_matches_and_explains_them(use
 
 
 @pytest.mark.django_db
+def test_inventory_search_excludes_partial_matches_when_complete_matches_exist(users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    complete_item = Item.objects.create(
+        workspace=workshop,
+        key="red-batteries",
+        name="Red batteries",
+    )
+    partial_item = Item.objects.create(
+        workspace=workshop,
+        key="red",
+        name="Red",
+    )
+    Holding.objects.create(workspace=workshop, item=complete_item, location=location, quantity=1)
+    Holding.objects.create(workspace=workshop, item=partial_item, location=location, quantity=1)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.get("/api/workspaces/workshop/search/", {"q": "red batteries"})
+
+    assert response.status_code == 200
+    assert [result["item_key"] for result in response.json()["results"]] == ["red-batteries"]
+
+
+@pytest.mark.django_db
 def test_inventory_search_tokenizes_hyphenated_keys(users, workspaces):
     workshop, _ = workspaces
     location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
@@ -2471,6 +2496,35 @@ def test_human_inventory_pagination_preserves_search_and_location(client, users,
     assert response.context["page_obj"].paginator.count == 26
     assert [holding.item.key for holding in response.context["holdings"]] == ["screw-25"]
     assert "q=screw&amp;location=drawer&amp;page=1" in content
+
+
+@pytest.mark.django_db
+def test_human_inventory_initial_page_paginates_holdings_in_database(client, users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index in range(26):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"item-{index:02}",
+            name=f"Item {index:02}",
+        )
+        Holding.objects.create(
+            workspace=workshop, item=item, location=location, quantity=Decimal("1")
+        )
+    client.force_login(users[0])
+
+    with patch("inventory.views.search_holdings") as search_mock:
+        response = client.get("/app/workshop/")
+
+    assert response.status_code == 200
+    assert response.context["page_obj"].paginator.count == 26
+    assert len(response.context["holdings"]) == 25
+    assert response.context["truncated"] is False
+    assert all(
+        "last_observed_by" in holding._state.fields_cache
+        for holding in response.context["holdings"]
+    )
+    search_mock.assert_not_called()
 
 
 @pytest.mark.django_db

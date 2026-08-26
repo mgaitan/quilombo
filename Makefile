@@ -1,7 +1,10 @@
-.PHONY: install lint format format-check test docs docs-open qa help
+.PHONY: install lint format format-check test postgres-up postgres-down postgres-migrate test-postgres docs docs-open qa help
 
 DOCS_SOURCE := docs
 DOCS_BUILD := $(DOCS_SOURCE)/_build
+POSTGRES_CONTAINER ?= quilombo-postgres
+POSTGRES_IMAGE ?= postgres:17
+POSTGRES_URL ?= postgresql://quilombo:quilombo@localhost:5432/quilombo
 
 install: ## Install application and documentation dependencies
 	uv sync --all-groups
@@ -17,6 +20,28 @@ format-check: ## Check Python formatting without changing files
 
 test: ## Run the test suite
 	uv run pytest -q
+
+postgres-up: ## Start the local PostgreSQL container used by CI
+	@if docker ps --format '{{.Names}}' | grep -Fxq '$(POSTGRES_CONTAINER)'; then \
+		echo "$(POSTGRES_CONTAINER) is already running"; \
+	else \
+		docker run --name $(POSTGRES_CONTAINER) --rm --detach \
+			--env POSTGRES_DB=quilombo \
+			--env POSTGRES_USER=quilombo \
+			--env POSTGRES_PASSWORD=quilombo \
+			--publish 5432:5432 \
+			$(POSTGRES_IMAGE); \
+	fi
+	@until docker exec $(POSTGRES_CONTAINER) pg_isready -U quilombo -d quilombo; do sleep 1; done
+
+postgres-down: ## Stop the local PostgreSQL container
+	-docker stop $(POSTGRES_CONTAINER)
+
+postgres-migrate: postgres-up ## Apply migrations to the local PostgreSQL database
+	DATABASE_URL=$(POSTGRES_URL) uv run python manage.py migrate
+
+test-postgres: postgres-up ## Run the test suite against PostgreSQL
+	DATABASE_URL=$(POSTGRES_URL) uv run pytest -q
 
 docs: ## Build strict Sphinx/MyST documentation
 	uv run --group docs sphinx-build -b html -W --keep-going $(DOCS_SOURCE) $(DOCS_BUILD)/html

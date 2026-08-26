@@ -9,6 +9,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count
+from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.templatetags.static import static
@@ -73,6 +74,7 @@ from .services import (
     BulkUpsertError,
     IdempotencyConflict,
     InventoryUndoError,
+    add_search_match_details,
     build_holding_clue_context,
     bulk_upsert_inventory,
     create_holding,
@@ -81,6 +83,7 @@ from .services import (
     create_workspace,
     get_stock_status,
     hash_request,
+    location_scope_ids,
     preview_inventory_undo,
     remove_holding,
     remove_item,
@@ -420,14 +423,35 @@ def workspace_inventory(request, workspace_slug):
     workspace = membership.workspace
     query = request.GET.get("q", "").strip()
     location_key = request.GET.get("location", "").strip()
-    matching_holdings = search_holdings(
-        workspace=workspace,
-        query=query,
-        location=location_key,
-        limit=1001,
-    )
-    truncated = len(matching_holdings) > 1000
-    page_obj = Paginator(matching_holdings[:1000], 25).get_page(request.GET.get("page"))
+    if query:
+        matching_holdings = search_holdings(
+            workspace=workspace,
+            query=query,
+            location=location_key,
+            limit=1001,
+        )
+        matching_count = (
+            matching_holdings.count()
+            if isinstance(matching_holdings, QuerySet)
+            else len(matching_holdings)
+        )
+        truncated = matching_count > 1000
+        page_obj = Paginator(matching_holdings[:1000], 25).get_page(request.GET.get("page"))
+        add_search_match_details(page_obj, query)
+    else:
+        matching_holdings = workspace.holdings.select_related(
+            "item", "location", "last_observed_by"
+        ).order_by("item__name", "location__name", "id")
+        if location_key:
+            matching_holdings = matching_holdings.filter(
+                location_id__in=location_scope_ids(
+                    workspace=workspace,
+                    location_key=location_key,
+                    include_descendants=True,
+                )
+            )
+        page_obj = Paginator(matching_holdings, 25).get_page(request.GET.get("page"))
+        truncated = False
     preserved_query = request.GET.copy()
     preserved_query.pop("page", None)
     stock_status = get_stock_status(workspace=workspace)
@@ -1099,17 +1123,19 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
             include_descendants=serializer.validated_data["include_descendants"],
             limit=1001,
         )
-        truncated = len(results) > 1000
+        result_count = results.count() if isinstance(results, QuerySet) else len(results)
+        truncated = result_count > 1000
         results = results[:1000]
         paginator = InventoryPagination()
         page_results = paginator.paginate_queryset(results, request, view=self)
+        add_search_match_details(page_results, query)
         clue_context = build_holding_clue_context(
             workspace=self.get_workspace(), holdings=page_results
         )
         output = SearchResultSerializer(
             {
                 "query": query,
-                "count": len(results),
+                "count": min(result_count, 1000),
                 "truncated": truncated,
                 "pagination": paginator.metadata(),
                 "results": page_results,

@@ -2,7 +2,34 @@
 
 ## Environment
 
-Install the application and documentation dependencies with:
+Install the application dependencies with:
+
+```bash
+uv sync
+```
+
+Quilombo uses PostgreSQL in production. For a production-equivalent local environment, run a
+PostgreSQL database and configure its connection before applying migrations. The CI environment
+uses the official PostgreSQL 17 image; the same setup works locally with Docker:
+
+```bash
+make postgres-up
+make postgres-migrate
+```
+
+The inventory search uses PostgreSQL full-text search, `unaccent`, and `pg_trgm`. The inventory
+migration enables the required extensions when the connected database is PostgreSQL. The default
+SQLite configuration remains useful for quick local checks, but it exercises the compatibility
+search path rather than the production search path.
+
+Run the tests against PostgreSQL and stop the local database when finished:
+
+```bash
+make test-postgres
+make postgres-down
+```
+
+Documentation dependencies are optional and can be installed separately:
 
 ```bash
 uv sync --group docs
@@ -16,7 +43,10 @@ uv run ruff check .
 uv run python manage.py check
 ```
 
-The repository `Makefile` provides the same common entry points:
+The repository `Makefile` provides shortcuts for the recurring workflows. `make install` is the
+equivalent of `uv sync --all-groups`, so it also installs the optional documentation dependencies.
+`make qa` runs the complete local quality gate: linting, format checks, tests, and a strict docs
+build.
 
 ```bash
 make install

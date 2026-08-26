@@ -5,10 +5,12 @@ import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.postgres.lookups import Unaccent
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.core import signing
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
-from django.db.models import Q, TextField
+from django.db import IntegrityError, connection, transaction
+from django.db.models import BooleanField, Case, FloatField, Q, TextField, Value, When
 from django.db.models.functions import Cast
 from django.utils import timezone
 from django.utils.text import slugify
@@ -298,6 +300,110 @@ def _candidate_holdings(queryset, terms, limit):
     )
 
 
+def _postgres_search_holdings(queryset, terms, limit):
+    """Search and rank holdings in PostgreSQL before Django evaluates the page."""
+    fields = (
+        ("item_key", "item__key", "A"),
+        ("item_name", "item__name", "A"),
+        ("item_aliases", Cast("item__aliases", TextField()), "B"),
+        ("item_category", "item__category", "B"),
+        ("item_attributes", Cast("item__attributes", TextField()), "C"),
+        ("item_description", "item__description", "C"),
+        ("location_key", "location__key", "C"),
+        ("location_name", "location__name", "C"),
+        ("location_aliases", Cast("location__aliases", TextField()), "D"),
+        ("location_description", "location__description", "D"),
+        ("location_kind", "location__kind", "D"),
+        ("holding_notes", "notes", "D"),
+        ("location_metadata", Cast("location__metadata", TextField()), "D"),
+    )
+    search_vector = sum(
+        (
+            SearchVector(Unaccent(expression), weight=weight, config="simple")
+            for _, expression, weight in fields
+        ),
+        SearchVector(Value(""), config="simple"),
+    )
+    item_index_vector = SearchVector(
+        "item__key",
+        "item__name",
+        "item__description",
+        "item__category",
+        config="simple",
+    )
+    location_index_vector = SearchVector(
+        "location__key",
+        "location__name",
+        "location__description",
+        "location__kind",
+        config="simple",
+    )
+    conditions = []
+    for _raw_term, term in terms:
+        variants = _token_variants(term)
+        if _is_exact_token(term):
+            raw_query = term
+        else:
+            raw_query = " | ".join(f"{variant}:*" for variant in variants)
+        term_query = SearchQuery(raw_query, search_type="raw", config="simple")
+        conditions.append(
+            Q(search_vector=term_query)
+            | Q(item_index_vector=term_query)
+            | Q(location_index_vector=term_query)
+        )
+
+    complete = Q()
+    any_match = Q()
+    score = Value(0.0, output_field=FloatField())
+    for condition, (_raw_term, term) in zip(conditions, terms):
+        any_match |= condition
+        complete &= condition
+        score += Case(
+            When(condition, then=Value(max(1, len(term)))),
+            default=Value(0),
+            output_field=FloatField(),
+        )
+
+    rank_query = SearchQuery(
+        " | ".join(f"{variant}:*" for _, term in terms for variant in _token_variants(term)),
+        search_type="raw",
+        config="simple",
+    )
+    ranked_queryset = queryset.annotate(
+        search_vector=search_vector,
+        item_index_vector=item_index_vector,
+        location_index_vector=location_index_vector,
+    )
+    if ranked_queryset.filter(complete).exists():
+        ranked_queryset = ranked_queryset.filter(complete)
+    else:
+        ranked_queryset = ranked_queryset.filter(any_match)
+    return ranked_queryset.annotate(
+        search_complete=Case(
+            When(complete, then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField(),
+        ),
+        search_score=score,
+        search_rank=SearchRank("search_vector", rank_query),
+    ).order_by(
+        "-search_complete",
+        "-search_score",
+        "-search_rank",
+        "item__name",
+        "location__name",
+        "id",
+    )[:limit]
+
+
+def add_search_match_details(holdings, query):
+    """Explain only the already-paginated rows returned by the database."""
+    terms = _query_terms(query)
+    for holding in holdings:
+        holding._search_match = _score_holding(holding, query, terms)
+    return holdings
+
+
 def _is_exact_token(term):
     """Avoid treating AA as a substring of AAA or 35 as a substring of 35mm."""
     return len(term) <= 3 or any(character.isdigit() for character in term)
@@ -316,12 +422,14 @@ def _token_variants(term):
     return variants
 
 
-def _term_matches(term, candidate_tokens):
+def _term_matches(term, candidate_tokens, *, reverse_prefix=True):
     if _is_exact_token(term):
         return term in candidate_tokens
     variants = _token_variants(term)
     return any(
-        candidate == variant or candidate.startswith(variant) or variant.startswith(candidate)
+        candidate == variant
+        or candidate.startswith(variant)
+        or (reverse_prefix and variant.startswith(candidate))
         for candidate in candidate_tokens
         for variant in variants
     )
@@ -349,7 +457,7 @@ def _search_fields(holding):
     }
 
 
-def _score_holding(holding, query, terms):
+def _score_holding(holding, query, terms, *, reverse_prefix=True):
     fields = _search_fields(holding)
     field_tokens = {field: _search_tokens(value) for field, value in fields.items()}
     matched_terms = []
@@ -357,7 +465,9 @@ def _score_holding(holding, query, terms):
     score = 0
     for raw_term, term in terms:
         matching_fields = [
-            field for field, tokens in field_tokens.items() if _term_matches(term, tokens)
+            field
+            for field, tokens in field_tokens.items()
+            if _term_matches(term, tokens, reverse_prefix=reverse_prefix)
         ]
         if matching_fields:
             matched_terms.append(raw_term)
@@ -421,6 +531,9 @@ def search_holdings(
     if not terms:
         return list(holdings_query.order_by("item__name", "location__name", "id")[:limit])
 
+    if connection.vendor == "postgresql":
+        return _postgres_search_holdings(holdings_query, terms, limit)
+
     candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
     holdings = _candidate_holdings(holdings_query, terms, candidate_limit)
     if not holdings:
@@ -432,7 +545,7 @@ def search_holdings(
 
     ranked = []
     for holding in holdings:
-        details = _score_holding(holding, query, terms)
+        details = _score_holding(holding, query, terms, reverse_prefix=False)
         if details["matched_terms"]:
             holding._search_match = details
             ranked.append(holding)
@@ -453,7 +566,8 @@ def search_holdings(
             str(holding.id),
         )
     )
-    return ranked[:limit]
+    results = ranked[:limit]
+    return add_search_match_details(results, query)
 
 
 def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
