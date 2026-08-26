@@ -8,7 +8,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
@@ -131,12 +132,32 @@ def terms_of_service(request):
 
 @login_required
 def dashboard(request):
+    location_counts = (
+        Location.objects.filter(workspace_id=OuterRef("pk"))
+        .values("workspace_id")
+        .annotate(count=Count("id"))
+        .values("count")
+    )
+    item_counts = (
+        Item.objects.filter(workspace_id=OuterRef("pk"))
+        .values("workspace_id")
+        .annotate(count=Count("id"))
+        .values("count")
+    )
+    holding_counts = (
+        Holding.objects.filter(workspace_id=OuterRef("pk"))
+        .values("workspace_id")
+        .annotate(count=Count("id"))
+        .values("count")
+    )
     workspaces = (
         Workspace.objects.filter(memberships__user=request.user)
         .annotate(
-            location_count=Count("locations", distinct=True),
-            item_count=Count("items", distinct=True),
-            holding_count=Count("holdings", distinct=True),
+            location_count=Coalesce(
+                Subquery(location_counts), Value(0), output_field=IntegerField()
+            ),
+            item_count=Coalesce(Subquery(item_counts), Value(0), output_field=IntegerField()),
+            holding_count=Coalesce(Subquery(holding_counts), Value(0), output_field=IntegerField()),
         )
         .distinct()
         .order_by("name", "id")
