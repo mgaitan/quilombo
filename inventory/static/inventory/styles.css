@@ -421,6 +421,7 @@ code {
   font: 600 14px system-ui, sans-serif;
   cursor: pointer;
 }
+.auth-page form button.social-button { color: #303532; background: #fff; }
 .auth-page form ul { margin: 0; padding-left: 20px; color: #9e2d27; }
 
 .social-auth { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 30px; }
