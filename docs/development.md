@@ -2,7 +2,26 @@
 
 ## Environment
 
-Install the application and documentation dependencies with:
+Install the application dependencies with:
+
+```bash
+uv sync
+```
+
+Quilombo uses PostgreSQL in production. For a production-equivalent local environment, run a
+PostgreSQL database and configure its connection before applying migrations:
+
+```bash
+export DATABASE_URL=postgresql://quilombo:quilombo@localhost:5432/quilombo
+uv run python manage.py migrate
+```
+
+The inventory search uses PostgreSQL full-text search, `unaccent`, and `pg_trgm`. The inventory
+migration enables the required extensions when the connected database is PostgreSQL. The default
+SQLite configuration remains useful for quick local checks, but it exercises the compatibility
+search path rather than the production search path.
+
+Documentation dependencies are optional and can be installed separately:
 
 ```bash
 uv sync --group docs
