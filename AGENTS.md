@@ -12,6 +12,13 @@
 - Use Conventional Commits and reference completed issues in commit bodies.
 - Keep commits focused and leave unrelated working-tree changes untouched.
 
+### Release versioning
+
+- Follow Semantic Versioning for application releases.
+- Use a patch release for fixes, documentation, and other changes that do not change behavior.
+- Use a minor release for database migrations or changes to business logic and user-visible behavior.
+- Reserve major releases for intentionally breaking changes to public contracts.
+
 ## Commands
 
 - Install dependencies: `uv sync`

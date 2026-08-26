@@ -65,8 +65,15 @@ workflow, verifies that its tag is `v` followed by the version in `pyproject.tom
 documentation, and asks Render to deploy that exact tagged commit.
 
 For a new release, update the project version, merge the change to `main`, and publish the matching
-tag. For example, version `0.2.0` must be released with tag `v0.2.0`. The running version appears in
+tag. For example, version `0.4.0` must be released with tag `v0.4.0`. The running version appears in
 the web footer, the `/health/` response, the OpenAPI schema, and MCP initialization metadata.
+
+### Versioning policy
+
+Quilombo follows Semantic Versioning. Use patch releases for fixes, documentation, and other
+changes that do not alter behavior. Use minor releases when a change adds a database migration or
+changes business logic or user-visible behavior. Reserve major releases for intentionally breaking
+changes to public contracts.
 
 ## Build the documentation
 
