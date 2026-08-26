@@ -53,6 +53,8 @@ on 2026-08-14`.
 ## Locate objects
 
 1. Call `find_inventory` with the user's concise wording; include category or location only when known.
+   If a tool lookup appears not to expose search, inspect the available inventory tools and retry
+   `find_inventory` before telling the user that search is unavailable.
 2. Report item name, precise recorded location, quantity, unit, and whether it is approximate.
 3. Include useful identification clues when present: description, appearance attributes, the full
    location path, copy-specific notes, and a few recorded items nearby.
