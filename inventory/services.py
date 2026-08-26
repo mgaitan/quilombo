@@ -650,7 +650,7 @@ def get_stock_status(*, workspace):
                 item_id__in=[item.id for item in low_items],
             )
             .select_related("location")
-            .order_by("item_id", "id")
+            .order_by("item_id", "location__name", "id")
         )
         for holding in holdings:
             holdings_by_item.setdefault(holding.item_id, []).append(holding)
