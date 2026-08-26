@@ -1306,6 +1306,7 @@ def test_stock_status_reports_missing_and_low_items_within_location(users, works
     workshop, library = workspaces
     root = Location.objects.create(workspace=workshop, key="taller", name="Taller")
     drawer = Location.objects.create(workspace=workshop, parent=root, key="cajon", name="Cajón")
+    shelf = Location.objects.create(workspace=workshop, parent=root, key="estante", name="Estante")
     screws = Item.objects.create(
         workspace=workshop,
         key="tornillos",
@@ -1334,6 +1335,7 @@ def test_stock_status_reports_missing_and_low_items_within_location(users, works
         minimum_quantity=Decimal("100"),
     )
     Holding.objects.create(workspace=workshop, item=screws, location=drawer, quantity=Decimal("3"))
+    Holding.objects.create(workspace=workshop, item=screws, location=shelf, quantity=Decimal("1"))
     Holding.objects.create(
         workspace=workshop, item=batteries, location=drawer, quantity=Decimal("5")
     )
@@ -1359,17 +1361,22 @@ def test_stock_status_reports_missing_and_low_items_within_location(users, works
             "item_key": "tornillos",
             "item_name": "Tornillos",
             "status": "low",
-            "current_quantity": "3.000000",
+            "current_quantity": "4.000000",
             "minimum_quantity": "10.000000",
             "target_quantity": "25.000000",
-            "recommended_add_quantity": "22.000000",
+            "recommended_add_quantity": "21.000000",
             "unit": "units",
             "locations": [
                 {
                     "location_key": "cajon",
                     "location_name": "Cajón",
                     "quantity": "3.000000",
-                }
+                },
+                {
+                    "location_key": "estante",
+                    "location_name": "Estante",
+                    "quantity": "1.000000",
+                },
             ],
         },
     ]

@@ -10,8 +10,18 @@ from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.core import signing
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import BooleanField, Case, FloatField, Q, TextField, Value, When
-from django.db.models.functions import Cast
+from django.db.models import (
+    BooleanField,
+    Case,
+    DecimalField,
+    FloatField,
+    Q,
+    Sum,
+    TextField,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import gettext as _
@@ -625,15 +635,30 @@ def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
 
 
 def get_stock_status(*, workspace):
-    items = workspace.items.filter(minimum_quantity__isnull=False).prefetch_related(
-        "holdings__location"
+    items = workspace.items.filter(minimum_quantity__isnull=False).annotate(
+        current_quantity=Coalesce(
+            Sum("holdings__quantity"),
+            Value(Decimal("0"), output_field=DecimalField(max_digits=20, decimal_places=6)),
+        )
     )
+    low_items = [item for item in items if item.current_quantity < item.minimum_quantity]
+    holdings_by_item = {}
+    if low_items:
+        holdings = (
+            Holding.objects.filter(
+                workspace=workspace,
+                item_id__in=[item.id for item in low_items],
+            )
+            .select_related("location")
+            .order_by("item_id", "location__name", "id")
+        )
+        for holding in holdings:
+            holdings_by_item.setdefault(holding.item_id, []).append(holding)
+
     attention = []
-    for item in items:
-        holdings = list(item.holdings.all())
-        current = sum((holding.quantity for holding in holdings), Decimal("0"))
-        if current >= item.minimum_quantity:
-            continue
+    for item in low_items:
+        current = item.current_quantity
+        holdings = holdings_by_item.get(item.id, [])
         target = item.target_quantity or item.minimum_quantity
         attention.append(
             {
