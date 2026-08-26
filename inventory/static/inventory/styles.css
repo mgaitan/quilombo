@@ -244,7 +244,7 @@ p { margin: 0 0 18px; }
   cursor: pointer;
 }
 
-.button-primary { color: #fff; background: #303532; }
+.button-primary { color: #303532; background: #fff; }
 .button:hover, .button:focus-visible, .quiet-link:hover { opacity: .72; }
 .text-button { border: 0; padding: 0; color: inherit; background: none; cursor: pointer; }
 
@@ -416,8 +416,8 @@ code {
   border: 1px solid #303532;
   border-radius: 6px;
   padding: 8px 15px;
-  color: #fff;
-  background: #303532;
+  color: #303532;
+  background: #fff;
   font: 600 14px system-ui, sans-serif;
   cursor: pointer;
 }
