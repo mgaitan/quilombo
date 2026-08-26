@@ -9,9 +9,18 @@ uv sync
 ```
 
 Quilombo uses PostgreSQL in production. For a production-equivalent local environment, run a
-PostgreSQL database and configure its connection before applying migrations:
+PostgreSQL database and configure its connection before applying migrations. The CI environment
+uses the official PostgreSQL 17 image; the same setup works locally with Docker:
 
 ```bash
+docker run --name quilombo-postgres --rm --detach \
+  --env POSTGRES_DB=quilombo \
+  --env POSTGRES_USER=quilombo \
+  --env POSTGRES_PASSWORD=quilombo \
+  --publish 5432:5432 \
+  postgres:17
+
+until docker exec quilombo-postgres pg_isready -U quilombo -d quilombo; do sleep 1; done
 export DATABASE_URL=postgresql://quilombo:quilombo@localhost:5432/quilombo
 uv run python manage.py migrate
 ```
@@ -20,6 +29,13 @@ The inventory search uses PostgreSQL full-text search, `unaccent`, and `pg_trgm`
 migration enables the required extensions when the connected database is PostgreSQL. The default
 SQLite configuration remains useful for quick local checks, but it exercises the compatibility
 search path rather than the production search path.
+
+With `DATABASE_URL` set, run the tests against PostgreSQL with `uv run pytest`. Stop the local
+database when finished:
+
+```bash
+docker stop quilombo-postgres
+```
 
 Documentation dependencies are optional and can be installed separately:
 
