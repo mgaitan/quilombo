@@ -439,9 +439,9 @@ def workspace_inventory(request, workspace_slug):
         page_obj = Paginator(matching_holdings[:1000], 25).get_page(request.GET.get("page"))
         add_search_match_details(page_obj, query)
     else:
-        matching_holdings = workspace.holdings.select_related("item", "location").order_by(
-            "item__name", "location__name", "id"
-        )
+        matching_holdings = workspace.holdings.select_related(
+            "item", "location", "last_observed_by"
+        ).order_by("item__name", "location__name", "id")
         if location_key:
             matching_holdings = matching_holdings.filter(
                 location_id__in=location_scope_ids(
@@ -451,7 +451,7 @@ def workspace_inventory(request, workspace_slug):
                 )
             )
         page_obj = Paginator(matching_holdings, 25).get_page(request.GET.get("page"))
-        truncated = page_obj.paginator.count > 1000
+        truncated = False
     preserved_query = request.GET.copy()
     preserved_query.pop("page", None)
     stock_status = get_stock_status(workspace=workspace)

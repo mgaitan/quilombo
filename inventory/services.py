@@ -422,12 +422,14 @@ def _token_variants(term):
     return variants
 
 
-def _term_matches(term, candidate_tokens):
+def _term_matches(term, candidate_tokens, *, reverse_prefix=True):
     if _is_exact_token(term):
         return term in candidate_tokens
     variants = _token_variants(term)
     return any(
-        candidate == variant or candidate.startswith(variant)
+        candidate == variant
+        or candidate.startswith(variant)
+        or (reverse_prefix and variant.startswith(candidate))
         for candidate in candidate_tokens
         for variant in variants
     )
@@ -455,7 +457,7 @@ def _search_fields(holding):
     }
 
 
-def _score_holding(holding, query, terms):
+def _score_holding(holding, query, terms, *, reverse_prefix=True):
     fields = _search_fields(holding)
     field_tokens = {field: _search_tokens(value) for field, value in fields.items()}
     matched_terms = []
@@ -463,7 +465,9 @@ def _score_holding(holding, query, terms):
     score = 0
     for raw_term, term in terms:
         matching_fields = [
-            field for field, tokens in field_tokens.items() if _term_matches(term, tokens)
+            field
+            for field, tokens in field_tokens.items()
+            if _term_matches(term, tokens, reverse_prefix=reverse_prefix)
         ]
         if matching_fields:
             matched_terms.append(raw_term)
@@ -541,7 +545,7 @@ def search_holdings(
 
     ranked = []
     for holding in holdings:
-        details = _score_holding(holding, query, terms)
+        details = _score_holding(holding, query, terms, reverse_prefix=False)
         if details["matched_terms"]:
             holding._search_match = details
             ranked.append(holding)
@@ -562,7 +566,8 @@ def search_holdings(
             str(holding.id),
         )
     )
-    return ranked[:limit]
+    results = ranked[:limit]
+    return add_search_match_details(results, query)
 
 
 def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):

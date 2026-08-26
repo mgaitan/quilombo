@@ -2469,6 +2469,11 @@ def test_human_inventory_initial_page_paginates_holdings_in_database(client, use
     assert response.status_code == 200
     assert response.context["page_obj"].paginator.count == 26
     assert len(response.context["holdings"]) == 25
+    assert response.context["truncated"] is False
+    assert all(
+        "last_observed_by" in holding._state.fields_cache
+        for holding in response.context["holdings"]
+    )
     search_mock.assert_not_called()
 
 
