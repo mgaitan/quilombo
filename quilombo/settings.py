@@ -94,7 +94,7 @@ if IS_PROD:
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "inventory.admin_config.QuilomboAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

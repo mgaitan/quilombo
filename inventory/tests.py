@@ -1623,7 +1623,8 @@ def test_admin_login_uses_quilombo_authentication_and_preserves_next(client):
     response = client.get("/admin/")
 
     assert response.status_code == 302
-    assert response.url == "/admin/login/?next=/admin/"
+    assert response.url == "/accounts/login/?next=/admin/"
+    assert client.get("/admin/login/?next=/admin/").url == "/accounts/login/?next=/admin/"
 
     login_page = client.get(response.url)
     content = login_page.content.decode()
@@ -1632,7 +1633,7 @@ def test_admin_login_uses_quilombo_authentication_and_preserves_next(client):
     assert '<input type="hidden" name="next" value="/admin/">' in content
 
     login_response = client.post(
-        "/admin/login/",
+        "/accounts/login/",
         {
             "login": admin_user.username,
             "password": "correct-horse-battery-staple-917",
@@ -1642,6 +1643,42 @@ def test_admin_login_uses_quilombo_authentication_and_preserves_next(client):
 
     assert login_response.status_code == 302
     assert login_response.url == "/admin/"
+
+
+@pytest.mark.django_db
+def test_authenticated_home_redirects_to_dashboard(client, users):
+    client.force_login(users[0])
+
+    response = client.get("/")
+
+    assert response.status_code == 302
+    assert response.url == "/app/"
+
+
+@pytest.mark.django_db
+def test_item_update_history_links_item_in_same_workspace(client, users, workspaces):
+    workspace, other_workspace = workspaces
+    item = Item.objects.create(workspace=workspace, key="drill", name="6 mm drill bit")
+    other_item = Item.objects.create(workspace=other_workspace, key="book", name="The Aleph")
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        actor=users[0],
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        summary={"item_id": str(item.id), "item_key": item.key, "item_fields": ["name"]},
+    )
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        actor=users[0],
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        summary={"item_id": str(other_item.id), "item_key": other_item.key, "item_fields": []},
+    )
+    client.force_login(users[0])
+
+    content = client.get("/app/workshop/history/").content.decode()
+
+    assert f'href="/app/workshop/items/{item.id}/">{item.name}</a>' in content
+    assert f'href="/app/library/items/{other_item.id}/"' not in content
+    assert other_item.name not in content
 
 
 @pytest.mark.django_db

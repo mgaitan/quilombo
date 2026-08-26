@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
@@ -108,6 +109,8 @@ from .transfers import (
 
 
 def home(request):
+    if request.user.is_authenticated:
+        return HttpResponseRedirect(reverse("dashboard"))
     language = getattr(request, "LANGUAGE_CODE", "es")
     workshop_image = "workshop-en-social.jpg" if language == "en" else "workshop-es-social.jpg"
     return render(
@@ -506,8 +509,21 @@ def event_history(request, workspace_slug):
     events = workspace.inventory_events.select_related("actor").order_by("-created_at", "-id")
     page_obj = Paginator(events, 25).get_page(request.GET.get("page"))
     latest_id = events.values_list("id", flat=True).first()
+    item_ids = set()
+    for event in page_obj:
+        if event.kind != InventoryEvent.Kind.ITEM_UPDATE:
+            continue
+        try:
+            item_ids.add(UUID(str(event.summary.get("item_id"))))
+        except AttributeError, TypeError, ValueError:
+            continue
+    items_by_id = {
+        str(item.id): item
+        for item in Item.objects.filter(workspace=workspace, id__in=item_ids).only("id", "name")
+    }
     for event in page_obj:
         event.change_lines = _event_change_lines(event)
+        event.updated_item = items_by_id.get(str(event.summary.get("item_id")))
         event.can_undo = (
             membership_can_write(membership)
             and event.id == latest_id
