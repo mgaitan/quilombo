@@ -421,14 +421,14 @@ code {
   font: 600 14px system-ui, sans-serif;
   cursor: pointer;
 }
-.auth-page form button.social-button { color: #303532; background: #fff; }
+.auth-page form button.social-button { color: #fff; background: #303532; }
 .auth-page form ul { margin: 0; padding-left: 20px; color: #9e2d27; }
 
 .social-auth { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 30px; }
 .social-auth form { margin: 0; }
-.social-button { width: 100%; gap: 9px; background: #fff; }
+.social-button { width: 100%; gap: 9px; background: #303532; }
 .social-icon { width: 18px; height: 18px; flex: 0 0 18px; }
-.github-icon { color: #24292f; }
+.github-icon { color: #fff; }
 .auth-divider { display: flex; align-items: center; gap: 12px; margin: 26px 0 0; color: #737975; font: 12px system-ui, sans-serif; }
 .auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: #e3e6e3; content: ""; }
 
