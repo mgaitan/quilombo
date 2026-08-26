@@ -17,6 +17,7 @@ from django.shortcuts import get_object_or_404, render
 from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
@@ -524,6 +525,16 @@ def event_history(request, workspace_slug):
     for event in page_obj:
         event.change_lines = _event_change_lines(event)
         event.updated_item = items_by_id.get(str(event.summary.get("item_id")))
+        if event.updated_item:
+            translated_item_line = _("Item: %(item)s") % {"item": "{}"}
+            event.updated_item_line = format_html(
+                translated_item_line,
+                format_html(
+                    '<a href="{}">{}</a>',
+                    reverse("web-item-detail", args=[workspace.slug, event.updated_item.id]),
+                    event.updated_item.name,
+                ),
+            )
         event.can_undo = (
             membership_can_write(membership)
             and event.id == latest_id

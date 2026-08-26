@@ -43,7 +43,7 @@
               {% if event.change_lines %}
                 <ul class="event-summary">
                   {% if event.updated_item %}
-                    <li>{% translate "Item:" %} <a href="{% url 'web-item-detail' workspace.slug event.updated_item.id %}">{{ event.updated_item.name }}</a></li>
+                    <li>{{ event.updated_item_line }}</li>
                     {% for line in event.change_lines %}{% if not forloop.first %}<li>{{ line }}</li>{% endif %}{% endfor %}
                   {% else %}
                     {% for line in event.change_lines %}<li>{{ line }}</li>{% endfor %}

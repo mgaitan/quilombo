@@ -1677,6 +1677,7 @@ def test_item_update_history_links_item_in_same_workspace(client, users, workspa
     content = client.get("/app/workshop/history/").content.decode()
 
     assert f'href="/app/workshop/items/{item.id}/">{item.name}</a>' in content
+    assert f'Objeto: <a href="/app/workshop/items/{item.id}/">' in content
     assert f'href="/app/library/items/{other_item.id}/"' not in content
     assert other_item.name not in content
 
