@@ -12,7 +12,7 @@ header.
 
 For token authentication:
 
-```http
+```text
 Authorization: Bearer qlo_...
 ```
 
