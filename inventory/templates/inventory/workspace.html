@@ -37,6 +37,15 @@
         {% endfor %}
       </select>
     </div>
+    <div>
+      <label for="category">{% translate "Category" %}</label>
+      <select id="category" name="category">
+        <option value="">{% translate "All categories" %}</option>
+        {% for option in category_options %}
+          <option value="{{ option }}" {% if option|lower == category|lower %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <button class="button button-primary" type="submit">{% translate "Search" %}</button>
   </form>
 

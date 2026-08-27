@@ -2174,6 +2174,41 @@ def test_human_inventory_search_scopes_to_location_subtree(client, users, worksp
 
 
 @pytest.mark.django_db
+def test_human_category_filter_preserves_pagination_and_workspace_scope(client, users, workspaces):
+    workshop, library = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index in range(26):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"fastener-{index}",
+            name=f"Fastener {index}",
+            category="fasteners",
+        )
+        Holding.objects.create(workspace=workshop, item=item, location=location, quantity=1)
+    other_item = Item.objects.create(
+        workspace=library,
+        key="secret-book",
+        name="Secret book",
+        category="books",
+    )
+    other_location = Location.objects.create(workspace=library, key="shelf", name="Shelf")
+    Holding.objects.create(workspace=library, item=other_item, location=other_location, quantity=1)
+    client.force_login(users[0])
+
+    response = client.get("/app/workshop/", {"category": "FASTENERS", "page": 2})
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert response.context["category"] == "FASTENERS"
+    assert response.context["page_obj"].paginator.count == 26
+    assert len(response.context["holdings"]) == 1
+    assert response.context["holdings"][0].item.category == "fasteners"
+    assert 'value="fasteners" selected' in content
+    assert "category=FASTENERS" in content
+    assert other_item.name not in content
+
+
+@pytest.mark.django_db
 def test_human_location_filter_renders_depth_first_tree(client, users, workspaces):
     workshop, library = workspaces
     bookcase = Location.objects.create(
