@@ -3301,6 +3301,39 @@ def test_mcp_collection_cursors_preserve_filters_and_boundaries(users, workspace
 
 
 @pytest.mark.django_db(transaction=True)
+def test_mcp_snapshot_has_bounded_collections_and_constant_query_work(users, workspaces):
+    from inventory.mcp import get_inventory_snapshot
+
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    items = [
+        Item(
+            workspace=workspace,
+            key=f"tool-{index}",
+            name=f"Tool {index}",
+            category="tools",
+        )
+        for index in range(101)
+    ]
+    Item.objects.bulk_create(items)
+    Holding.objects.bulk_create(
+        [Holding(workspace=workspace, item=item, location=location, quantity=1) for item in items]
+    )
+    _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="Snapshot bound test")
+    ctx = SimpleNamespace(headers={"authorization": f"Bearer {raw_token}"})
+
+    with CaptureQueriesContext(connection) as queries:
+        snapshot = get_inventory_snapshot(ctx, category="tools")
+
+    assert snapshot["limit"] == 100
+    assert len(snapshot["items"]) == 100
+    assert len(snapshot["holdings"]) == 100
+    assert snapshot["truncated"] is True
+    assert snapshot["next_cursor"]
+    assert len(queries) <= 10
+
+
+@pytest.mark.django_db(transaction=True)
 def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     workspace, _ = workspaces
     workshop = Location.objects.create(workspace=workspace, key="workshop", name="Workshop")
