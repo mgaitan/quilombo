@@ -6,6 +6,7 @@ import json
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
@@ -18,12 +19,14 @@ from django.contrib.auth.models import Permission
 from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.signing import SignatureExpired
 from django.db import IntegrityError, connection, transaction
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Implementation
 from rest_framework.test import APIClient
 
@@ -3212,6 +3215,89 @@ def test_delete_inventory_item_is_tenant_scoped_and_idempotent(users, workspaces
     assert not workspace.items.filter(id=item.id).exists()
     assert other_workspace.items.filter(id=other_item.id).exists()
     assert event.summary["item_id"] == str(item.id)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mcp_collection_cursors_preserve_filters_and_boundaries(users, workspaces):
+    from inventory.mcp import find_inventory, get_inventory_snapshot
+
+    workspace, _ = workspaces
+    root = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
+    for index in range(3):
+        location = Location.objects.create(
+            workspace=workspace,
+            parent=root,
+            key=f"drawer-{index}",
+            name=f"Drawer {index}",
+        )
+        item = Item.objects.create(
+            workspace=workspace,
+            key=f"screw-{index}",
+            name=f"Screw {index}",
+            category="hardware",
+        )
+        Holding.objects.create(workspace=workspace, item=item, location=location, quantity=1)
+    _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="Cursor test")
+    ctx = SimpleNamespace(headers={"authorization": f"Bearer {raw_token}"})
+
+    first_search = find_inventory(
+        "screw",
+        ctx,
+        category="hardware",
+        location_key="drawer",
+        include_descendants=True,
+        limit=2,
+    )
+    second_search = find_inventory(
+        "screw",
+        ctx,
+        category="hardware",
+        location_key="drawer",
+        include_descendants=True,
+        limit=2,
+        cursor=first_search["next_cursor"],
+    )
+
+    assert first_search["truncated"] is True
+    assert len(first_search["results"]) == 2
+    assert second_search["truncated"] is False
+    assert len(second_search["results"]) == 1
+    assert {
+        result["item_key"] for result in first_search["results"] + second_search["results"]
+    } == {"screw-0", "screw-1", "screw-2"}
+    assert second_search["next_cursor"] is None
+
+    first_snapshot = get_inventory_snapshot(
+        ctx,
+        location_key="drawer",
+        category="hardware",
+        include_descendants=True,
+        limit=2,
+    )
+    second_snapshot = get_inventory_snapshot(
+        ctx,
+        location_key="drawer",
+        category="hardware",
+        include_descendants=True,
+        limit=2,
+        cursor=first_snapshot["next_cursor"],
+    )
+
+    assert first_snapshot["truncated"] is True
+    assert len(first_snapshot["locations"]) == 2
+    assert len(first_snapshot["items"]) == 2
+    assert len(first_snapshot["holdings"]) == 2
+    assert second_snapshot["truncated"] is False
+    assert len(second_snapshot["locations"]) == 2
+    assert len(second_snapshot["items"]) == 1
+    assert len(second_snapshot["holdings"]) == 1
+    assert second_snapshot["next_cursor"] is None
+
+    with pytest.raises(ToolError, match="Invalid or expired cursor"):
+        find_inventory("screw", ctx, cursor="invalid")
+    with patch("inventory.mcp._CURSOR_SIGNER.unsign_object", side_effect=SignatureExpired):
+        with pytest.raises(ToolError, match="Invalid or expired cursor"):
+            find_inventory("screw", ctx, cursor=first_search["next_cursor"])
 
 
 @pytest.mark.django_db(transaction=True)

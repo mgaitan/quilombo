@@ -322,7 +322,7 @@ def _candidate_holdings(queryset, terms, limit):
     )
 
 
-def _postgres_search_holdings(queryset, terms, limit):
+def _postgres_search_holdings(queryset, terms, limit, offset=0):
     """Search and rank holdings in PostgreSQL before Django evaluates the page."""
     fields = (
         ("item_key", "item__key", "A"),
@@ -415,7 +415,7 @@ def _postgres_search_holdings(queryset, terms, limit):
         "item__name",
         "location__name",
         "id",
-    )[:limit]
+    )[offset : offset + limit]
 
 
 def add_search_match_details(holdings, query):
@@ -534,7 +534,7 @@ def location_scope_ids(*, workspace, location_key, include_descendants=True):
 
 
 def search_holdings(
-    *, workspace, query, category="", location="", include_descendants=True, limit=100
+    *, workspace, query, category="", location="", include_descendants=True, limit=100, offset=0
 ):
     holdings_query = Holding.objects.filter(workspace=workspace).select_related(
         "item", "location", "last_observed_by"
@@ -551,12 +551,14 @@ def search_holdings(
         )
     terms = _query_terms(query)
     if not terms:
-        return list(holdings_query.order_by("item__name", "location__name", "id")[:limit])
+        return list(
+            holdings_query.order_by("item__name", "location__name", "id")[offset : offset + limit]
+        )
 
     if connection.vendor == "postgresql":
-        return _postgres_search_holdings(holdings_query, terms, limit)
+        return _postgres_search_holdings(holdings_query, terms, limit, offset)
 
-    candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
+    candidate_limit = min(max((offset + limit) * 20, 1000), SEARCH_MAX_CANDIDATES)
     holdings = _candidate_holdings(holdings_query, terms, candidate_limit)
     if not holdings:
         # A database-side substring search cannot remove accents without the optional
@@ -588,7 +590,7 @@ def search_holdings(
             str(holding.id),
         )
     )
-    results = ranked[:limit]
+    results = ranked[offset : offset + limit]
     return add_search_match_details(results, query)
 
 
