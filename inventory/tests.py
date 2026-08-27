@@ -1745,6 +1745,19 @@ def test_item_update_history_links_item_in_same_workspace(client, users, workspa
     assert other_item.name not in content
 
 
+def test_search_cursor_keeps_sqlite_candidate_window_stable(users, workspaces):
+    from inventory import services
+
+    with (
+        patch.object(services.connection, "vendor", "sqlite"),
+        patch.object(services, "_candidate_holdings", return_value=[]) as candidates,
+    ):
+        services.search_holdings(workspace=workspaces[0], query="screw", limit=2, offset=0)
+        services.search_holdings(workspace=workspaces[0], query="screw", limit=2, offset=2)
+
+    assert [call.args[2] for call in candidates.call_args_list] == [5000, 5000]
+
+
 @pytest.mark.django_db
 def test_admin_dashboard_hides_models_without_view_permission(client):
     staff_user = get_user_model().objects.create_user(username="limited-staff", is_staff=True)
@@ -3356,6 +3369,18 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     Holding.objects.create(
         workspace=workspace, item=item, location=location, quantity=Decimal("12")
     )
+    outside_location = Location.objects.create(
+        workspace=workspace, key="outside-room", name="Outside room"
+    )
+    outside_item = Item.objects.create(
+        workspace=workspace,
+        key="outside-match",
+        name="Outside tornillos madera",
+        aliases=["tornillos madera"],
+    )
+    Holding.objects.create(
+        workspace=workspace, item=outside_item, location=outside_location, quantity=Decimal("4")
+    )
     neighbor = Item.objects.create(
         workspace=workspace,
         key="wall-plugs",
@@ -3417,7 +3442,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                             "query": "tornillos madera",
                             "location_key": "workshop",
                             "include_descendants": True,
-                            "limit": 1,
+                            "limit": 10,
                         },
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
@@ -3550,6 +3575,10 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert write_result.is_error is True
     assert "read-only" in write_result.content[0].text
     assert result.is_error is False
+    assert {row["item_key"] for row in result.structured_content["results"]} == {item.key}
+    assert all(
+        row["location_key"] != outside_location.key for row in result.structured_content["results"]
+    )
     first_result = result.structured_content["results"][0]
     assert first_result["location_key"] == "drawer-1-a"
     assert result.structured_content["truncated"] is False

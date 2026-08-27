@@ -39,10 +39,11 @@ The mutation tools write immediately. Drafts, human confirmation, and interpreta
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
 
-Read tools return `truncated` and an opaque `next_cursor` when another page is available. Snapshot
-responses also return `truncated_collections` for each collection. Pass `next_cursor` back to the
-same tool without changing its filters or limit. Cursors are workspace-scoped, signed, and expire
-after 15 minutes; invalid or expired cursors return a tool error.
+The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
+`next_cursor` when another page is available. Snapshot responses also return
+`truncated_collections` for each collection. Pass `next_cursor` back to the same tool without
+changing its filters or limit. Cursors are workspace-scoped, signed, and expire after 15 minutes;
+invalid or expired cursors return a tool error.
 
 The server publishes one read-only resource:
 

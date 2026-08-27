@@ -524,7 +524,10 @@ def event_history(request, workspace_slug):
     workspace = membership.workspace
     events = workspace.inventory_events.select_related("actor").order_by("-created_at", "-id")
     page_obj = Paginator(events, 25).get_page(request.GET.get("page"))
-    latest_id = events.values_list("id", flat=True).first()
+    latest_id = None
+    if page_obj.number == 1:
+        first_event = next(iter(page_obj), None)
+        latest_id = first_event.id if first_event else None
     item_ids = set()
     for event in page_obj:
         if event.kind != InventoryEvent.Kind.ITEM_UPDATE:
