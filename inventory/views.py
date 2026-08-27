@@ -482,6 +482,15 @@ def workspace_inventory(request, workspace_slug):
     stock_status = get_stock_status(workspace=workspace)
     locations = list(workspace.locations.only("id", "parent_id", "key", "name"))
     location_paths = _location_paths(locations)
+    category_options = []
+    seen_categories = set()
+    for option in (
+        workspace.items.exclude(category="").values_list("category", flat=True).order_by("category")
+    ):
+        normalized = option.casefold()
+        if normalized not in seen_categories:
+            seen_categories.add(normalized)
+            category_options.append(option)
     for holding in page_obj:
         holding.location_path = location_paths.get(holding.location_id, holding.location.name)
     return render(
@@ -496,10 +505,7 @@ def workspace_inventory(request, workspace_slug):
             "location_options": _location_tree_options(locations),
             "query": query,
             "category": category,
-            "category_options": workspace.items.exclude(category="")
-            .values_list("category", flat=True)
-            .distinct()
-            .order_by("category"),
+            "category_options": category_options,
             "location_key": location_key,
             "stock_status": stock_status,
             "can_manage": user_can_manage_workspace(request.user, workspace),

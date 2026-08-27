@@ -2209,6 +2209,26 @@ def test_human_category_filter_preserves_pagination_and_workspace_scope(client, 
 
 
 @pytest.mark.django_db
+def test_human_category_options_are_case_insensitive_unique(client, users, workspaces):
+    workshop, _ = workspaces
+    location = Location.objects.create(workspace=workshop, key="drawer", name="Drawer")
+    for index, category in enumerate(("Books", "books", "TOOLS")):
+        item = Item.objects.create(
+            workspace=workshop,
+            key=f"category-{index}",
+            name=f"Category item {index}",
+            category=category,
+        )
+        Holding.objects.create(workspace=workshop, item=item, location=location, quantity=1)
+    client.force_login(users[0])
+
+    response = client.get("/app/workshop/")
+
+    assert response.status_code == 200
+    assert response.context["category_options"] == ["Books", "TOOLS"]
+
+
+@pytest.mark.django_db
 def test_human_location_filter_renders_depth_first_tree(client, users, workspaces):
     workshop, library = workspaces
     bookcase = Location.objects.create(
