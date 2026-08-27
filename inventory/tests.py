@@ -2777,6 +2777,85 @@ def test_public_web_footer_shows_runtime_version(client):
 
 
 @pytest.mark.django_db
+def test_web_item_edit_records_event_and_item_detail_shows_latest_edit(client, users, workspaces):
+    workspace, other_workspace = workspaces
+    item = Item.objects.create(workspace=workspace, key="drill", name="Old drill")
+    client.force_login(users[0])
+
+    response = client.post(
+        f"/app/workshop/items/{item.id}/edit/",
+        {
+            "key": item.key,
+            "name": "Updated drill",
+            "description": "",
+            "category": "",
+            "aliases": "",
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": item.unit,
+            "minimum_quantity": "",
+            "target_quantity": "",
+        },
+    )
+    InventoryEvent.objects.create(
+        workspace=other_workspace,
+        actor=users[1],
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        source_kind=InventoryEvent.SourceKind.AGENT,
+        summary={"item_id": str(item.id), "item_key": item.key, "item_fields": ["name"]},
+    )
+
+    event = workspace.inventory_events.get(kind=InventoryEvent.Kind.ITEM_UPDATE)
+    detail = client.get(f"/app/workshop/items/{item.id}/")
+    content = detail.content.decode()
+
+    assert response.status_code == 302
+    assert response.url == f"/app/workshop/items/{item.id}/"
+    assert event.actor == users[0]
+    assert event.source_kind == InventoryEvent.SourceKind.MANUAL
+    assert event.summary == {
+        "item_id": str(item.id),
+        "item_key": item.key,
+        "item_fields": ["name"],
+    }
+    assert "Actualización de objeto" in content
+    assert "Responsable: one" in content
+    assert "Origen: Manual" in content
+    assert "Campos: name" in content
+    assert "two" not in content
+
+
+@pytest.mark.django_db
+def test_item_detail_without_edits_hides_latest_edit(client, users, workspaces):
+    workspace, _ = workspaces
+    item = Item.objects.create(workspace=workspace, key="drill", name="A drill")
+    client.force_login(users[0])
+
+    content = client.get(f"/app/workshop/items/{item.id}/").content.decode()
+
+    assert "Actualización de objeto" not in content
+
+
+@pytest.mark.django_db
+def test_item_detail_shows_latest_agent_edit(client, users, workspaces):
+    workspace, _ = workspaces
+    item = Item.objects.create(workspace=workspace, key="drill", name="A drill")
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        actor=users[0],
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        source_kind=InventoryEvent.SourceKind.AGENT,
+        summary={"item_id": str(item.id), "item_key": item.key, "item_fields": ["category"]},
+    )
+    client.force_login(users[0])
+
+    content = client.get(f"/app/workshop/items/{item.id}/").content.decode()
+
+    assert "Actualización de objeto" in content
+    assert "Origen: Agente" in content
+    assert "Campos: category" in content
+
+
+@pytest.mark.django_db
 def test_move_inventory_is_atomic_and_idempotent(users, workspaces):
     workspace, _ = workspaces
     source = Location.objects.create(workspace=workspace, key="drawer-1", name="Drawer 1")

@@ -143,9 +143,10 @@ def create_item_with_holding(*, workspace, item_data, holding_data):
 
 
 @transaction.atomic
-def update_item(*, workspace, item, data):
+def update_item(*, workspace, item, data, actor):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
+    changed_fields = sorted(field for field, value in data.items() if getattr(item, field) != value)
     if data.get("tracking_mode", item.tracking_mode) == Item.TrackingMode.DISCRETE:
         quantities = (
             Holding.objects.select_for_update()
@@ -160,6 +161,17 @@ def update_item(*, workspace, item, data):
         setattr(item, field, value)
     item.full_clean()
     item.save()
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        actor=actor,
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        source_kind=InventoryEvent.SourceKind.MANUAL,
+        summary={
+            "item_id": str(item.id),
+            "item_key": item.key,
+            "item_fields": changed_fields,
+        },
+    )
     return item
 
 

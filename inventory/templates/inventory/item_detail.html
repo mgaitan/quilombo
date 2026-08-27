@@ -30,6 +30,17 @@
     <div><dt>{% translate "Tracking mode" %}</dt><dd>{{ item.get_tracking_mode_display }}</dd></div>
     {% if item.aliases %}<div><dt>{% translate "Aliases" %}</dt><dd>{{ item.aliases|join:", " }}</dd></div>{% endif %}
   </dl>
+  {% if latest_item_edit %}
+    <section class="item-last-edit">
+      <h2>{{ latest_item_edit.get_kind_display }}</h2>
+      <p class="row-detail">
+        {% translate "Recorded" %}: {{ latest_item_edit.created_at|date:"SHORT_DATETIME_FORMAT" }}
+        · {% translate "Actor" %}: {{ latest_item_edit.actor.get_username|default:"—" }}
+        · {% translate "Source" %}: {{ latest_item_edit.get_source_kind_display }}
+      </p>
+      {% if latest_item_edit.summary.item_fields %}<p class="row-detail">{% blocktranslate with fields=latest_item_edit.summary.item_fields|join:", " %}Fields: {{ fields }}{% endblocktranslate %}</p>{% endif %}
+    </section>
+  {% endif %}
 
   <div class="page-heading section-heading">
     <div><h2>{% translate "Holdings" %}</h2></div>

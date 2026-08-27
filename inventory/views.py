@@ -656,6 +656,15 @@ def item_detail(request, workspace_slug, item_id):
     location_paths = _location_paths(workspace.locations.only("id", "parent_id", "name"))
     for holding in holdings:
         holding.location_path = location_paths.get(holding.location_id, holding.location.name)
+    latest_item_edit = (
+        workspace.inventory_events.select_related("actor")
+        .filter(
+            kind=InventoryEvent.Kind.ITEM_UPDATE,
+            summary__item_id=str(item.id),
+        )
+        .order_by("-created_at", "-id")
+        .first()
+    )
     return render(
         request,
         "inventory/item_detail.html",
@@ -663,6 +672,7 @@ def item_detail(request, workspace_slug, item_id):
             "workspace": workspace,
             "item": item,
             "holdings": holdings,
+            "latest_item_edit": latest_item_edit,
             "can_write": membership_can_write(membership),
         },
     )
@@ -675,7 +685,12 @@ def item_edit(request, workspace_slug, item_id):
     item = get_object_or_404(Item, workspace=workspace, id=item_id)
     form = ItemForm(request.POST or None, instance=item, workspace=workspace)
     if request.method == "POST" and form.is_valid():
-        item = update_item(workspace=workspace, item=item, data=form.cleaned_data)
+        item = update_item(
+            workspace=workspace,
+            item=item,
+            data=form.cleaned_data,
+            actor=request.user,
+        )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
         request,
