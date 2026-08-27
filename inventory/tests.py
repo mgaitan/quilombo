@@ -1752,10 +1752,10 @@ def test_search_cursor_keeps_sqlite_candidate_window_stable(users, workspaces):
         patch.object(services.connection, "vendor", "sqlite"),
         patch.object(services, "_candidate_holdings", return_value=[]) as candidates,
     ):
-        services.search_holdings(workspace=workspaces[0], query="screw", limit=101, offset=0)
-        services.search_holdings(workspace=workspaces[0], query="screw", limit=101, offset=101)
+        services.search_holdings(workspace=workspaces[0], query="screw", limit=2, offset=0)
+        services.search_holdings(workspace=workspaces[0], query="screw", limit=2, offset=2)
 
-    assert [call.args[2] for call in candidates.call_args_list] == [2020, 2020]
+    assert [call.args[2] for call in candidates.call_args_list] == [5000, 5000]
 
 
 @pytest.mark.django_db

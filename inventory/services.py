@@ -558,7 +558,7 @@ def search_holdings(
     if connection.vendor == "postgresql":
         return _postgres_search_holdings(holdings_query, terms, limit, offset)
 
-    candidate_limit = min(max(limit * 20, 1000), SEARCH_MAX_CANDIDATES)
+    candidate_limit = SEARCH_MAX_CANDIDATES
     holdings = _candidate_holdings(holdings_query, terms, candidate_limit)
     if not holdings:
         # A database-side substring search cannot remove accents without the optional
