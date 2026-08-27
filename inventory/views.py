@@ -447,11 +447,13 @@ def workspace_inventory(request, workspace_slug):
     membership = _workspace_membership(request.user, workspace_slug)
     workspace = membership.workspace
     query = request.GET.get("q", "").strip()
+    category = request.GET.get("category", "").strip()
     location_key = request.GET.get("location", "").strip()
     if query:
         matching_holdings = search_holdings(
             workspace=workspace,
             query=query,
+            category=category,
             location=location_key,
             limit=1001,
         )
@@ -475,6 +477,8 @@ def workspace_inventory(request, workspace_slug):
                     include_descendants=True,
                 )
             )
+        if category:
+            matching_holdings = matching_holdings.filter(item__category__iexact=category)
         page_obj = Paginator(matching_holdings, 25).get_page(request.GET.get("page"))
         truncated = False
     preserved_query = request.GET.copy()
@@ -482,6 +486,15 @@ def workspace_inventory(request, workspace_slug):
     stock_status = get_stock_status(workspace=workspace)
     locations = list(workspace.locations.only("id", "parent_id", "key", "name"))
     location_paths = _location_paths(locations)
+    category_options = []
+    seen_categories = set()
+    for option in (
+        workspace.items.exclude(category="").values_list("category", flat=True).order_by("category")
+    ):
+        normalized = option.casefold()
+        if normalized not in seen_categories:
+            seen_categories.add(normalized)
+            category_options.append(normalized)
     for holding in page_obj:
         holding.location_path = location_paths.get(holding.location_id, holding.location.name)
     return render(
@@ -495,6 +508,8 @@ def workspace_inventory(request, workspace_slug):
             "preserved_query": preserved_query.urlencode(),
             "location_options": _location_tree_options(locations),
             "query": query,
+            "category": category,
+            "category_options": category_options,
             "location_key": location_key,
             "stock_status": stock_status,
             "can_manage": user_can_manage_workspace(request.user, workspace),
