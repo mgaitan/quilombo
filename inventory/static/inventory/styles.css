@@ -167,6 +167,7 @@ p { margin: 0 0 18px; }
   margin-top: 8px;
 }
 
+.carousel-toggle,
 .carousel-dot {
   border: 0;
   color: #555c57;
@@ -174,10 +175,21 @@ p { margin: 0 0 18px; }
   cursor: pointer;
 }
 
+.carousel-toggle {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  font: 11px/1 system-ui, sans-serif;
+}
+
 .carousel-dots { display: flex; align-items: center; gap: 7px; padding: 0 3px; }
 .carousel-dot { width: 7px; height: 7px; border-radius: 50%; padding: 0; background: #c8ccc9; }
 .carousel-dot.is-active { background: #343936; }
 .carousel-dot:hover { background: #343936; }
+.carousel-toggle:hover { color: #111; }
+.carousel-toggle:focus-visible,
 .carousel-dot:focus-visible { outline: 2px solid #785b42; outline-offset: 2px; }
 
 .actions {

@@ -89,6 +89,7 @@
           <button class="carousel-dot" type="button" data-carousel-index="1" aria-label="{% translate 'Show library' %}"></button>
           <button class="carousel-dot" type="button" data-carousel-index="2" aria-label="{% translate 'Show moving day' %}"></button>
         </div>
+        <button class="carousel-toggle" type="button" data-carousel-toggle aria-label="{% translate 'Pause illustrations' %}" title="{% translate 'Pause illustrations' %}" aria-pressed="false"><span aria-hidden="true">&#10074;&#10074;</span></button>
       </div>
     </div>
   </section>
@@ -147,7 +148,12 @@
 
       const slides = [...carousel.querySelectorAll("[data-carousel-slide]")];
       const dots = [...carousel.querySelectorAll("[data-carousel-index]")];
+      const toggle = carousel.querySelector("[data-carousel-toggle]");
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const labels = {
+        pause: "{% translate 'Pause illustrations' %}",
+        play: "{% translate 'Play illustrations' %}",
+      };
       let current = 0;
       let paused = reducedMotion.matches;
       let timer;
@@ -169,9 +175,19 @@
         if (!paused) timer = window.setInterval(() => render(current + 1), 5500);
       };
 
-      dots.forEach((dot, index) => dot.addEventListener("click", () => { render(index); schedule(); }));
-      reducedMotion.addEventListener("change", (event) => { paused = event.matches; schedule(); });
+      const renderToggle = () => {
+        const label = paused ? labels.play : labels.pause;
+        toggle.setAttribute("aria-label", label);
+        toggle.setAttribute("title", label);
+        toggle.setAttribute("aria-pressed", String(paused));
+        toggle.firstElementChild.textContent = paused ? "\u25B6" : "\u275A\u275A";
+      };
 
+      dots.forEach((dot, index) => dot.addEventListener("click", () => { render(index); schedule(); }));
+      toggle.addEventListener("click", () => { paused = !paused; renderToggle(); schedule(); });
+      reducedMotion.addEventListener("change", (event) => { paused = event.matches; renderToggle(); schedule(); });
+
+      renderToggle();
       schedule();
     })();
   </script>
