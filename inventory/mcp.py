@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.conf import settings
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db.models import Q
 from django.db.models.query import QuerySet
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
@@ -44,6 +45,8 @@ from .services import (
 )
 
 oauth_provider = QuilomboOAuthProvider()
+_CURSOR_MAX_AGE = 15 * 60
+_CURSOR_SIGNER = TimestampSigner(salt="quilombo-mcp-cursor")
 
 INVENTORY_POLICY = """# Quilombo inventory policy
 
@@ -159,6 +162,42 @@ def _with_mcp_provenance(data: dict[str, Any], ctx: Context) -> dict[str, Any]:
     return enriched
 
 
+def _encode_cursor(*, tool, workspace, filters, positions):
+    return _CURSOR_SIGNER.sign_object(
+        {
+            "version": 1,
+            "tool": tool,
+            "workspace": workspace.slug,
+            "filters": filters,
+            "positions": positions,
+        }
+    )
+
+
+def _decode_cursor(*, cursor, tool, workspace, filters, collections):
+    if not cursor:
+        return {collection: 0 for collection in collections}
+    try:
+        payload = _CURSOR_SIGNER.unsign_object(cursor, max_age=_CURSOR_MAX_AGE)
+    except (BadSignature, SignatureExpired, ValueError, TypeError) as error:
+        raise ToolError("Invalid or expired cursor.") from error
+    if not isinstance(payload, dict):
+        raise ToolError("Invalid or expired cursor.")
+    if (
+        payload.get("version") != 1
+        or payload.get("tool") != tool
+        or payload.get("workspace") != workspace.slug
+        or payload.get("filters") != filters
+    ):
+        raise ToolError("Invalid or expired cursor.")
+    positions = payload.get("positions")
+    if not isinstance(positions, dict) or set(positions) != set(collections):
+        raise ToolError("Invalid or expired cursor.")
+    if any(not isinstance(position, int) or position < 0 for position in positions.values()):
+        raise ToolError("Invalid or expired cursor.")
+    return positions
+
+
 def _serialize_holding(holding, clue_context=None):
     clue_context = clue_context or {}
     serialized = {
@@ -200,7 +239,9 @@ def _serialize_holding(holding, clue_context=None):
         "attribute, and location matching. Results are ranked and explain matched and unmatched "
         "terms. Use this before telling a user where something is. Treat no match as not recorded, "
         "not proof that the item does not exist. Report relevant freshness and use nearby_items "
-        "only for identification or one opportunistic check at the exact location."
+        "only for identification or one opportunistic check at the exact location. Use the "
+        "returned "
+        "next_cursor to continue a truncated result set without changing the filters."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -212,11 +253,26 @@ def find_inventory(
     location_key: str = "",
     include_descendants: bool = True,
     limit: int = 100,
+    cursor: str = "",
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
     if not query.strip():
         raise ToolError("Query cannot be empty.")
     bounded_limit = min(max(limit, 1), 500)
+    filters = {
+        "query": query,
+        "category": category,
+        "location_key": location_key,
+        "include_descendants": include_descendants,
+        "limit": bounded_limit,
+    }
+    positions = _decode_cursor(
+        cursor=cursor,
+        tool="find_inventory",
+        workspace=token.workspace,
+        filters=filters,
+        collections=("results",),
+    )
     results = search_holdings(
         workspace=token.workspace,
         query=query,
@@ -224,17 +280,27 @@ def find_inventory(
         location=location_key,
         include_descendants=include_descendants,
         limit=bounded_limit + 1,
+        offset=positions["results"],
     )
     result_count = results.count() if isinstance(results, QuerySet) else len(results)
     truncated = result_count > bounded_limit
     results = results[:bounded_limit]
     add_search_match_details(results, query)
+    next_cursor = None
+    if truncated:
+        next_cursor = _encode_cursor(
+            tool="find_inventory",
+            workspace=token.workspace,
+            filters=filters,
+            positions={"results": positions["results"] + bounded_limit},
+        )
     clue_context = build_holding_clue_context(workspace=token.workspace, holdings=results)
     return {
         "workspace": token.workspace.slug,
         "query": query,
         "count": min(result_count, bounded_limit),
         "truncated": truncated,
+        "next_cursor": next_cursor,
         "results": [_serialize_holding(holding, clue_context) for holding in results],
     }
 
@@ -277,7 +343,9 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
     description=(
         "Read locations, relative spatial relations, and holdings together. Use this when the user "
         "asks for an overview, agrees to a broader location audit, or needs reorganization advice. "
-        "Freshness describes records, not guaranteed physical presence."
+        "Freshness describes records, not guaranteed physical presence. Use the returned "
+        "next_cursor "
+        "to continue a truncated collection set without changing the filters."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -288,18 +356,39 @@ def get_inventory_snapshot(
     category: str = "",
     include_descendants: bool = True,
     limit: int = 500,
+    cursor: str = "",
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
     workspace = token.workspace
-    locations = Location.objects.filter(workspace=workspace).select_related(
-        "parent", "last_observed_by"
+    bounded_limit = min(max(limit, 1), 2000)
+    filters = {
+        "location_key": location_key,
+        "category": category,
+        "include_descendants": include_descendants,
+        "limit": bounded_limit,
+    }
+    positions = _decode_cursor(
+        cursor=cursor,
+        tool="get_inventory_snapshot",
+        workspace=workspace,
+        filters=filters,
+        collections=("locations", "items", "holdings", "location_relations"),
     )
-    items = Item.objects.filter(workspace=workspace)
-    holdings = Holding.objects.filter(workspace=workspace).select_related(
-        "item", "location", "last_observed_by"
+    locations = (
+        Location.objects.filter(workspace=workspace)
+        .select_related("parent", "last_observed_by")
+        .order_by("key", "id")
     )
-    relations = LocationRelation.objects.filter(workspace=workspace).select_related(
-        "subject", "object"
+    items = Item.objects.filter(workspace=workspace).order_by("key", "id")
+    holdings = (
+        Holding.objects.filter(workspace=workspace)
+        .select_related("item", "location", "last_observed_by")
+        .order_by("item__key", "location__key", "id")
+    )
+    relations = (
+        LocationRelation.objects.filter(workspace=workspace)
+        .select_related("subject", "object")
+        .order_by("subject__key", "relation", "object__key", "id")
     )
     if location_key:
         scope_ids = location_scope_ids(
@@ -314,21 +403,31 @@ def get_inventory_snapshot(
     if category:
         items = items.filter(category__iexact=category)
         holdings = holdings.filter(item__category__iexact=category)
-    bounded_limit = min(max(limit, 1), 2000)
-    location_rows = list(locations[: bounded_limit + 1])
-    item_rows = list(items[: bounded_limit + 1])
-    holding_rows = list(holdings[: bounded_limit + 1])
-    relation_rows = list(relations[: bounded_limit + 1])
+
+    def page(queryset, collection):
+        rows = list(queryset[positions[collection] : positions[collection] + bounded_limit + 1])
+        return rows[:bounded_limit], len(rows) > bounded_limit
+
+    location_rows, locations_truncated = page(locations, "locations")
+    item_rows, items_truncated = page(items, "items")
+    holding_rows, holdings_truncated = page(holdings, "holdings")
+    relation_rows, relations_truncated = page(relations, "location_relations")
     truncated = {
-        "locations": len(location_rows) > bounded_limit,
-        "items": len(item_rows) > bounded_limit,
-        "holdings": len(holding_rows) > bounded_limit,
-        "location_relations": len(relation_rows) > bounded_limit,
+        "locations": locations_truncated,
+        "items": items_truncated,
+        "holdings": holdings_truncated,
+        "location_relations": relations_truncated,
     }
-    location_rows = location_rows[:bounded_limit]
-    item_rows = item_rows[:bounded_limit]
-    holding_rows = holding_rows[:bounded_limit]
-    relation_rows = relation_rows[:bounded_limit]
+    next_cursor = None
+    if any(truncated.values()):
+        next_cursor = _encode_cursor(
+            tool="get_inventory_snapshot",
+            workspace=workspace,
+            filters=filters,
+            positions={
+                collection: positions[collection] + bounded_limit for collection in positions
+            },
+        )
     clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
     return {
         "workspace": workspace.slug,
@@ -379,6 +478,7 @@ def get_inventory_snapshot(
         "holdings": [_serialize_holding(holding, clue_context) for holding in holding_rows],
         "truncated": any(truncated.values()),
         "truncated_collections": truncated,
+        "next_cursor": next_cursor,
     }
 
 
