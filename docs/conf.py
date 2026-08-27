@@ -3,7 +3,7 @@
 project = "Quilombo"
 copyright = "2026, Quilombo contributors"
 author = "Quilombo contributors"
-release = "0.4.3"
+release = "0.4.4"
 
 extensions = [
     "myst_parser",
