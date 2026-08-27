@@ -490,7 +490,7 @@ def workspace_inventory(request, workspace_slug):
         normalized = option.casefold()
         if normalized not in seen_categories:
             seen_categories.add(normalized)
-            category_options.append(option)
+            category_options.append(normalized)
     for holding in page_obj:
         holding.location_path = location_paths.get(holding.location_id, holding.location.name)
     return render(

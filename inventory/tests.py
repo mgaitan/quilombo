@@ -2225,7 +2225,7 @@ def test_human_category_options_are_case_insensitive_unique(client, users, works
     response = client.get("/app/workshop/")
 
     assert response.status_code == 200
-    assert response.context["category_options"] == ["Books", "TOOLS"]
+    assert response.context["category_options"] == ["books", "tools"]
 
 
 @pytest.mark.django_db
