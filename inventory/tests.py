@@ -1636,6 +1636,7 @@ def test_admin_list_views_support_operational_search_without_exposing_tokens(cli
 
     item_list = client.get("/admin/inventory/item/", {"q": "fasteners"})
     event_list = client.get("/admin/inventory/inventoryevent/", {"q": "web"})
+    workspace_list = client.get("/admin/inventory/workspace/")
     user_list = client.get("/admin/auth/user/", {"q": "admin-lists@example.com"})
     social_list = client.get("/admin/socialaccount/socialaccount/", {"q": "github-123"})
     token_list = client.get("/admin/inventory/apitoken/", {"q": token.prefix})
@@ -1645,6 +1646,13 @@ def test_admin_list_views_support_operational_search_without_exposing_tokens(cli
     assert "fasteners" in item_list.content.decode()
     assert event_list.status_code == 200
     assert "web" in event_list.content.decode()
+    assert workspace_list.status_code == 200
+    workspace_row = next(
+        row for row in workspace_list.context["cl"].result_list if row.pk == workspace.pk
+    )
+    assert workspace_row.member_count == 1
+    assert workspace_row.item_count == 1
+    assert workspace_row.event_count == 1
     assert user_list.status_code == 200
     assert admin_user.email in user_list.content.decode()
     assert social_list.status_code == 200

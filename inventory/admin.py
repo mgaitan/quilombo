@@ -3,7 +3,8 @@ from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as AuthUserAdmin
-from django.db.models import Count
+from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 
 from .models import (
     AccessEvent,
@@ -83,13 +84,36 @@ class WorkspaceAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
 
     def get_queryset(self, request):
+        member_count = (
+            Membership.objects.filter(workspace_id=OuterRef("pk"))
+            .order_by()
+            .values("workspace_id")
+            .annotate(total=Count("pk"))
+            .values("total")
+        )
+        item_count = (
+            Item.objects.filter(workspace_id=OuterRef("pk"))
+            .order_by()
+            .values("workspace_id")
+            .annotate(total=Count("pk"))
+            .values("total")
+        )
+        event_count = (
+            InventoryEvent.objects.filter(workspace_id=OuterRef("pk"))
+            .order_by()
+            .values("workspace_id")
+            .annotate(total=Count("pk"))
+            .values("total")
+        )
         return (
             super()
             .get_queryset(request)
             .annotate(
-                member_count=Count("members", distinct=True),
-                item_count=Count("items", distinct=True),
-                event_count=Count("inventory_events", distinct=True),
+                member_count=Coalesce(
+                    Subquery(member_count, output_field=IntegerField()), Value(0)
+                ),
+                item_count=Coalesce(Subquery(item_count, output_field=IntegerField()), Value(0)),
+                event_count=Coalesce(Subquery(event_count, output_field=IntegerField()), Value(0)),
             )
         )
 
@@ -264,3 +288,4 @@ class AccessEventAdmin(admin.ModelAdmin):
     list_select_related = ("user",)
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
+    readonly_fields = ("user", "channel", "client_name", "created_at")
