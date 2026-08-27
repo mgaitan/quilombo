@@ -7,6 +7,7 @@ from scripts.validate_plugin_package import (
     OPENAI_APP,
     OPENAI_MANIFEST,
     load_json,
+    validate_mcp_documentation,
     validate_openai_assets,
     validate_openai_contract,
 )
@@ -43,3 +44,7 @@ def test_openai_assets_must_exist_inside_package(field, value):
 
     with pytest.raises(ValueError):
         validate_openai_assets(manifest)
+
+
+def test_mcp_documentation_matches_published_tool_contract():
+    validate_mcp_documentation()

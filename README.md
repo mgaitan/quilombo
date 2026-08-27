@@ -186,7 +186,8 @@ Collection responses use a stable paginated envelope:
 ```
 
 Use `page` and `page_size`; page sizes are capped at 200. Search includes query diagnostics and
-reports when its bounded candidate set was truncated.
+reports when its bounded candidate set was truncated. MCP collection reads use their own opaque
+`next_cursor` continuation contract; see [MCP integration](docs/mcp.md).
 
 Workspace transfer is available through `GET /api/workspaces/{slug}/export/?format=json|csv` and
 `POST /api/workspaces/{slug}/import/`. Imports preserve stable record UUIDs, support a non-mutating

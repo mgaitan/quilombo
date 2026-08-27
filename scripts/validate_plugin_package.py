@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,6 +17,18 @@ PORTABLE_MANIFEST = ROOT / "plugin.json"
 PORTABLE_MCP = ROOT / "mcp.json"
 OPENAI_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 OPENAI_APP = ROOT / ".app.json"
+PUBLISHED_MCP_TOOLS = {
+    "audit_inventory",
+    "bulk_upsert_inventory",
+    "delete_inventory_item",
+    "find_inventory",
+    "get_inventory_snapshot",
+    "get_inventory_status",
+    "lookup_book_by_isbn",
+    "move_inventory",
+    "update_inventory_item",
+}
+MCP_DOCUMENTATION = (ROOT / "README.md", ROOT / "docs" / "mcp.md")
 SEMVER_PATTERN = (
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
@@ -178,6 +191,25 @@ def validate_openai_assets(manifest: dict) -> None:
         require_file(screenshot)
 
 
+def validate_mcp_documentation() -> None:
+    for path in MCP_DOCUMENTATION:
+        document = path.read_text(encoding="utf-8")
+        documented = {
+            name
+            for name in re.findall(r"^\| `([^`]+)` \|", document, flags=re.MULTILINE)
+            if "://" not in name
+        }
+        if documented != PUBLISHED_MCP_TOOLS:
+            missing = sorted(PUBLISHED_MCP_TOOLS - documented)
+            extra = sorted(documented - PUBLISHED_MCP_TOOLS)
+            raise ValueError(
+                f"{path.relative_to(ROOT)} MCP tools are out of sync; "
+                f"missing={missing}, extra={extra}"
+            )
+        if "https://quilombo.life/mcp" not in document:
+            raise ValueError(f"{path.relative_to(ROOT)} must document the hosted MCP endpoint")
+
+
 def main() -> None:
     portable = load_json(PORTABLE_MANIFEST)
     portable_mcp = load_json(PORTABLE_MCP)
@@ -189,6 +221,7 @@ def main() -> None:
     validate_published_schema(portable)
     validate_published_schema(portable_mcp)
     validate_openai_contract(openai, app)
+    validate_mcp_documentation()
     if portable["$schema"].rsplit("/", 1)[0] != portable_mcp["$schema"].rsplit("/", 1)[0]:
         raise ValueError("portable manifest and MCP config target different spec versions")
 
