@@ -47,6 +47,8 @@ from .services import (
 oauth_provider = QuilomboOAuthProvider()
 _CURSOR_MAX_AGE = 15 * 60
 _CURSOR_SIGNER = TimestampSigner(salt="quilombo-mcp-cursor")
+_SNAPSHOT_DEFAULT_LIMIT = 100
+_SNAPSHOT_MAX_LIMIT = 500
 
 INVENTORY_POLICY = """# Quilombo inventory policy
 
@@ -343,9 +345,9 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
     description=(
         "Read locations, relative spatial relations, and holdings together. Use this when the user "
         "asks for an overview, agrees to a broader location audit, or needs reorganization advice. "
-        "Freshness describes records, not guaranteed physical presence. Use the returned "
-        "next_cursor "
-        "to continue a truncated collection set without changing the filters."
+        "For broad inventories, provide a location_key or category. Freshness describes records, "
+        "not guaranteed physical presence. Use the returned next_cursor to continue a truncated "
+        "collection set without changing the filters."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -355,12 +357,12 @@ def get_inventory_snapshot(
     location_key: str = "",
     category: str = "",
     include_descendants: bool = True,
-    limit: int = 500,
+    limit: int = _SNAPSHOT_DEFAULT_LIMIT,
     cursor: str = "",
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
     workspace = token.workspace
-    bounded_limit = min(max(limit, 1), 2000)
+    bounded_limit = min(max(limit, 1), _SNAPSHOT_MAX_LIMIT)
     filters = {
         "location_key": location_key,
         "category": category,
@@ -431,6 +433,7 @@ def get_inventory_snapshot(
     clue_context = build_holding_clue_context(workspace=workspace, holdings=holding_rows)
     return {
         "workspace": workspace.slug,
+        "limit": bounded_limit,
         "locations": [
             {
                 "id": str(location.id),
