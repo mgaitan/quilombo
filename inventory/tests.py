@@ -3412,7 +3412,13 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     resources = await mcp_client.list_resources()
                     policy = await mcp_client.read_resource("quilombo://guides/inventory-policy")
                     result = await mcp_client.call_tool(
-                        "find_inventory", {"query": "tornillos madera", "limit": 1}
+                        "find_inventory",
+                        {
+                            "query": "tornillos madera",
+                            "location_key": "workshop",
+                            "include_descendants": True,
+                            "limit": 1,
+                        },
                     )
                     status_result = await mcp_client.call_tool("get_inventory_status", {})
                     snapshot_result = await mcp_client.call_tool("get_inventory_snapshot", {})
@@ -3499,6 +3505,22 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert [str(resource.uri) for resource in resources.resources] == [
         "quilombo://guides/inventory-policy"
     ]
+    tools_by_name = {tool.name: tool for tool in tools.tools}
+    assert all(tool.input_schema["type"] == "object" for tool in tools_by_name.values())
+    assert tools_by_name["find_inventory"].input_schema["required"] == ["query"]
+    assert tools_by_name["find_inventory"].input_schema["properties"]["cursor"] == {
+        "default": "",
+        "title": "Cursor",
+        "type": "string",
+    }
+    assert tools_by_name["get_inventory_snapshot"].input_schema["properties"]["limit"] == {
+        "default": 100,
+        "title": "Limit",
+        "type": "integer",
+    }
+    assert tools_by_name["find_inventory"].annotations.read_only_hint is True
+    assert tools_by_name["get_inventory_snapshot"].annotations.read_only_hint is True
+    assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
     assert policy.contents[0].mime_type == "text/markdown"
     assert "Search before stating where an item is" in policy.contents[0].text
     assert "loaded a Quilombo-specific skill" in policy.contents[0].text
@@ -3543,6 +3565,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert status_result.is_error is False
     assert status_result.structured_content["items"][0]["recommended_add_quantity"] == "18.000000"
     snapshot = snapshot_result.structured_content
+    assert snapshot["limit"] == 100
     assert next(row for row in snapshot["locations"] if row["key"] == "empty-shelf")["id"] == str(
         empty_location.id
     )
