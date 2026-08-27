@@ -84,14 +84,11 @@
         </figure>
       </div>
       <div class="carousel-controls">
-        <button class="carousel-arrow" type="button" data-carousel-prev aria-label="{% translate 'Previous illustration' %}" title="{% translate 'Previous illustration' %}">&larr;</button>
         <div class="carousel-dots" role="group" aria-label="{% translate 'Choose illustration' %}">
           <button class="carousel-dot is-active" type="button" data-carousel-index="0" aria-label="{% translate 'Show workshop' %}" aria-current="true"></button>
           <button class="carousel-dot" type="button" data-carousel-index="1" aria-label="{% translate 'Show library' %}"></button>
           <button class="carousel-dot" type="button" data-carousel-index="2" aria-label="{% translate 'Show moving day' %}"></button>
         </div>
-        <button class="carousel-arrow" type="button" data-carousel-next aria-label="{% translate 'Next illustration' %}" title="{% translate 'Next illustration' %}">&rarr;</button>
-        <button class="carousel-toggle" type="button" data-carousel-toggle aria-label="{% translate 'Pause illustrations' %}" title="{% translate 'Pause illustrations' %}" aria-pressed="false"><span aria-hidden="true">&#10074;&#10074;</span></button>
       </div>
     </div>
   </section>
@@ -150,12 +147,7 @@
 
       const slides = [...carousel.querySelectorAll("[data-carousel-slide]")];
       const dots = [...carousel.querySelectorAll("[data-carousel-index]")];
-      const toggle = carousel.querySelector("[data-carousel-toggle]");
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-      const labels = {
-        pause: "{% translate 'Pause illustrations' %}",
-        play: "{% translate 'Play illustrations' %}",
-      };
       let current = 0;
       let paused = reducedMotion.matches;
       let timer;
@@ -177,21 +169,9 @@
         if (!paused) timer = window.setInterval(() => render(current + 1), 5500);
       };
 
-      const renderToggle = () => {
-        const label = paused ? labels.play : labels.pause;
-        toggle.setAttribute("aria-label", label);
-        toggle.setAttribute("title", label);
-        toggle.setAttribute("aria-pressed", String(paused));
-        toggle.firstElementChild.textContent = paused ? "\u25B6" : "\u275A\u275A";
-      };
-
-      carousel.querySelector("[data-carousel-prev]").addEventListener("click", () => { render(current - 1); schedule(); });
-      carousel.querySelector("[data-carousel-next]").addEventListener("click", () => { render(current + 1); schedule(); });
       dots.forEach((dot, index) => dot.addEventListener("click", () => { render(index); schedule(); }));
-      toggle.addEventListener("click", () => { paused = !paused; renderToggle(); schedule(); });
-      reducedMotion.addEventListener("change", (event) => { paused = event.matches; renderToggle(); schedule(); });
+      reducedMotion.addEventListener("change", (event) => { paused = event.matches; schedule(); });
 
-      renderToggle();
       schedule();
     })();
   </script>

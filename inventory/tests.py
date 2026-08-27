@@ -1854,6 +1854,10 @@ def test_public_home_and_connector_guide(client):
     assert "inventory/home/library-es-mobile.webp" in home_response.content.decode()
     assert "inventory/home/moving-es.webp" in home_response.content.decode()
     assert "inventory/home/moving-es-mobile.webp" in home_response.content.decode()
+    assert home_response.content.decode().count('data-carousel-index="') == 3
+    assert "data-carousel-prev" not in home_response.content.decode()
+    assert "data-carousel-next" not in home_response.content.decode()
+    assert "data-carousel-toggle" not in home_response.content.decode()
     assert '<meta name="twitter:card" content="summary_large_image">' in (
         home_response.content.decode()
     )
