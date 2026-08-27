@@ -1605,6 +1605,66 @@ def test_admin_dashboard_shows_recent_users_items_and_locations(client):
 
 
 @pytest.mark.django_db
+def test_admin_list_views_support_operational_search_without_exposing_tokens(client):
+    from allauth.socialaccount.models import SocialAccount, SocialToken
+    from django.contrib import admin
+
+    admin_user = get_user_model().objects.create_superuser(
+        username="admin-lists", email="admin-lists@example.com", password="password"
+    )
+    workspace = Workspace.objects.create(name="Workshop", slug="admin-lists-workshop")
+    Membership.objects.create(workspace=workspace, user=admin_user, role=Membership.Role.OWNER)
+    location = Location.objects.create(workspace=workspace, key="drawer", name="Tool drawer")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="fix-35",
+        name="FIX screws",
+        category="fasteners",
+    )
+    Holding.objects.create(workspace=workspace, item=item, location=location, quantity=12)
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        actor=admin_user,
+        kind=InventoryEvent.Kind.ITEM_UPDATE,
+        source_kind=InventoryEvent.SourceKind.MANUAL,
+        client_actor="web",
+        summary={"item_id": str(item.id), "item_key": item.key, "item_fields": ["name"]},
+    )
+    token, raw_token = ApiToken.issue(workspace=workspace, user=admin_user, name="Agent token")
+    SocialAccount.objects.create(user=admin_user, provider="github", uid="github-123")
+    client.force_login(admin_user)
+
+    item_list = client.get("/admin/inventory/item/", {"q": "fasteners"})
+    event_list = client.get("/admin/inventory/inventoryevent/", {"q": "web"})
+    workspace_list = client.get("/admin/inventory/workspace/")
+    user_list = client.get("/admin/auth/user/", {"q": "admin-lists@example.com"})
+    social_list = client.get("/admin/socialaccount/socialaccount/", {"q": "github-123"})
+    token_list = client.get("/admin/inventory/apitoken/", {"q": token.prefix})
+
+    assert item_list.status_code == 200
+    assert item.name in item_list.content.decode()
+    assert "fasteners" in item_list.content.decode()
+    assert event_list.status_code == 200
+    assert "web" in event_list.content.decode()
+    assert workspace_list.status_code == 200
+    workspace_row = next(
+        row for row in workspace_list.context["cl"].result_list if row.pk == workspace.pk
+    )
+    assert workspace_row.member_count == 1
+    assert workspace_row.item_count == 1
+    assert workspace_row.event_count == 1
+    assert user_list.status_code == 200
+    assert admin_user.email in user_list.content.decode()
+    assert social_list.status_code == 200
+    assert "github-123" in social_list.content.decode()
+    assert token_list.status_code == 200
+    assert token.prefix in token_list.content.decode()
+    assert raw_token not in token_list.content.decode()
+    assert token.token_hash not in token_list.content.decode()
+    assert SocialToken not in admin.site._registry
+
+
+@pytest.mark.django_db
 def test_admin_login_uses_quilombo_authentication_and_preserves_next(client):
     from allauth.account.models import EmailAddress
 
