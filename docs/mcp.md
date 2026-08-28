@@ -39,6 +39,11 @@ The mutation tools write immediately. Drafts, human confirmation, and interpreta
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
 
+Tool annotations distinguish corrective writes (`audit_inventory`, `move_inventory`, and
+`update_inventory_item`) from overwriting or destructive writes (`bulk_upsert_inventory` and
+`delete_inventory_item`). Every mutation is marked idempotent: retrying the same payload replays
+the original event, while reusing its key with a different payload returns a `conflict` error.
+
 The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
 `next_cursor` when another page is available. Snapshot responses also return
 `truncated_collections` for each collection. Pass `next_cursor` back to the same tool without

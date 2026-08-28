@@ -202,7 +202,13 @@ server = QuilomboMCPServer(
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 EXTERNAL_READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True)
-IDEMPOTENT_WRITE = ToolAnnotations(
+CORRECTIVE_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+DESTRUCTIVE_WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=True,
     idempotentHint=True,
@@ -593,7 +599,7 @@ def get_inventory_snapshot(
         "holding. Holdings omitted from the request are not changed. Draft corrections before "
         "calling; do not use routine searches as a reason to audit unrelated or recent facts."
     ),
-    annotations=IDEMPOTENT_WRITE,
+    annotations=CORRECTIVE_WRITE,
     structured_output=True,
 )
 def audit_inventory(
@@ -637,7 +643,7 @@ def audit_inventory(
         "rather than adding deltas. Call only after the client has shown and confirmed the exact "
         "draft; this writes immediately."
     ),
-    annotations=IDEMPOTENT_WRITE,
+    annotations=DESTRUCTIVE_WRITE,
     structured_output=True,
 )
 def bulk_upsert_inventory(
@@ -681,7 +687,7 @@ def bulk_upsert_inventory(
         "Move a quantity of one item between two known locations atomically. Use only after the "
         "client has applied its confirmation policy. This writes immediately."
     ),
-    annotations=IDEMPOTENT_WRITE,
+    annotations=CORRECTIVE_WRITE,
     structured_output=True,
 )
 def move_inventory(
@@ -732,7 +738,7 @@ def move_inventory(
         "supply only confirmed fields. Holding location_id moves that complete holding; quantity "
         "replaces its current quantity. This writes immediately."
     ),
-    annotations=IDEMPOTENT_WRITE,
+    annotations=CORRECTIVE_WRITE,
     structured_output=True,
 )
 def update_inventory_item(
@@ -774,7 +780,7 @@ def update_inventory_item(
         "Delete a known erroneous or duplicate item and its holdings by stable UUID. Search first "
         "and use only after the client has enough evidence and applies its confirmation policy."
     ),
-    annotations=IDEMPOTENT_WRITE,
+    annotations=DESTRUCTIVE_WRITE,
     structured_output=True,
 )
 def delete_inventory_item(

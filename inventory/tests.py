@@ -3604,12 +3604,32 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert tools_by_name["find_inventory"].annotations.read_only_hint is True
     assert tools_by_name["get_inventory_snapshot"].annotations.read_only_hint is True
     assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
+    assert tools_by_name["lookup_book_by_isbn"].annotations.open_world_hint is True
+    for tool_name in {
+        "find_inventory",
+        "get_inventory_snapshot",
+        "audit_inventory",
+        "bulk_upsert_inventory",
+        "move_inventory",
+        "update_inventory_item",
+        "delete_inventory_item",
+    }:
+        assert tools_by_name[tool_name].annotations.open_world_hint is False
+    for tool_name in {"audit_inventory", "move_inventory", "update_inventory_item"}:
+        annotations = tools_by_name[tool_name].annotations
+        assert annotations.destructive_hint is False
+        assert annotations.idempotent_hint is True
+    for tool_name in {"bulk_upsert_inventory", "delete_inventory_item"}:
+        annotations = tools_by_name[tool_name].annotations
+        assert annotations.destructive_hint is True
+        assert annotations.idempotent_hint is True
     assert policy.contents[0].mime_type == "text/markdown"
     assert "Search before stating where an item is" in policy.contents[0].text
     assert "loaded a Quilombo-specific skill" in policy.contents[0].text
     assert server_instructions == policy.contents[0].text
     move_tool = next(tool for tool in tools.tools if tool.name == "move_inventory")
-    assert move_tool.annotations.destructive_hint is True
+    assert move_tool.annotations.destructive_hint is False
+    assert move_tool.annotations.idempotent_hint is True
     find_tool = next(tool for tool in tools.tools if tool.name == "find_inventory")
     assert "not recorded" in find_tool.description
     assert server_info.version == settings.APP_VERSION
