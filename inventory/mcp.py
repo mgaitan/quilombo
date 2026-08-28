@@ -109,6 +109,19 @@ class StructuredToolError(ToolError):
 class QuilomboMCPServer(MCPServer):
     """Keep tool errors in the CallToolResult error channel with structured data."""
 
+    @staticmethod
+    def _structured_error_result(payload):
+        text = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        return CallToolResult(
+            content=[TextContent(type="text", text=text)],
+            structuredContent=payload,
+            isError=True,
+        )
+
+    @staticmethod
+    def _text_error_result(message):
+        return CallToolResult(content=[TextContent(type="text", text=message)], isError=True)
+
     async def _handle_call_tool(self, ctx, params):
         context = Context(
             request_context=ctx,
@@ -120,42 +133,19 @@ class QuilomboMCPServer(MCPServer):
             return await self.call_tool(params.name, params.arguments or {}, context)
         except ToolError as error:
             cause = error.__cause__
-            if isinstance(cause, StructuredToolError):
-                payload = cause.payload
-                return CallToolResult(
-                    content=[
-                        TextContent(
-                            type="text",
-                            text=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
-                        )
-                    ],
-                    structuredContent=payload,
-                    isError=True,
-                )
-            if isinstance(cause, ValidationError):
-                payload = {
-                    "code": MCPErrorCode.INVALID_INPUT.value,
-                    "message": "Invalid tool input.",
-                }
-                return CallToolResult(
-                    content=[
-                        TextContent(
-                            type="text",
-                            text=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
-                        )
-                    ],
-                    structuredContent=payload,
-                    isError=True,
-                )
-            return CallToolResult(
-                content=[TextContent(type="text", text=str(error))],
-                isError=True,
-            )
+            match cause:
+                case StructuredToolError() as structured_error:
+                    payload = structured_error.payload
+                case ValidationError():
+                    payload = {
+                        "code": MCPErrorCode.INVALID_INPUT.value,
+                        "message": "Invalid tool input.",
+                    }
+                case _:
+                    return self._text_error_result(str(error))
+            return self._structured_error_result(payload)
         except Exception as error:
-            return CallToolResult(
-                content=[TextContent(type="text", text=str(error))],
-                isError=True,
-            )
+            return self._text_error_result(str(error))
 
 
 def _mcp_error(code: MCPErrorCode, message: str) -> StructuredToolError:
@@ -171,14 +161,13 @@ def _invalid_input(resource: str, errors: dict[str, Any]) -> StructuredToolError
 
 
 def _service_error(error: BulkUpsertError) -> StructuredToolError:
-    if isinstance(error, IdempotencyConflict):
-        code = MCPErrorCode.CONFLICT
-    elif isinstance(error, InventoryNotFoundError):
-        code = MCPErrorCode.NOT_FOUND
-    elif isinstance(error, InventoryConflictError):
-        code = MCPErrorCode.CONFLICT
-    else:
-        code = MCPErrorCode.INVALID_INPUT
+    match error:
+        case IdempotencyConflict() | InventoryConflictError():
+            code = MCPErrorCode.CONFLICT
+        case InventoryNotFoundError():
+            code = MCPErrorCode.NOT_FOUND
+        case _:
+            code = MCPErrorCode.INVALID_INPUT
     return _mcp_error(code, str(error))
 
 
