@@ -84,6 +84,7 @@ The MCP server provides these tools:
 | Tool | Purpose |
 | --- | --- |
 | `find_inventory` | Find ranked holdings and their recorded locations. |
+| `get_attribute_profile` | Read the stable attribute profile for a category. |
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
 | `get_inventory_status` | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | Fetch a bibliographic draft from Open Library. |
@@ -96,6 +97,10 @@ The MCP server provides these tools:
 Mutating tools write immediately. Clients should show the proposed change and obtain confirmation
 before calling them. Every intended mutation gets a unique idempotency key and may include a short
 provenance reference.
+
+When recording a book, use `attributes.schema: "book"` and put the user-provided title, authors, and
+publishers under `attributes.book`. `get_attribute_profile` describes this minimum contract; it does
+not make optional fields mandatory.
 
 The MCP server sends basic usage guidance to compatible clients. The more detailed conversational
 workflow lives in

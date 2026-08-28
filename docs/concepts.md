@@ -34,15 +34,20 @@ For a book, a useful record might look like:
   "name": "The Gray Angel Chronicles",
   "category": "book",
   "attributes": {
-    "author": "Alejandro Dolina",
-    "isbn": "978-950-07-1234-5"
+    "schema": "book",
+    "book": {
+      "title": "The Gray Angel Chronicles",
+      "authors": ["Alejandro Dolina"],
+      "publishers": []
+    }
   },
   "description": "Blue edition, medium height"
 }
 ```
 
-Quilombo stores these facts; the client or agent decides how to identify a book and whether an
-external catalog should be consulted.
+Quilombo stores these user-provided facts; the client or agent decides whether an external catalog
+should be consulted. The title is the minimum useful input for a later Open Library search; known
+authors and publishers improve disambiguation.
 
 ## Search
 

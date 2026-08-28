@@ -24,6 +24,9 @@ relative locations.
   has explicitly authorized that exact write in the current request.
 - State clearly when a write has completed. Do not describe a proposal as already applied.
 - Reply in the user's language and preserve their useful vocabulary as aliases.
+- For books, store `attributes.schema: "book"` and user-provided bibliographic facts under
+  `attributes.book`. Include `title`; include known `authors` and `publishers` as string lists.
+  These fields are optional to storage, but title is the minimum for a later catalog lookup.
 
 ## Guide a first inventory
 
@@ -86,9 +89,10 @@ a broader audit.
 
 ## Record observations
 
-For a book with a visible ISBN, call `lookup_book_by_isbn` to obtain a bibliographic draft. Show or
-reason over the suggested fields before saving them. The lookup is read-only; include its
-`source_url` and retrieval time in the provenance of any later upsert.
+For a book, do not require an ISBN during the ordinary inventory pass. Store the user's title and,
+when provided, authors and publishers in the book profile. Use `get_attribute_profile("book")` when
+the contract is not already known. Catalog lookup and ISBN disambiguation are separate workflows;
+they may enrich a confirmed identifier later without blocking a bulk upsert.
 
 1. Convert the observation into stable location, item, holding, and relation records.
 2. Search or inspect a snapshot first to reuse existing keys and aliases. Preserve useful user
