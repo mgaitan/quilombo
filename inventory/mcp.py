@@ -204,7 +204,7 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldH
 EXTERNAL_READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True)
 CORRECTIVE_WRITE = ToolAnnotations(
     readOnlyHint=False,
-    destructiveHint=False,
+    destructiveHint=True,
     idempotentHint=True,
     openWorldHint=False,
 )

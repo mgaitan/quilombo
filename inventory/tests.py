@@ -3617,7 +3617,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         assert tools_by_name[tool_name].annotations.open_world_hint is False
     for tool_name in {"audit_inventory", "move_inventory", "update_inventory_item"}:
         annotations = tools_by_name[tool_name].annotations
-        assert annotations.destructive_hint is False
+        assert annotations.destructive_hint is True
         assert annotations.idempotent_hint is True
     for tool_name in {"bulk_upsert_inventory", "delete_inventory_item"}:
         annotations = tools_by_name[tool_name].annotations
@@ -3628,7 +3628,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert "loaded a Quilombo-specific skill" in policy.contents[0].text
     assert server_instructions == policy.contents[0].text
     move_tool = next(tool for tool in tools.tools if tool.name == "move_inventory")
-    assert move_tool.annotations.destructive_hint is False
+    assert move_tool.annotations.destructive_hint is True
     assert move_tool.annotations.idempotent_hint is True
     find_tool = next(tool for tool in tools.tools if tool.name == "find_inventory")
     assert "not recorded" in find_tool.description
