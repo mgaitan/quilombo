@@ -160,6 +160,24 @@ def _invalid_input(resource: str, errors: dict[str, Any]) -> StructuredToolError
     return _mcp_error(MCPErrorCode.INVALID_INPUT, message)
 
 
+def _check_mutation_limits(payload: dict[str, Any], collections=()):
+    max_items = settings.MCP_MAX_MUTATION_COLLECTION_ITEMS
+    for collection in collections:
+        rows = payload.get(collection, [])
+        if isinstance(rows, list) and len(rows) > max_items:
+            raise _mcp_error(
+                MCPErrorCode.INVALID_INPUT,
+                f"The {collection} collection cannot contain more than {max_items} items.",
+            )
+    serialized = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
+    payload_size = len(serialized.encode("utf-8"))
+    if payload_size > settings.MCP_MAX_MUTATION_PAYLOAD_BYTES:
+        raise _mcp_error(
+            MCPErrorCode.INVALID_INPUT,
+            "The mutation payload is too large to process.",
+        )
+
+
 def _service_error(error: BulkUpsertError) -> StructuredToolError:
     match error:
         case IdempotencyConflict() | InventoryConflictError():
@@ -618,6 +636,7 @@ def audit_inventory(
         "idempotency_key": idempotency_key,
         "provenance": provenance or {},
     }
+    _check_mutation_limits(payload, collections=("holdings",))
     serializer = InventoryAuditSerializer(data=payload)
     if not serializer.is_valid():
         raise _invalid_input("inventory audit", serializer.errors)
@@ -664,6 +683,10 @@ def bulk_upsert_inventory(
         "holdings": holdings or [],
         "location_relations": location_relations or [],
     }
+    _check_mutation_limits(
+        payload,
+        collections=("locations", "items", "holdings", "location_relations"),
+    )
     serializer = BulkUpsertSerializer(data=payload)
     if not serializer.is_valid():
         raise _invalid_input("bulk upsert", serializer.errors)
@@ -700,6 +723,15 @@ def move_inventory(
     provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     token = _write_token_from_context(ctx)
+    raw_request = {
+        "item_key": item_key,
+        "from_location_key": from_location_key,
+        "to_location_key": to_location_key,
+        "quantity": quantity,
+        "idempotency_key": idempotency_key,
+        "provenance": provenance or {},
+    }
+    _check_mutation_limits(raw_request)
     provenance_serializer = ProvenanceSerializer(data=provenance or {})
     if not provenance_serializer.is_valid():
         raise _invalid_input("provenance", provenance_serializer.errors)
@@ -757,6 +789,7 @@ def update_inventory_item(
         "holdings": holdings or [],
         "provenance": provenance or {},
     }
+    _check_mutation_limits(payload, collections=("holdings",))
     serializer = ItemRepairSerializer(data=payload)
     if not serializer.is_valid():
         raise _invalid_input("item update", serializer.errors)
@@ -795,6 +828,7 @@ def delete_inventory_item(
         "idempotency_key": idempotency_key,
         "provenance": provenance or {},
     }
+    _check_mutation_limits(payload)
     serializer = ItemDeleteSerializer(data=payload)
     if not serializer.is_valid():
         raise _invalid_input("item deletion", serializer.errors)

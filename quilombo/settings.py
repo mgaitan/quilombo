@@ -22,6 +22,10 @@ from .version import VERSION
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_VERSION = VERSION
 INVENTORY_FRESHNESS_DAYS = int(os.environ.get("INVENTORY_FRESHNESS_DAYS", "90"))
+MCP_MAX_MUTATION_COLLECTION_ITEMS = int(os.environ.get("MCP_MAX_MUTATION_COLLECTION_ITEMS", "100"))
+MCP_MAX_MUTATION_PAYLOAD_BYTES = int(
+    os.environ.get("MCP_MAX_MUTATION_PAYLOAD_BYTES", str(256 * 1024))
+)
 
 
 # Quick-start development settings - unsuitable for production
@@ -44,6 +48,8 @@ BOOK_CATALOG_USER_AGENT = os.environ.get(
     "BOOK_CATALOG_USER_AGENT",
     f"Quilombo/{APP_VERSION} (https://github.com/mgaitan/quilombo)",
 )
+BOOK_CATALOG_TIMEOUT_SECONDS = float(os.environ.get("BOOK_CATALOG_TIMEOUT_SECONDS", "5"))
+BOOK_CATALOG_MAX_RETRIES = int(os.environ.get("BOOK_CATALOG_MAX_RETRIES", "2"))
 
 ALLOWED_HOSTS = [
     host.strip()

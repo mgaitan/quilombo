@@ -8,6 +8,7 @@ from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -3513,6 +3514,93 @@ def test_mcp_errors_have_stable_codes_and_do_not_expose_workspace_details(users,
     with pytest.raises(StructuredToolError) as invalid_query:
         find_inventory("", ctx)
     assert invalid_query.value.code == MCPErrorCode.INVALID_INPUT.value
+
+
+@pytest.mark.django_db
+@override_settings(MCP_MAX_MUTATION_COLLECTION_ITEMS=2)
+def test_mcp_mutation_collection_limits_reject_before_writing(users, workspaces):
+    from inventory.mcp import StructuredToolError, bulk_upsert_inventory
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP limits")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    with pytest.raises(StructuredToolError, match="cannot contain more than 2") as error:
+        bulk_upsert_inventory(
+            "too-many-items",
+            ctx,
+            items=[{"key": f"item-{index}", "name": f"Item {index}"} for index in range(3)],
+        )
+
+    assert error.value.code == "invalid_input"
+    assert not workspaces[0].items.exists()
+
+
+@pytest.mark.django_db
+@override_settings(MCP_MAX_MUTATION_PAYLOAD_BYTES=128)
+def test_mcp_mutation_payload_size_limit_rejects_large_serialized_input(users, workspaces):
+    from inventory.mcp import StructuredToolError, bulk_upsert_inventory
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP payload")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    with pytest.raises(StructuredToolError, match="payload is too large") as error:
+        bulk_upsert_inventory(
+            "large-payload",
+            ctx,
+            provenance={"metadata": {"client_note": "x" * 200}},
+        )
+
+    assert error.value.code == "invalid_input"
+
+
+@pytest.mark.django_db
+@override_settings(BOOK_CATALOG_TIMEOUT_SECONDS=0.25, BOOK_CATALOG_MAX_RETRIES=2)
+def test_book_catalog_retries_transient_failures_with_bounded_timeout():
+    from unittest.mock import MagicMock
+
+    from inventory.catalogs import lookup_book_by_isbn
+
+    response = MagicMock()
+    response.__enter__.return_value = response
+    payload = {
+        "ISBN:9780140328721": {
+            "title": "Fantastic Mr Fox",
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        }
+    }
+    cache.clear()
+    with (
+        patch(
+            "inventory.catalogs.urlopen",
+            side_effect=[URLError("temporary"), URLError("temporary"), response],
+        ) as urlopen,
+        patch("inventory.catalogs.json.load", return_value=payload),
+    ):
+        result = lookup_book_by_isbn("9780140328721")
+
+    assert result["suggested_item"]["name"] == "Fantastic Mr Fox"
+    assert urlopen.call_count == 3
+    assert all(call.kwargs["timeout"] == 0.25 for call in urlopen.call_args_list)
+
+
+@pytest.mark.django_db
+@override_settings(BOOK_CATALOG_TIMEOUT_SECONDS=0.25, BOOK_CATALOG_MAX_RETRIES=2)
+def test_book_catalog_exhausted_retries_raise_clean_upstream_error():
+    from inventory.catalogs import CatalogLookupError, lookup_book_by_isbn
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        side_effect=[URLError("temporary"), URLError("temporary"), URLError("temporary")],
+    ) as urlopen:
+        with pytest.raises(CatalogLookupError, match="temporarily unavailable"):
+            lookup_book_by_isbn("9780140328721")
+
+    assert urlopen.call_count == 3
 
 
 @pytest.mark.django_db(transaction=True)
