@@ -34,6 +34,14 @@ class BulkUpsertError(Exception):
     pass
 
 
+class InventoryNotFoundError(BulkUpsertError):
+    pass
+
+
+class InventoryConflictError(BulkUpsertError):
+    pass
+
+
 class IdempotencyConflict(BulkUpsertError):
     pass
 
@@ -720,7 +728,7 @@ def audit_inventory(*, workspace, actor, data, request_hash):
         .first()
     )
     if not location:
-        raise BulkUpsertError(f"Unknown location '{data['location_key']}'.")
+        raise InventoryNotFoundError("The requested location was not found in this workspace.")
 
     rows = data.get("holdings", [])
     holdings = {
@@ -734,16 +742,16 @@ def audit_inventory(*, workspace, actor, data, request_hash):
         .select_related("item")
     }
     if len(holdings) != len(rows):
-        raise BulkUpsertError("An audited holding was not found at this location.")
+        raise InventoryNotFoundError("The requested holding was not found at this location.")
 
     observed_at = data.get("provenance", {}).get("observed_at") or timezone.now()
     if location.last_observed_at and observed_at < location.last_observed_at:
-        raise BulkUpsertError("The location has a newer observation than this audit.")
+        raise InventoryConflictError("The location has a newer observation than this audit.")
     if any(
         holding.last_observed_at and observed_at < holding.last_observed_at
         for holding in holdings.values()
     ):
-        raise BulkUpsertError("A holding has a newer observation than this audit.")
+        raise InventoryConflictError("A holding has a newer observation than this audit.")
     location.verification_status = data["location_status"]
     location.last_observed_at = observed_at
     location.last_observed_by = actor
@@ -858,7 +866,9 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
     for row in location_rows:
         parent_key = row.get("parent_key")
         if parent_key and parent_key not in location_map:
-            raise BulkUpsertError(f"Unknown parent location '{parent_key}'.")
+            raise InventoryNotFoundError(
+                "The requested parent location was not found in this workspace."
+            )
         parent_by_key[row["key"]] = parent_key
     _validate_location_hierarchy(parent_by_key)
 
@@ -921,9 +931,9 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         item = item_map.get(row["item_key"])
         location = location_map.get(row["location_key"])
         if not item:
-            raise BulkUpsertError(f"Unknown item '{row['item_key']}'.")
+            raise InventoryNotFoundError("The requested item was not found in this workspace.")
         if not location:
-            raise BulkUpsertError(f"Unknown location '{row['location_key']}'.")
+            raise InventoryNotFoundError("The requested location was not found in this workspace.")
         quantity = row["quantity"]
         if item.tracking_mode == Item.TrackingMode.DISCRETE and quantity != int(quantity):
             raise BulkUpsertError(f"Discrete item '{item.key}' requires a whole quantity.")
@@ -959,9 +969,13 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         subject = location_map.get(row["subject_key"])
         object_ = location_map.get(row["object_key"])
         if not subject:
-            raise BulkUpsertError(f"Unknown location '{row['subject_key']}'.")
+            raise InventoryNotFoundError(
+                "The requested subject location was not found in this workspace."
+            )
         if not object_:
-            raise BulkUpsertError(f"Unknown location '{row['object_key']}'.")
+            raise InventoryNotFoundError(
+                "The requested object location was not found in this workspace."
+            )
         if subject == object_:
             raise BulkUpsertError("A location relation requires two different locations.")
         relations.append(
@@ -1037,11 +1051,11 @@ def move_inventory(
     source_location = Location.objects.filter(workspace=workspace, key=from_location_key).first()
     destination_location = Location.objects.filter(workspace=workspace, key=to_location_key).first()
     if not item:
-        raise BulkUpsertError(f"Unknown item '{item_key}'.")
+        raise InventoryNotFoundError("The requested item was not found in this workspace.")
     if not source_location:
-        raise BulkUpsertError(f"Unknown location '{from_location_key}'.")
+        raise InventoryNotFoundError("The source location was not found in this workspace.")
     if not destination_location:
-        raise BulkUpsertError(f"Unknown location '{to_location_key}'.")
+        raise InventoryNotFoundError("The destination location was not found in this workspace.")
     if item.tracking_mode == Item.TrackingMode.DISCRETE and amount != amount.to_integral_value():
         raise BulkUpsertError(f"Discrete item '{item.key}' requires a whole quantity.")
 
@@ -1052,7 +1066,7 @@ def move_inventory(
     )
     if not source or source.quantity < amount:
         available = source.quantity if source else Decimal("0")
-        raise BulkUpsertError(
+        raise InventoryConflictError(
             f"Insufficient quantity at source; available quantity is {available}."
         )
 
@@ -1132,7 +1146,7 @@ def update_inventory_item(*, workspace, actor, data, request_hash):
 
     item = Item.objects.select_for_update().filter(workspace=workspace, id=data["item_id"]).first()
     if not item:
-        raise BulkUpsertError("Item was not found in this workspace.")
+        raise InventoryNotFoundError("The requested item was not found in this workspace.")
 
     item_fields = data.get("item", {})
     holding_rows = data.get("holdings", [])
@@ -1170,14 +1184,14 @@ def update_inventory_item(*, workspace, actor, data, request_hash):
         )
     }
     if len(holdings) != len(holding_rows):
-        raise BulkUpsertError("A holding was not found for this item in this workspace.")
+        raise InventoryNotFoundError("The requested holding was not found for this item.")
     location_ids = {row["location_id"] for row in holding_rows if "location_id" in row}
     locations = {
         location.id: location
         for location in Location.objects.filter(workspace=workspace, id__in=location_ids)
     }
     if len(locations) != len(location_ids):
-        raise BulkUpsertError("A destination location was not found in this workspace.")
+        raise InventoryNotFoundError("The destination location was not found in this workspace.")
 
     for row in holding_rows:
         holding = holdings[row["id"]]
@@ -1193,7 +1207,7 @@ def update_inventory_item(*, workspace, actor, data, request_hash):
         try:
             holding.save()
         except IntegrityError as error:
-            raise BulkUpsertError(
+            raise InventoryConflictError(
                 "The item already has a holding at the destination location."
             ) from error
 
@@ -1222,7 +1236,7 @@ def delete_inventory_item(*, workspace, actor, data, request_hash):
 
     item = Item.objects.select_for_update().filter(workspace=workspace, id=data["item_id"]).first()
     if not item:
-        raise BulkUpsertError("Item was not found in this workspace.")
+        raise InventoryNotFoundError("The requested item was not found in this workspace.")
     summary = {
         "item_id": str(item.id),
         "item_key": item.key,
