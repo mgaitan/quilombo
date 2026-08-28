@@ -3742,6 +3742,16 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     tools = await mcp_client.list_tools()
                     resources = await mcp_client.list_resources()
                     policy = await mcp_client.read_resource("quilombo://guides/inventory-policy")
+                    profile = await mcp_client.call_tool(
+                        "get_attribute_profile", {"category": "book"}
+                    )
+                    assert profile.is_error is False
+                    assert profile.structured_content["category"] == "book"
+                    assert profile.structured_content["minimum_for_catalog_lookup"] == ["title"]
+                    assert profile.structured_content["recommended_for_disambiguation"] == [
+                        "authors",
+                        "publishers",
+                    ]
                     result = await mcp_client.call_tool(
                         "find_inventory",
                         {
@@ -3827,6 +3837,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "bulk_upsert_inventory",
         "delete_inventory_item",
         "find_inventory",
+        "get_attribute_profile",
         "get_inventory_status",
         "get_inventory_snapshot",
         "lookup_book_by_isbn",
@@ -3844,17 +3855,20 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "title": "Cursor",
         "type": "string",
     }
+    assert tools_by_name["get_attribute_profile"].input_schema["required"] == ["category"]
     assert tools_by_name["get_inventory_snapshot"].input_schema["properties"]["limit"] == {
         "default": 100,
         "title": "Limit",
         "type": "integer",
     }
     assert tools_by_name["find_inventory"].annotations.read_only_hint is True
+    assert tools_by_name["get_attribute_profile"].annotations.read_only_hint is True
     assert tools_by_name["get_inventory_snapshot"].annotations.read_only_hint is True
     assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
     assert tools_by_name["lookup_book_by_isbn"].annotations.open_world_hint is True
     for tool_name in {
         "find_inventory",
+        "get_attribute_profile",
         "get_inventory_snapshot",
         "audit_inventory",
         "bulk_upsert_inventory",
@@ -3874,6 +3888,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert policy.contents[0].mime_type == "text/markdown"
     assert "Search before stating where an item is" in policy.contents[0].text
     assert "loaded a Quilombo-specific skill" in policy.contents[0].text
+    assert "attributes.schema` as `book`" in policy.contents[0].text
     assert server_instructions == policy.contents[0].text
     move_tool = next(tool for tool in tools.tools if tool.name == "move_inventory")
     assert move_tool.annotations.destructive_hint is True

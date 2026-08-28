@@ -21,6 +21,7 @@ Authorization: Bearer qlo_...
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
 | `find_inventory` | `query`; optional `category`, `location_key`, `include_descendants`, `limit`, `cursor` | read-only | Find ranked holdings and their locations. |
+| `get_attribute_profile` | `category` | read-only | Read the stable attribute profile for a category. |
 | `get_inventory_snapshot` | optional `location_key`, `category`, `include_descendants`, `limit`, `cursor` | read-only | Read bounded locations, relations, items, and holdings together. |
 | `get_inventory_status` | none | read-only | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library. |
@@ -43,6 +44,25 @@ writes.
 The mutation tools write immediately. Drafts, human confirmation, and interpretation of photos or
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
+
+For a book, call `get_attribute_profile` when the profile is not already known and store the minimum
+user-provided facts in this shape:
+
+```json
+{
+  "schema": "book",
+  "book": {
+    "title": "Matilda",
+    "authors": ["Roald Dahl"],
+    "publishers": ["Puffin"]
+  }
+}
+```
+
+The title is enough to attempt a later Open Library lookup. Authors and publishers are optional and
+improve disambiguation. Do not invent them, and do not add external catalog metadata during the
+ordinary inventory upsert merely because a lookup might be useful later. Unknown attributes remain
+valid and must be preserved.
 
 Tool annotations distinguish corrective writes (`audit_inventory`, `move_inventory`, and
 `update_inventory_item`) from overwriting or destructive writes (`bulk_upsert_inventory` and

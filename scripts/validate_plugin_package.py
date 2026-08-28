@@ -22,6 +22,7 @@ PUBLISHED_MCP_TOOLS = {
     "bulk_upsert_inventory",
     "delete_inventory_item",
     "find_inventory",
+    "get_attribute_profile",
     "get_inventory_snapshot",
     "get_inventory_status",
     "lookup_book_by_isbn",

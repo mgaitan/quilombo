@@ -43,11 +43,25 @@ Set `minimum_quantity` on an item to include it in missing/low-stock reports. Op
 These thresholds use the item's `unit`. Without a target, the minimum is also the replenishment
 target.
 
-For books, keep bibliographic facts under `attributes.book` and identifiers under
-`attributes.identifiers`. `lookup_book_by_isbn` returns this shape as a suggestion sourced from
-Open Library, including a normalized `synopsis` when the provider supplies a description. It does
-not mutate inventory. Keep subjective reviews out of canonical metadata; store a user's own note
-explicitly or retain an external reference instead.
+For books, set `attributes.schema` to `book` and keep user-provided bibliographic facts under
+`attributes.book`. The minimum useful profile is:
+
+```json
+{
+  "schema": "book",
+  "book": {
+    "title": "The Gray Angel Chronicles",
+    "authors": ["Alejandro Dolina"],
+    "publishers": ["Editorial Planeta"]
+  }
+}
+```
+
+`title` is the minimum input for a later Open Library search. `authors` and `publishers` are optional
+and recommended when known because they improve disambiguation. Do not make these fields mandatory
+in the inventory model, and preserve unknown attributes. ISBN resolution and external catalog
+metadata are separate, read-only or explicitly confirmed workflows; they do not block the ordinary
+bulk upsert.
 
 ## Bulk upsert
 

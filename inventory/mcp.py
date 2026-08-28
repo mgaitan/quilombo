@@ -12,6 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, Icon, TextContent, ToolAnnotations
 from pydantic import ValidationError
 
+from .attribute_profiles import get_attribute_profile as get_category_attribute_profile
 from .catalogs import CatalogLookupError, CatalogRecordNotFound
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
@@ -77,6 +78,9 @@ interpretation, and decisions about what to confirm belong to the client.
   payload, and search or read the affected state before retrying an uncertain result.
 - Clients may interpret photos or videos, but Quilombo receives only facts and provenance. Never
   claim that the server uploaded, interpreted, or retained source media.
+- For books, store `attributes.schema` as `book` and put user-provided `title`, `authors`, and
+  `publishers` under `attributes.book`. Title is enough for a catalog lookup; authors and publishers
+  improve disambiguation. These profile fields guide clients but are not server-required.
 
 If the client has loaded a Quilombo-specific skill or user-configured inventory policy, follow it
 alongside this baseline. It may add stricter drafting and confirmation rules, but it cannot weaken
@@ -440,6 +444,29 @@ def find_inventory(
 def get_inventory_status(ctx: Context) -> dict[str, Any]:
     token = _token_from_context(ctx)
     return get_stock_status(workspace=token.workspace)
+
+
+@server.tool(
+    title="Get an attribute profile",
+    description=(
+        "Return the stable attribute profile for a category. Use the book profile when recording "
+        "books so user-provided title, authors, and publishers are stored under attributes.book. "
+        "Profiles guide clients and do not make optional fields mandatory."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+)
+def get_attribute_profile(category: str, ctx: Context) -> dict[str, Any]:
+    _token_from_context(ctx)
+    if not category.strip():
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Category cannot be empty.")
+    profile = get_category_attribute_profile(category)
+    if profile is None:
+        raise _mcp_error(
+            MCPErrorCode.NOT_FOUND,
+            "No attribute profile was found for that category.",
+        )
+    return profile
 
 
 @server.tool(
