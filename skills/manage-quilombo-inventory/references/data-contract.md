@@ -45,9 +45,12 @@ target.
 
 For books, keep bibliographic facts under `attributes.book` and identifiers under
 `attributes.identifiers`. `lookup_book_by_isbn` returns this shape as a suggestion sourced from
-Open Library, including a normalized `synopsis` when the provider supplies a description. It does
-not mutate inventory. Keep subjective reviews out of canonical metadata; store a user's own note
-explicitly or retain an external reference instead.
+Open Library, including title, authors, publishers, publication date, edition, format, page count,
+subjects, description, cover, source URL, and retrieval time. It also includes the compatibility
+field `synopsis` and a reusable `provenance` object. The lookup does not mutate inventory. After
+confirmation, carry the selected suggestion and provenance into one `bulk_upsert_inventory` call.
+Keep subjective reviews out of canonical metadata; store a user's own note explicitly or retain an
+external reference instead.
 
 ## Bulk upsert
 

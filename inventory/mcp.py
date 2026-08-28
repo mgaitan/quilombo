@@ -12,7 +12,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, Icon, TextContent, ToolAnnotations
 from pydantic import ValidationError
 
-from .catalogs import CatalogLookupError, CatalogRecordNotFound
+from .catalogs import (
+    CatalogLookupError,
+    CatalogRateLimitError,
+    CatalogRecordNotFound,
+    CatalogTimeoutError,
+)
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
@@ -77,6 +82,9 @@ interpretation, and decisions about what to confirm belong to the client.
   payload, and search or read the affected state before retrying an uncertain result.
 - Clients may interpret photos or videos, but Quilombo receives only facts and provenance. Never
   claim that the server uploaded, interpreted, or retained source media.
+- When an ISBN is available, use `lookup_book_by_isbn`, show the returned draft, and ask for
+  confirmation before calling `bulk_upsert_inventory`. Carry the selected `suggested_item` fields
+  into the item attributes and carry the returned provenance into the confirmed write.
 
 If the client has loaded a Quilombo-specific skill or user-configured inventory policy, follow it
 alongside this baseline. It may add stricter drafting and confirmation rules, but it cannot weaken
@@ -446,8 +454,10 @@ def get_inventory_status(ctx: Context) -> dict[str, Any]:
     title="Look up book metadata by ISBN",
     description=(
         "Look up bibliographic metadata in Open Library and return a suggested item payload. "
-        "This never writes inventory. Confirm useful fields and carry the source URL and retrieval "
-        "time into the provenance of any later bulk upsert."
+        "This never writes inventory. Show the draft and obtain confirmation, then carry the "
+        "selected fields and returned provenance into a later bulk upsert. Invalid ISBNs, missing "
+        "records, rate limits, timeouts, and malformed upstream responses return client-safe "
+        "errors."
     ),
     annotations=EXTERNAL_READ,
     structured_output=True,
@@ -460,6 +470,10 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
     except CatalogRecordNotFound as error:
         raise _mcp_error(MCPErrorCode.NOT_FOUND, str(error)) from error
+    except CatalogRateLimitError as error:
+        raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
+    except CatalogTimeoutError as error:
+        raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
     except CatalogLookupError as error:
         raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
 

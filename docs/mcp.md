@@ -23,7 +23,7 @@ Authorization: Bearer qlo_...
 | `find_inventory` | `query`; optional `category`, `location_key`, `include_descendants`, `limit`, `cursor` | read-only | Find ranked holdings and their locations. |
 | `get_inventory_snapshot` | optional `location_key`, `category`, `include_descendants`, `limit`, `cursor` | read-only | Read bounded locations, relations, items, and holdings together. |
 | `get_inventory_status` | none | read-only | Find recorded quantities below their configured minimum. |
-| `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library. |
+| `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library; never writes inventory. |
 | `audit_inventory` | `location_key`, `location_status`, `idempotency_key`; optional `holdings`, `provenance` | idempotent write | Verify a location and selected holdings, with optional corrections. |
 | `bulk_upsert_inventory` | `idempotency_key`; optional `locations`, `items`, `holdings`, `location_relations`, `provenance` | idempotent write | Transactionally create or replace related inventory facts. |
 | `move_inventory` | `item_key`, `from_location_key`, `to_location_key`, `quantity`, `idempotency_key`; optional `provenance` | idempotent write | Move a holding between locations. |
@@ -51,7 +51,70 @@ the original event, while reusing its key with a different payload returns a `co
 
 `lookup_book_by_isbn` uses a 5-second timeout and retries transient upstream failures at most twice.
 Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`. Invalid
-upstream responses and exhausted retries return a clean upstream error.
+ISBNs return `invalid_input`; missing records return `not_found`; malformed responses, timeouts,
+rate limits, and exhausted retries return an `upstream` error with a client-safe message.
+
+### Record a book from an ISBN
+
+Use the lookup as a read-only draft, then confirm the selected metadata before writing it:
+
+1. Call `lookup_book_by_isbn` with the visible ISBN.
+2. Show the user the returned `suggested_item`, including its title, authors, identifiers, edition,
+   format, description, page count, subjects, cover, and source attribution.
+3. After confirmation, copy the selected `suggested_item` fields into `bulk_upsert_inventory` and
+   copy the returned `provenance` object into the same request. Add the confirmed holding and a
+   unique idempotency key.
+
+For example, the confirmed mutation can use the lookup result like this:
+
+```json
+{
+  "idempotency_key": "book-9780140328721-20260828-001",
+  "provenance": {
+    "source_kind": "other",
+    "source_reference": "https://openlibrary.org/books/OL7353617M/Matilda",
+    "metadata": {
+      "provider": "open_library",
+      "isbn": "9780140328721",
+      "retrieved_at": "2026-08-28T15:30:00+00:00"
+    }
+  },
+  "items": [
+    {
+      "key": "matilda-9780140328721",
+      "name": "Matilda",
+      "description": "A clever girl outwits a cruel headmistress.",
+      "category": "books",
+      "attributes": {
+        "schema": "book",
+        "identifiers": {"isbn_13": ["9780140328721"], "isbn": ["9780140328721"]},
+        "book": {
+          "title": "Matilda",
+          "authors": ["Roald Dahl"],
+          "publishers": ["Puffin"],
+          "publication_date": "1988",
+          "edition": "",
+          "format": "",
+          "description": "A clever girl outwits a cruel headmistress.",
+          "page_count": 240,
+          "subjects": [],
+          "cover_url": "https://covers.openlibrary.org/example.jpg",
+          "source_url": "https://openlibrary.org/books/OL7353617M/Matilda",
+          "retrieved_at": "2026-08-28T15:30:00+00:00"
+        }
+      },
+      "tracking_mode": "discrete",
+      "unit": "copy"
+    }
+  ],
+  "holdings": [
+    {"item_key": "matilda-9780140328721", "location_key": "bookshelf", "quantity": "1"}
+  ]
+}
+```
+
+The lookup alone never creates an item, holding, or inventory event. The client owns presentation and
+confirmation; the confirmed bulk upsert owns persistence and remains transactional.
 
 The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
 `next_cursor` when another page is available. Snapshot responses also return

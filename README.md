@@ -86,7 +86,7 @@ The MCP server provides these tools:
 | `find_inventory` | Find ranked holdings and their recorded locations. |
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
 | `get_inventory_status` | Find recorded quantities below their configured minimum. |
-| `lookup_book_by_isbn` | Fetch a bibliographic draft from Open Library. |
+| `lookup_book_by_isbn` | Fetch a bibliographic draft from Open Library for confirmation before a later upsert. |
 | `audit_inventory` | Verify a location and selected holdings. |
 | `bulk_upsert_inventory` | Create or replace related inventory facts in one transaction. |
 | `move_inventory` | Move a quantity between known locations. |

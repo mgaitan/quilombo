@@ -8,7 +8,7 @@ from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -1417,6 +1417,8 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
             "authors": [{"name": "Roald Dahl"}],
             "publishers": [{"name": "Puffin"}],
             "publish_date": "1988",
+            "edition_name": "First paperback edition",
+            "physical_format": "Paperback",
             "number_of_pages": 240,
             "identifiers": {"isbn_13": ["9780140328721"]},
             "cover": {"medium": "https://covers.openlibrary.org/example.jpg"},
@@ -1446,11 +1448,86 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
     )
     assert result["retrieved_at"]
     assert result["suggested_item"]["attributes"]["book"]["authors"] == ["Roald Dahl"]
+    book = result["suggested_item"]["attributes"]["book"]
+    assert book["publication_date"] == "1988"
+    assert book["edition"] == "First paperback edition"
+    assert book["format"] == "Paperback"
+    assert book["description"] == "A clever girl outwits a cruel headmistress."
+    assert book["source_url"] == result["source_url"]
+    assert book["retrieved_at"] == result["retrieved_at"]
+    assert result["provenance"]["metadata"] == {
+        "provider": "open_library",
+        "isbn": "9780140328721",
+        "retrieved_at": result["retrieved_at"],
+    }
 
     inaccessible = client.get("/api/workspaces/library/catalog/books/9780140328721/")
     invalid = client.get("/api/workspaces/workshop/catalog/books/9780140328722/")
     assert inaccessible.status_code == 404
     assert invalid.status_code == 400
+
+
+@pytest.mark.django_db
+def test_confirmed_book_lookup_metadata_and_provenance_persist_through_upsert(users, workspaces):
+    workspace, _ = workspaces
+    cache.clear()
+    payload = {
+        "ISBN:9780140328721": {
+            "url": "https://openlibrary.org/books/OL7353617M/Matilda",
+            "title": "Matilda",
+            "description": {"value": "A clever girl outwits a cruel headmistress."},
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "publish_date": "1988",
+            "edition_name": "First paperback edition",
+            "physical_format": "Paperback",
+            "number_of_pages": 240,
+            "subjects": [{"name": "Children's fiction"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "cover": {"medium": "https://covers.openlibrary.org/example.jpg"},
+        }
+    }
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ):
+        lookup = client.get("/api/workspaces/workshop/catalog/books/9780140328721/")
+
+    assert lookup.status_code == 200
+    assert workspace.items.count() == 0
+    assert workspace.inventory_events.count() == 0
+    suggestion = lookup.json()["suggested_item"]
+    confirmed = {
+        "idempotency_key": "book-9780140328721-confirmed",
+        "provenance": lookup.json()["provenance"],
+        "locations": [{"key": "bookshelf", "name": "Bookshelf"}],
+        "items": [
+            {
+                **suggestion,
+                "key": "matilda-9780140328721",
+            }
+        ],
+        "holdings": [
+            {
+                "item_key": "matilda-9780140328721",
+                "location_key": "bookshelf",
+                "quantity": "1",
+            }
+        ],
+    }
+
+    response = client.post("/api/workspaces/workshop/bulk-upsert/", confirmed, format="json")
+
+    assert response.status_code == 201
+    item = workspace.items.get(key="matilda-9780140328721")
+    assert item.attributes == suggestion["attributes"]
+    event = workspace.inventory_events.get(idempotency_key=confirmed["idempotency_key"])
+    assert event.source_kind == InventoryEvent.SourceKind.OTHER
+    assert event.source_reference == lookup.json()["source_url"]
+    assert event.metadata == lookup.json()["provenance"]["metadata"]
 
 
 @pytest.mark.parametrize(
@@ -1466,6 +1543,26 @@ def test_book_lookup_rejects_structurally_invalid_catalog_payload(payload):
         return_value=io.BytesIO(json.dumps(payload).encode()),
     ):
         with pytest.raises(CatalogLookupError, match="invalid response"):
+            lookup_book_by_isbn("9780140328721")
+
+
+@pytest.mark.parametrize(
+    "book",
+    [
+        {"title": "A book", "authors": "not-a-list"},
+        {"title": "A book", "cover": []},
+        {"title": "A book", "number_of_pages": "many"},
+    ],
+)
+def test_book_lookup_rejects_malformed_book_fields(book):
+    from inventory.catalogs import CatalogMalformedResponse, lookup_book_by_isbn
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps({"ISBN:9780140328721": book}).encode()),
+    ):
+        with pytest.raises(CatalogMalformedResponse, match="invalid response"):
             lookup_book_by_isbn("9780140328721")
 
 
@@ -3616,6 +3713,30 @@ def test_book_catalog_exhausted_retries_raise_clean_upstream_error():
         with pytest.raises(CatalogLookupError, match="temporarily unavailable"):
             lookup_book_by_isbn("9780140328721")
 
+    assert urlopen.call_count == 3
+
+
+@pytest.mark.django_db
+@override_settings(BOOK_CATALOG_TIMEOUT_SECONDS=0.25, BOOK_CATALOG_MAX_RETRIES=2)
+def test_book_catalog_rate_limit_and_timeout_errors_are_explicit():
+    from inventory.catalogs import CatalogRateLimitError, CatalogTimeoutError, lookup_book_by_isbn
+
+    cache.clear()
+    rate_limit = HTTPError("https://openlibrary.org/api/books", 429, "Too Many Requests", {}, None)
+    with patch(
+        "inventory.catalogs.urlopen", side_effect=[rate_limit, rate_limit, rate_limit]
+    ) as urlopen:
+        with pytest.raises(CatalogRateLimitError, match="rate limit"):
+            lookup_book_by_isbn("9780140328721")
+    assert urlopen.call_count == 3
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        side_effect=[TimeoutError(), TimeoutError(), TimeoutError()],
+    ) as urlopen:
+        with pytest.raises(CatalogTimeoutError, match="timed out"):
+            lookup_book_by_isbn("9780140328721")
     assert urlopen.call_count == 3
 
 

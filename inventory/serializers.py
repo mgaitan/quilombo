@@ -21,12 +21,54 @@ class StringListField(serializers.ListField):
         return normalize_aliases(super().to_internal_value(data))
 
 
+class BookAttributesSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True)
+    subtitle = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    synopsis = serializers.CharField(required=False, allow_blank=True)
+    authors = StringListField(required=False)
+    publishers = StringListField(required=False)
+    publish_date = serializers.CharField(required=False, allow_blank=True)
+    publication_date = serializers.CharField(required=False, allow_blank=True)
+    edition = serializers.CharField(required=False, allow_blank=True)
+    format = serializers.CharField(required=False, allow_blank=True)
+    page_count = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    subjects = StringListField(required=False)
+    cover = serializers.URLField(required=False, allow_blank=True)
+    cover_url = serializers.URLField(required=False, allow_blank=True)
+    source_url = serializers.URLField(required=False)
+    retrieved_at = serializers.DateTimeField(required=False)
+
+
+class BookAttributeProfileSerializer(serializers.Serializer):
+    schema = serializers.CharField()
+    identifiers = serializers.JSONField()
+    book = BookAttributesSerializer()
+
+
+class BookSuggestedItemSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    category = serializers.CharField()
+    aliases = StringListField()
+    attributes = BookAttributeProfileSerializer()
+    tracking_mode = serializers.ChoiceField(choices=Item.TrackingMode)
+    unit = serializers.CharField()
+
+
+class BookLookupProvenanceSerializer(serializers.Serializer):
+    source_kind = serializers.ChoiceField(choices=InventoryEvent.SourceKind)
+    source_reference = serializers.URLField()
+    metadata = serializers.JSONField()
+
+
 class BookLookupResultSerializer(serializers.Serializer):
     provider = serializers.CharField()
     isbn = serializers.CharField()
     source_url = serializers.URLField()
     retrieved_at = serializers.DateTimeField()
-    suggested_item = serializers.JSONField()
+    provenance = BookLookupProvenanceSerializer(required=False)
+    suggested_item = BookSuggestedItemSerializer()
 
 
 class LocationSerializer(serializers.ModelSerializer):
