@@ -2244,6 +2244,11 @@ def test_oauth_access_tokens_enforce_expiry_revocation_and_workspace_scope(users
     from inventory.oauth import resolve_inventory_token
 
     workspace, other_workspace = workspaces
+    Membership.objects.create(
+        workspace=other_workspace,
+        user=users[0],
+        role=Membership.Role.MEMBER,
+    )
     oauth_client = OAuthClient.objects.create(
         client_id="credential-audit-client",
         metadata={"client_name": "Credential audit client"},
@@ -2375,6 +2380,7 @@ def test_oauth_registration_and_authorization_reject_unsafe_redirects_without_ec
     assert mismatched_redirect.json()["error"] == "invalid_request"
     assert invalid_secret.status_code == 401
     assert secret not in invalid_secret.text
+    assert "wrong-secret" not in invalid_secret.text
 
 
 @pytest.mark.django_db
