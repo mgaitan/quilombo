@@ -2240,6 +2240,144 @@ def test_oauth_consent_records_read_only_choice(client, users, workspaces):
 
 
 @pytest.mark.django_db
+def test_oauth_access_tokens_enforce_expiry_revocation_and_workspace_scope(users, workspaces):
+    from inventory.oauth import resolve_inventory_token
+
+    workspace, other_workspace = workspaces
+    oauth_client = OAuthClient.objects.create(
+        client_id="credential-audit-client",
+        metadata={"client_name": "Credential audit client"},
+    )
+    family_id = uuid.uuid4()
+    valid, valid_raw = OAuthCredential.issue(
+        kind=OAuthCredential.Kind.ACCESS,
+        client=oauth_client,
+        user=users[0],
+        workspace=workspace,
+        can_write=False,
+        family_id=family_id,
+        scopes=["inventory"],
+        resource="https://quilombo.life/mcp",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    _expired, expired_raw = OAuthCredential.issue(
+        kind=OAuthCredential.Kind.ACCESS,
+        client=oauth_client,
+        user=users[0],
+        workspace=workspace,
+        family_id=uuid.uuid4(),
+        scopes=["inventory"],
+        resource="https://quilombo.life/mcp",
+        expires_at=timezone.now() - timedelta(minutes=1),
+    )
+    revoked, revoked_raw = OAuthCredential.issue(
+        kind=OAuthCredential.Kind.ACCESS,
+        client=oauth_client,
+        user=users[0],
+        workspace=other_workspace,
+        family_id=uuid.uuid4(),
+        scopes=["inventory"],
+        resource="https://quilombo.life/mcp",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    revoked.revoked_at = timezone.now()
+    revoked.save(update_fields=["revoked_at"])
+
+    assert resolve_inventory_token(valid_raw) == valid
+    assert resolve_inventory_token(valid_raw).can_write is False
+    assert resolve_inventory_token(expired_raw) is None
+    assert resolve_inventory_token(revoked_raw) is None
+
+    api_client = APIClient()
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {valid_raw}")
+    assert api_client.get(f"/api/workspaces/{other_workspace.slug}/items/").status_code == 404
+
+
+@pytest.mark.django_db(transaction=True)
+def test_oauth_registration_and_authorization_reject_unsafe_redirects_without_echoing_secrets():
+    async def exercise_oauth():
+        from quilombo.asgi import create_application
+
+        application = create_application()
+        transport = httpx2.ASGITransport(app=application)
+        async with application.router.lifespan_context(application):
+            async with httpx2.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+                follow_redirects=False,
+            ) as http_client:
+                unsafe_http = await http_client.post(
+                    "/register",
+                    json={"redirect_uris": ["http://example.com/callback"]},
+                )
+                fragment = await http_client.post(
+                    "/register",
+                    json={"redirect_uris": ["https://example.com/callback#fragment"]},
+                )
+                invalid_scope = await http_client.post(
+                    "/register",
+                    json={
+                        "redirect_uris": ["https://example.com/callback"],
+                        "scope": "inventory unknown",
+                    },
+                )
+                registration = await http_client.post(
+                    "/register",
+                    json={"redirect_uris": ["https://example.com/callback"]},
+                )
+                registered = registration.json()
+                mismatched_redirect = await http_client.get(
+                    "/authorize",
+                    params={
+                        "response_type": "code",
+                        "client_id": registered["client_id"],
+                        "redirect_uri": "https://attacker.example/callback",
+                        "code_challenge": "challenge",
+                        "code_challenge_method": "S256",
+                    },
+                )
+                secret = registered["client_secret"]
+                invalid_secret = await http_client.post(
+                    "/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "client_id": registered["client_id"],
+                        "client_secret": "wrong-secret",
+                        "code": "not-a-code",
+                        "code_verifier": "verifier",
+                    },
+                )
+                return (
+                    unsafe_http,
+                    fragment,
+                    invalid_scope,
+                    registration,
+                    mismatched_redirect,
+                    secret,
+                    invalid_secret,
+                )
+
+    (
+        unsafe_http,
+        fragment,
+        invalid_scope,
+        registration,
+        mismatched_redirect,
+        secret,
+        invalid_secret,
+    ) = asyncio.run(exercise_oauth())
+
+    assert unsafe_http.status_code == 400
+    assert fragment.status_code == 400
+    assert invalid_scope.status_code == 400
+    assert registration.status_code == 201
+    assert mismatched_redirect.status_code == 400
+    assert mismatched_redirect.json()["error"] == "invalid_request"
+    assert invalid_secret.status_code == 401
+    assert secret not in invalid_secret.text
+
+
+@pytest.mark.django_db
 def test_dashboard_workspace_pagination_is_stable(client, users, workspaces):
     extra_workspaces = [
         Workspace(name=f"Workspace {index:02}", slug=f"workspace-{index:02}") for index in range(26)
