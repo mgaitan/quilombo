@@ -1453,6 +1453,22 @@ def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users
     assert invalid.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [None, {"ISBN:9780140328721": []}],
+)
+def test_book_lookup_rejects_structurally_invalid_catalog_payload(payload):
+    from inventory.catalogs import CatalogLookupError, lookup_book_by_isbn
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ):
+        with pytest.raises(CatalogLookupError, match="invalid response"):
+            lookup_book_by_isbn("9780140328721")
+
+
 @pytest.mark.django_db
 def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(

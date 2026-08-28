@@ -80,9 +80,14 @@ def lookup_book_by_isbn(value):
         except ValueError as error:
             raise CatalogLookupError("Open Library returned an invalid response.") from error
 
+    if not isinstance(payload, dict):
+        raise CatalogLookupError("Open Library returned an invalid response.")
+
     book = payload.get(bibkey)
-    if not book:
+    if book is None or book == {}:
         raise CatalogRecordNotFound("No Open Library record was found for that ISBN.")
+    if not isinstance(book, dict):
+        raise CatalogLookupError("Open Library returned an invalid response.")
 
     identifiers = {key: values for key, values in (book.get("identifiers") or {}).items() if values}
     identifiers.setdefault("isbn", [isbn])
