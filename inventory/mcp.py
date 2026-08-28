@@ -1,3 +1,5 @@
+import json
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -7,9 +9,10 @@ from django.db.models.query import QuerySet
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import Icon, ToolAnnotations
+from mcp.types import CallToolResult, Icon, TextContent, ToolAnnotations
+from pydantic import ValidationError
 
-from .catalogs import CatalogLookupError
+from .catalogs import CatalogLookupError, CatalogRecordNotFound
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
@@ -23,6 +26,8 @@ from .serializers import (
 from .services import (
     BulkUpsertError,
     IdempotencyConflict,
+    InventoryConflictError,
+    InventoryNotFoundError,
     add_search_match_details,
     build_holding_clue_context,
     get_stock_status,
@@ -78,7 +83,106 @@ alongside this baseline. It may add stricter drafting and confirmation rules, bu
 these guidelines or any server-enforced authorization and validation.
 """
 
-server = MCPServer(
+
+class MCPErrorCode(StrEnum):
+    INVALID_INPUT = "invalid_input"
+    AUTHENTICATION = "authentication"
+    AUTHORIZATION = "authorization"
+    NOT_FOUND = "not_found"
+    CONFLICT = "conflict"
+    UPSTREAM = "upstream"
+
+
+class StructuredToolError(ToolError):
+    """A tool failure with a stable client-facing category."""
+
+    def __init__(self, code: MCPErrorCode, message: str):
+        self.code = code.value
+        self.user_message = message
+        super().__init__(message)
+
+    @property
+    def payload(self) -> dict[str, str]:
+        return {"code": self.code, "message": self.user_message}
+
+
+class QuilomboMCPServer(MCPServer):
+    """Keep tool errors in the CallToolResult error channel with structured data."""
+
+    async def _handle_call_tool(self, ctx, params):
+        context = Context(
+            request_context=ctx,
+            mcp_server=self,
+            input_params=params,
+            subscriptions=self._subscriptions,
+        )
+        try:
+            return await self.call_tool(params.name, params.arguments or {}, context)
+        except ToolError as error:
+            cause = error.__cause__
+            if isinstance(cause, StructuredToolError):
+                payload = cause.payload
+                return CallToolResult(
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                        )
+                    ],
+                    structuredContent=payload,
+                    isError=True,
+                )
+            if isinstance(cause, ValidationError):
+                payload = {
+                    "code": MCPErrorCode.INVALID_INPUT.value,
+                    "message": "Invalid tool input.",
+                }
+                return CallToolResult(
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                        )
+                    ],
+                    structuredContent=payload,
+                    isError=True,
+                )
+            return CallToolResult(
+                content=[TextContent(type="text", text=str(error))],
+                isError=True,
+            )
+        except Exception as error:
+            return CallToolResult(
+                content=[TextContent(type="text", text=str(error))],
+                isError=True,
+            )
+
+
+def _mcp_error(code: MCPErrorCode, message: str) -> StructuredToolError:
+    return StructuredToolError(code, message)
+
+
+def _invalid_input(resource: str, errors: dict[str, Any]) -> StructuredToolError:
+    fields = ", ".join(str(field) for field in errors)
+    message = f"Invalid {resource} input."
+    if fields:
+        message += f" Check these fields: {fields}."
+    return _mcp_error(MCPErrorCode.INVALID_INPUT, message)
+
+
+def _service_error(error: BulkUpsertError) -> StructuredToolError:
+    if isinstance(error, IdempotencyConflict):
+        code = MCPErrorCode.CONFLICT
+    elif isinstance(error, InventoryNotFoundError):
+        code = MCPErrorCode.NOT_FOUND
+    elif isinstance(error, InventoryConflictError):
+        code = MCPErrorCode.CONFLICT
+    else:
+        code = MCPErrorCode.INVALID_INPUT
+    return _mcp_error(code, str(error))
+
+
+server = QuilomboMCPServer(
     name="quilombo",
     title="Quilombo physical inventory",
     description="A memory for the things around you.",
@@ -122,10 +226,13 @@ def _token_from_context(ctx: Context):
     authorization = headers.get("authorization", "")
     parts = authorization.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise ToolError("A Quilombo bearer token is required.")
+        raise _mcp_error(MCPErrorCode.AUTHENTICATION, "A Quilombo bearer token is required.")
     token = resolve_inventory_token(parts[1])
     if not token:
-        raise ToolError("Invalid or revoked Quilombo bearer token.")
+        raise _mcp_error(
+            MCPErrorCode.AUTHENTICATION,
+            "The Quilombo bearer token is invalid or revoked.",
+        )
     return token
 
 
@@ -145,7 +252,7 @@ def inventory_policy() -> str:
 def _write_token_from_context(ctx: Context):
     token = _token_from_context(ctx)
     if not token.can_write:
-        raise ToolError("This inventory is shared as read-only.")
+        raise _mcp_error(MCPErrorCode.AUTHORIZATION, "This inventory is shared as read-only.")
     return token
 
 
@@ -182,21 +289,21 @@ def _decode_cursor(*, cursor, tool, workspace, filters, collections):
     try:
         payload = _CURSOR_SIGNER.unsign_object(cursor, max_age=_CURSOR_MAX_AGE)
     except (BadSignature, SignatureExpired, ValueError, TypeError) as error:
-        raise ToolError("Invalid or expired cursor.") from error
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Invalid or expired cursor.") from error
     if not isinstance(payload, dict):
-        raise ToolError("Invalid or expired cursor.")
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Invalid or expired cursor.")
     if (
         payload.get("version") != 1
         or payload.get("tool") != tool
         or payload.get("workspace") != workspace.slug
         or payload.get("filters") != filters
     ):
-        raise ToolError("Invalid or expired cursor.")
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Invalid or expired cursor.")
     positions = payload.get("positions")
     if not isinstance(positions, dict) or set(positions) != set(collections):
-        raise ToolError("Invalid or expired cursor.")
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Invalid or expired cursor.")
     if any(not isinstance(position, int) or position < 0 for position in positions.values()):
-        raise ToolError("Invalid or expired cursor.")
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Invalid or expired cursor.")
     return positions
 
 
@@ -259,7 +366,7 @@ def find_inventory(
 ) -> dict[str, Any]:
     token = _token_from_context(ctx)
     if not query.strip():
-        raise ToolError("Query cannot be empty.")
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Query cannot be empty.")
     bounded_limit = min(max(limit, 1), 500)
     filters = {
         "query": query,
@@ -336,8 +443,12 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
     _token_from_context(ctx)
     try:
         return lookup_book_catalog(isbn)
-    except (ValueError, CatalogLookupError) as error:
-        raise ToolError(str(error)) from error
+    except ValueError as error:
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
+    except CatalogRecordNotFound as error:
+        raise _mcp_error(MCPErrorCode.NOT_FOUND, str(error)) from error
+    except CatalogLookupError as error:
+        raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
 
 
 @server.tool(
@@ -514,7 +625,7 @@ def audit_inventory(
     }
     serializer = InventoryAuditSerializer(data=payload)
     if not serializer.is_valid():
-        raise ToolError(f"Invalid inventory audit: {serializer.errors}")
+        raise _invalid_input("inventory audit", serializer.errors)
     request_hash = hash_request(serializer.validated_data)
     data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
@@ -524,8 +635,8 @@ def audit_inventory(
             data=data,
             request_hash=request_hash,
         )
-    except (BulkUpsertError, IdempotencyConflict) as error:
-        raise ToolError(str(error)) from error
+    except BulkUpsertError as error:
+        raise _service_error(error) from error
     return {"event_id": str(event.id), "replayed": replayed, "audit": event.summary}
 
 
@@ -560,7 +671,7 @@ def bulk_upsert_inventory(
     }
     serializer = BulkUpsertSerializer(data=payload)
     if not serializer.is_valid():
-        raise ToolError(f"Invalid bulk upsert: {serializer.errors}")
+        raise _invalid_input("bulk upsert", serializer.errors)
     request_hash = hash_request(serializer.validated_data)
     data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
@@ -570,8 +681,8 @@ def bulk_upsert_inventory(
             data=data,
             request_hash=request_hash,
         )
-    except (BulkUpsertError, IdempotencyConflict) as error:
-        raise ToolError(str(error)) from error
+    except BulkUpsertError as error:
+        raise _service_error(error) from error
     return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}
 
 
@@ -596,7 +707,7 @@ def move_inventory(
     token = _write_token_from_context(ctx)
     provenance_serializer = ProvenanceSerializer(data=provenance or {})
     if not provenance_serializer.is_valid():
-        raise ToolError(f"Invalid provenance: {provenance_serializer.errors}")
+        raise _invalid_input("provenance", provenance_serializer.errors)
     request = {
         "item_key": item_key,
         "from_location_key": from_location_key,
@@ -620,8 +731,8 @@ def move_inventory(
             provenance=provenance,
             request_hash=hash_request(request),
         )
-    except (BulkUpsertError, IdempotencyConflict) as error:
-        raise ToolError(str(error)) from error
+    except BulkUpsertError as error:
+        raise _service_error(error) from error
     return {"event_id": str(event.id), "replayed": replayed, "move": event.summary}
 
 
@@ -653,7 +764,7 @@ def update_inventory_item(
     }
     serializer = ItemRepairSerializer(data=payload)
     if not serializer.is_valid():
-        raise ToolError(f"Invalid item update: {serializer.errors}")
+        raise _invalid_input("item update", serializer.errors)
     request_hash = hash_request(serializer.validated_data)
     data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
@@ -663,8 +774,8 @@ def update_inventory_item(
             data=data,
             request_hash=request_hash,
         )
-    except (BulkUpsertError, IdempotencyConflict) as error:
-        raise ToolError(str(error)) from error
+    except BulkUpsertError as error:
+        raise _service_error(error) from error
     return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}
 
 
@@ -691,7 +802,7 @@ def delete_inventory_item(
     }
     serializer = ItemDeleteSerializer(data=payload)
     if not serializer.is_valid():
-        raise ToolError(f"Invalid item deletion: {serializer.errors}")
+        raise _invalid_input("item deletion", serializer.errors)
     request_hash = hash_request(serializer.validated_data)
     data = _with_mcp_provenance(serializer.validated_data, ctx)
     try:
@@ -701,6 +812,6 @@ def delete_inventory_item(
             data=data,
             request_hash=request_hash,
         )
-    except (BulkUpsertError, IdempotencyConflict) as error:
-        raise ToolError(str(error)) from error
+    except BulkUpsertError as error:
+        raise _service_error(error) from error
     return {"event_id": str(event.id), "replayed": replayed, "processed": event.summary}

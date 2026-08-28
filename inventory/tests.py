@@ -3232,7 +3232,12 @@ def test_delete_inventory_item_is_tenant_scoped_and_idempotent(users, workspaces
 
 @pytest.mark.django_db(transaction=True)
 def test_mcp_collection_cursors_preserve_filters_and_boundaries(users, workspaces):
-    from inventory.mcp import find_inventory, get_inventory_snapshot
+    from inventory.mcp import (
+        MCPErrorCode,
+        StructuredToolError,
+        find_inventory,
+        get_inventory_snapshot,
+    )
 
     workspace, _ = workspaces
     root = Location.objects.create(workspace=workspace, key="drawer", name="Drawer")
@@ -3251,7 +3256,10 @@ def test_mcp_collection_cursors_preserve_filters_and_boundaries(users, workspace
         )
         Holding.objects.create(workspace=workspace, item=item, location=location, quantity=1)
     _, raw_token = ApiToken.issue(workspace=workspace, user=users[0], name="Cursor test")
-    ctx = SimpleNamespace(headers={"authorization": f"Bearer {raw_token}"})
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
 
     first_search = find_inventory(
         "screw",
@@ -3311,6 +3319,56 @@ def test_mcp_collection_cursors_preserve_filters_and_boundaries(users, workspace
     with patch("inventory.mcp._CURSOR_SIGNER.unsign_object", side_effect=SignatureExpired):
         with pytest.raises(ToolError, match="Invalid or expired cursor"):
             find_inventory("screw", ctx, cursor=first_search["next_cursor"])
+
+    with pytest.raises(StructuredToolError) as invalid_cursor:
+        find_inventory("screw", ctx, cursor="invalid")
+    assert invalid_cursor.value.code == MCPErrorCode.INVALID_INPUT.value
+
+
+@pytest.mark.django_db
+def test_mcp_errors_have_stable_codes_and_do_not_expose_workspace_details(users, workspaces):
+    from inventory.mcp import (
+        MCPErrorCode,
+        StructuredToolError,
+        _token_from_context,
+        bulk_upsert_inventory,
+        find_inventory,
+    )
+
+    with pytest.raises(StructuredToolError) as missing_token:
+        _token_from_context(SimpleNamespace(headers={}))
+    assert missing_token.value.payload == {
+        "code": MCPErrorCode.AUTHENTICATION.value,
+        "message": "A Quilombo bearer token is required.",
+    }
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP errors")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    foreign_item = Item.objects.create(
+        workspace=workspaces[1], key="foreign-secret", name="Foreign secret"
+    )
+    Location.objects.create(workspace=workspaces[0], key="drawer", name="Drawer")
+    with pytest.raises(StructuredToolError) as isolated_reference:
+        bulk_upsert_inventory(
+            "cross-workspace-mcp",
+            ctx,
+            holdings=[
+                {
+                    "item_key": foreign_item.key,
+                    "location_key": "drawer",
+                    "quantity": "1",
+                }
+            ],
+        )
+    assert isolated_reference.value.code == MCPErrorCode.NOT_FOUND.value
+    assert "foreign-secret" not in isolated_reference.value.user_message
+
+    with pytest.raises(StructuredToolError) as invalid_query:
+        find_inventory("", ctx)
+    assert invalid_query.value.code == MCPErrorCode.INVALID_INPUT.value
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3574,6 +3632,10 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert read_result.is_error is False
     assert write_result.is_error is True
     assert "read-only" in write_result.content[0].text
+    assert write_result.structured_content == {
+        "code": "authorization",
+        "message": "This inventory is shared as read-only.",
+    }
     assert result.is_error is False
     assert {row["item_key"] for row in result.structured_content["results"]} == {item.key}
     assert all(

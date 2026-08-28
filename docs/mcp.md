@@ -45,6 +45,27 @@ The collection reads `find_inventory` and `get_inventory_snapshot` return `trunc
 changing its filters or limit. Cursors are workspace-scoped, signed, and expire after 15 minutes;
 invalid or expired cursors return a tool error.
 
+## Error responses
+
+Tool failures keep `is_error: true` and include the same payload in `structured_content` and the
+text content:
+
+```json
+{"code":"not_found","message":"The requested item was not found in this workspace."}
+```
+
+Clients should branch on `code`, not on the human-readable `message`. The stable codes are:
+
+- `invalid_input`: arguments or requested changes fail validation.
+- `authentication`: a bearer token is missing, invalid, or revoked.
+- `authorization`: the token is valid but cannot perform the requested operation.
+- `not_found`: a requested record is not available in the authorized workspace or catalog.
+- `conflict`: the current state conflicts with the request, including idempotency reuse.
+- `upstream`: an external catalog service could not complete the request.
+
+Validation and workspace-isolation errors use generic references and do not disclose records from
+another workspace.
+
 The server publishes one read-only resource:
 
 | URI | Purpose |
