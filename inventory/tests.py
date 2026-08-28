@@ -3533,6 +3533,28 @@ def test_mcp_errors_have_stable_codes_and_do_not_expose_workspace_details(users,
 
 
 @pytest.mark.django_db
+def test_mcp_attribute_profile_handles_alias_and_invalid_categories(users, workspaces):
+    from inventory.mcp import MCPErrorCode, StructuredToolError, get_attribute_profile
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP profiles")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+
+    profile = get_attribute_profile(" books ", ctx)
+
+    assert profile["category"] == "book"
+    assert profile["minimum_for_catalog_lookup"] == ["title"]
+    with pytest.raises(StructuredToolError) as empty_category:
+        get_attribute_profile("   ", ctx)
+    with pytest.raises(StructuredToolError) as unknown_category:
+        get_attribute_profile("vinyl", ctx)
+    assert empty_category.value.code == MCPErrorCode.INVALID_INPUT.value
+    assert unknown_category.value.code == MCPErrorCode.NOT_FOUND.value
+
+
+@pytest.mark.django_db
 @override_settings(MCP_MAX_MUTATION_COLLECTION_ITEMS=2)
 def test_mcp_mutation_collection_limits_reject_before_writing(users, workspaces):
     from inventory.mcp import StructuredToolError, bulk_upsert_inventory
