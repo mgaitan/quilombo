@@ -61,15 +61,33 @@ def lookup_book_by_isbn(value):
         f"https://openlibrary.org/api/books?{query}",
         headers={"User-Agent": settings.BOOK_CATALOG_USER_AGENT},
     )
-    try:
-        with urlopen(request, timeout=5) as response:
-            payload = json.load(response)
-    except (HTTPError, URLError, TimeoutError, ValueError) as error:
-        raise CatalogLookupError("Open Library is temporarily unavailable.") from error
+    max_retries = min(max(settings.BOOK_CATALOG_MAX_RETRIES, 0), 2)
+    attempts = max_retries + 1
+    for attempt in range(attempts):
+        try:
+            with urlopen(request, timeout=settings.BOOK_CATALOG_TIMEOUT_SECONDS) as response:
+                payload = json.load(response)
+            break
+        except HTTPError as error:
+            retryable = error.code in {408, 429} or 500 <= error.code < 600
+            if retryable and attempt + 1 < attempts:
+                continue
+            raise CatalogLookupError("Open Library is temporarily unavailable.") from error
+        except (URLError, TimeoutError) as error:
+            if attempt + 1 < attempts:
+                continue
+            raise CatalogLookupError("Open Library is temporarily unavailable.") from error
+        except ValueError as error:
+            raise CatalogLookupError("Open Library returned an invalid response.") from error
+
+    if not isinstance(payload, dict):
+        raise CatalogLookupError("Open Library returned an invalid response.")
 
     book = payload.get(bibkey)
-    if not book:
+    if book is None or book == {}:
         raise CatalogRecordNotFound("No Open Library record was found for that ISBN.")
+    if not isinstance(book, dict):
+        raise CatalogLookupError("Open Library returned an invalid response.")
 
     identifiers = {key: values for key, values in (book.get("identifiers") or {}).items() if values}
     identifiers.setdefault("isbn", [isbn])

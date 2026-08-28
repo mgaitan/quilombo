@@ -35,6 +35,11 @@ match quality and stable item, location, and holding identifiers. `get_inventory
 limits from 1 to 500 and defaults to 100 per collection. For broad snapshots, provide a
 `location_key` or `category`.
 
+Mutation tools accept at most 100 records in each collection by default and at most 256 KiB of
+serialized input. Configure these limits with `MCP_MAX_MUTATION_COLLECTION_ITEMS` and
+`MCP_MAX_MUTATION_PAYLOAD_BYTES`; oversized requests are rejected before validation or database
+writes.
+
 The mutation tools write immediately. Drafts, human confirmation, and interpretation of photos or
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
@@ -43,6 +48,10 @@ Tool annotations distinguish corrective writes (`audit_inventory`, `move_invento
 `update_inventory_item`) from overwriting or destructive writes (`bulk_upsert_inventory` and
 `delete_inventory_item`). Every mutation is marked idempotent: retrying the same payload replays
 the original event, while reusing its key with a different payload returns a `conflict` error.
+
+`lookup_book_by_isbn` uses a 5-second timeout and retries transient upstream failures at most twice.
+Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`. Invalid
+upstream responses and exhausted retries return a clean upstream error.
 
 The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
 `next_cursor` when another page is available. Snapshot responses also return
