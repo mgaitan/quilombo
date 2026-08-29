@@ -1530,6 +1530,42 @@ def test_book_catalog_expands_work_editions_into_specific_candidates():
 
 
 @pytest.mark.django_db
+def test_book_catalog_looks_up_multiple_isbns_in_batches_and_reports_missing_records():
+    from inventory.catalogs import lookup_books_by_isbn
+
+    payload = {
+        "ISBN:9780140328721": {
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        }
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = lookup_books_by_isbn(["9780140328721", "9780439023481", "9780140328721"])
+
+    assert result["requested"] == ["9780140328721", "9780439023481"]
+    assert result["duplicates"] == ["9780140328721"]
+    assert result["results"][0]["status"] == "found"
+    assert result["results"][0]["details"]["title"] == "Matilda"
+    assert result["results"][1] == {
+        "isbn": "9780439023481",
+        "status": "not_found",
+        "message": "No Open Library record was found for that ISBN.",
+    }
+    assert urlopen_mock.call_count == 1
+    requested_bibkeys = parse_qs(urlopen_mock.call_args.args[0].full_url.split("?", 1)[1])[
+        "bibkeys"
+    ][0]
+    assert requested_bibkeys == "ISBN:9780140328721,ISBN:9780439023481"
+
+
+@pytest.mark.django_db
 def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(
         "/accounts/signup/",
@@ -4136,6 +4172,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "get_inventory_status",
         "get_inventory_snapshot",
         "lookup_book_by_isbn",
+        "lookup_books_by_isbn",
         "move_inventory",
         "update_inventory_item",
     }
@@ -4152,6 +4189,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert tools_by_name["get_attribute_profile"].input_schema["required"] == ["category"]
     assert tools_by_name["get_book_details"].input_schema["required"] == ["item_id"]
+    assert tools_by_name["lookup_books_by_isbn"].input_schema["required"] == ["isbns"]
     assert tools_by_name["get_inventory_snapshot"].input_schema["properties"]["limit"] == {
         "default": 100,
         "title": "Limit",
@@ -4164,6 +4202,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
     assert tools_by_name["lookup_book_by_isbn"].annotations.open_world_hint is True
     assert tools_by_name["get_book_details"].annotations.open_world_hint is True
+    assert tools_by_name["lookup_books_by_isbn"].annotations.open_world_hint is True
     for tool_name in {
         "find_inventory",
         "get_attribute_profile",

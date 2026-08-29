@@ -89,6 +89,7 @@ The MCP server provides these tools:
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
 | `get_inventory_status` | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | Fetch a bibliographic draft from Open Library. |
+| `lookup_books_by_isbn` | Resolve a bulk list of exact ISBNs before an inventory write. |
 | `audit_inventory` | Verify a location and selected holdings. |
 | `bulk_upsert_inventory` | Create or replace related inventory facts in one transaction. |
 | `move_inventory` | Move a quantity between known locations. |
@@ -109,6 +110,10 @@ publishers otherwise. The read-only response includes details or edition candida
 cover URLs; it does not write the external metadata into the item. Ask the user to disambiguate
 candidates before persisting a confirmed identifier through the normal inventory workflow. The web
 item detail uses the same lookup and offers the same confirmation flow to members with write access.
+
+For a bulk ISBN observation, call `lookup_books_by_isbn` before the inventory write. It resolves up
+to 100 ISBNs in batches and reports found and missing records, so the client can show a confirmation
+preview before creating the book items and shelf holdings with one bulk upsert.
 
 The MCP server sends basic usage guidance to compatible clients. The more detailed conversational
 workflow lives in

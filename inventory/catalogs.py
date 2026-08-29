@@ -315,6 +315,74 @@ def lookup_book_by_isbn(value):
     return _book_result(book, isbn=isbn, cache_key=cache_key)
 
 
+def _book_detail_result(result):
+    return {
+        "isbn": result["isbn"],
+        "provider": result["provider"],
+        "source_url": result["source_url"],
+        "retrieved_at": result["retrieved_at"],
+        "details": result["suggested_item"]["attributes"]["book"],
+        "identifiers": result["suggested_item"]["attributes"]["identifiers"],
+    }
+
+
+def lookup_books_by_isbn(values):
+    if not isinstance(values, list) or not values:
+        raise ValueError("At least one ISBN is required for catalog lookup.")
+    if len(values) > 100:
+        raise ValueError("At most 100 ISBNs can be looked up at once.")
+
+    normalized = []
+    duplicates = []
+    for value in values:
+        isbn = normalize_isbn(value)
+        if isbn in normalized:
+            duplicates.append(isbn)
+        else:
+            normalized.append(isbn)
+
+    results = {}
+    missing = []
+    for isbn in normalized:
+        cache_key = f"book-catalog:open-library:{isbn}"
+        cached = cache.get(cache_key)
+        if cached:
+            results[isbn] = {"status": "found", **_book_detail_result(cached)}
+        else:
+            missing.append(isbn)
+
+    for start in range(0, len(missing), 20):
+        chunk = missing[start : start + 20]
+        bibkeys = ",".join(f"ISBN:{isbn}" for isbn in chunk)
+        query = urlencode({"bibkeys": bibkeys, "jscmd": "data", "format": "json"})
+        payload = _request_json(f"https://openlibrary.org/api/books?{query}")
+        if not isinstance(payload, dict):
+            raise CatalogMalformedResponse("Open Library returned an invalid response.")
+        for isbn in chunk:
+            bibkey = f"ISBN:{isbn}"
+            book = payload.get(bibkey)
+            if book is None or book == {}:
+                results[isbn] = {
+                    "isbn": isbn,
+                    "status": "not_found",
+                    "message": "No Open Library record was found for that ISBN.",
+                }
+                continue
+            if not isinstance(book, dict):
+                raise CatalogMalformedResponse("Open Library returned an invalid response.")
+            cache_key = f"book-catalog:open-library:{isbn}"
+            catalog_result = _book_result(book, isbn=isbn, cache_key=cache_key)
+            results[isbn] = {"status": "found", **_book_detail_result(catalog_result)}
+
+    return {
+        "provider": "open_library",
+        "requested": normalized,
+        "duplicates": list(dict.fromkeys(duplicates)),
+        "results": [results[isbn] for isbn in normalized],
+        "retrieved_at": timezone.now().isoformat(),
+    }
+
+
 def _book_result(book, *, isbn="", edition_key="", cache_key=None):
     raw_identifiers = book.get("identifiers") or {}
     if not isinstance(raw_identifiers, dict):
@@ -388,12 +456,7 @@ def lookup_book_details(*, title, authors=None, publishers=None, isbn="", editio
         result = lookup_book_by_isbn(isbn)
         return {
             "match_method": "isbn",
-            "provider": result["provider"],
-            "isbn": result["isbn"],
-            "source_url": result["source_url"],
-            "retrieved_at": result["retrieved_at"],
-            "details": result["suggested_item"]["attributes"]["book"],
-            "identifiers": result["suggested_item"]["attributes"]["identifiers"],
+            **_book_detail_result(result),
         }
     if edition:
         result = lookup_book_by_edition(edition)

@@ -27,6 +27,7 @@ PUBLISHED_MCP_TOOLS = {
     "get_inventory_snapshot",
     "get_inventory_status",
     "lookup_book_by_isbn",
+    "lookup_books_by_isbn",
     "move_inventory",
     "update_inventory_item",
 }

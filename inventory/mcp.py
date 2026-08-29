@@ -17,6 +17,7 @@ from .attribute_profiles import get_attribute_profile as get_category_attribute_
 from .catalogs import CatalogLookupError, CatalogRecordNotFound
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
 from .catalogs import lookup_book_details as lookup_book_catalog_details
+from .catalogs import lookup_books_by_isbn as lookup_books_catalog
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
@@ -86,6 +87,9 @@ interpretation, and decisions about what to confirm belong to the client.
 - When the user asks for book details, use `get_book_details` with the item's UUID. It queries Open
   Library on demand, prefers a stored confirmed ISBN, and never copies the external response into
   inventory. Present multiple candidates for user confirmation before recording an identifier.
+- When a bulk observation provides ISBNs, use `lookup_books_by_isbn` before `bulk_upsert_inventory`.
+  Show the found and missing ISBNs to the user, then write the confirmed inventory facts in one bulk
+  operation.
 
 If the client has loaded a Quilombo-specific skill or user-configured inventory policy, follow it
 alongside this baseline. It may add stricter drafting and confirmation rules, but it cannot weaken
@@ -491,6 +495,25 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
     except CatalogRecordNotFound as error:
         raise _mcp_error(MCPErrorCode.NOT_FOUND, str(error)) from error
+    except CatalogLookupError as error:
+        raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
+
+
+@server.tool(
+    title="Look up books by ISBN",
+    description=(
+        "Look up multiple exact book editions in Open Library before a bulk inventory write. "
+        "Returns one result per ISBN, including records not found, and never writes inventory."
+    ),
+    annotations=EXTERNAL_READ,
+    structured_output=True,
+)
+def lookup_books_by_isbn(isbns: list[str], ctx: Context) -> dict[str, Any]:
+    _token_from_context(ctx)
+    try:
+        return lookup_books_catalog(isbns)
+    except ValueError as error:
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
     except CatalogLookupError as error:
         raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
 
