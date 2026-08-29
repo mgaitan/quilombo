@@ -3555,6 +3555,130 @@ def test_mcp_attribute_profile_handles_alias_and_invalid_categories(users, works
 
 
 @pytest.mark.django_db
+def test_mcp_book_details_uses_stored_isbn_without_mutating_inventory(users, workspaces):
+    from inventory.mcp import get_book_details
+
+    item = Item.objects.create(
+        workspace=workspaces[0],
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={
+            "schema": "book",
+            "book": {"title": "Matilda", "authors": ["Roald Dahl"]},
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        },
+    )
+    original_attributes = item.attributes.copy()
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP books")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    payload = {
+        "ISBN:9780140328721": {
+            "url": "https://openlibrary.org/books/OL7353617M/Matilda",
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "cover": {"medium": "https://covers.openlibrary.org/example.jpg"},
+        }
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = get_book_details(str(item.id), ctx)
+
+    assert result["match_method"] == "isbn"
+    assert result["isbn"] == "9780140328721"
+    assert result["details"]["title"] == "Matilda"
+    assert result["details"]["authors"] == ["Roald Dahl"]
+    assert "suggested_item" not in result
+    assert urlopen_mock.call_count == 1
+    item.refresh_from_db()
+    assert item.attributes == original_attributes
+    assert not InventoryEvent.objects.exists()
+
+
+@pytest.mark.django_db
+def test_mcp_book_details_searches_profile_and_isolates_workspace(users, workspaces):
+    from inventory.mcp import MCPErrorCode, StructuredToolError, get_book_details
+
+    item = Item.objects.create(
+        workspace=workspaces[0],
+        key="the-left-hand-of-darkness",
+        name="The Left Hand of Darkness",
+        attributes={
+            "schema": "book",
+            "book": {
+                "title": "The Left Hand of Darkness",
+                "authors": ["Ursula K. Le Guin"],
+                "publishers": ["Ace"],
+            },
+        },
+    )
+    _, foreign_token = ApiToken.issue(workspace=workspaces[1], user=users[1], name="MCP other")
+    foreign_ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {foreign_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    with pytest.raises(StructuredToolError) as inaccessible:
+        get_book_details(str(item.id), foreign_ctx)
+    assert inaccessible.value.code == MCPErrorCode.NOT_FOUND.value
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP books")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    payload = {
+        "numFound": 2,
+        "docs": [
+            {
+                "title": "The Left Hand of Darkness",
+                "author_name": ["Ursula K. Le Guin"],
+                "publisher": ["Ace"],
+                "first_publish_year": 1969,
+                "edition_key": ["OL123M"],
+                "isbn": ["9780441007318"],
+                "cover_i": 123,
+                "number_of_pages_median": 304,
+            },
+            {
+                "title": "The Left Hand of Darkness",
+                "author_name": ["Ursula K. Le Guin"],
+                "publisher": ["Gollancz"],
+                "edition_key": ["OL456M"],
+            },
+        ],
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = get_book_details(str(item.id), ctx)
+
+    assert result["match_method"] == "metadata"
+    assert result["query"] == {
+        "title": "The Left Hand of Darkness",
+        "authors": ["Ursula K. Le Guin"],
+        "publishers": ["Ace"],
+    }
+    assert len(result["candidates"]) == 2
+    assert result["candidates"][0]["cover_url"].endswith("/123-M.jpg")
+    assert result["candidates"][0]["openlibrary_edition"] == "OL123M"
+    assert urlopen_mock.call_count == 1
+    item.refresh_from_db()
+    assert item.attributes["schema"] == "book"
+
+
+@pytest.mark.django_db
 @override_settings(MCP_MAX_MUTATION_COLLECTION_ITEMS=2)
 def test_mcp_mutation_collection_limits_reject_before_writing(users, workspaces):
     from inventory.mcp import StructuredToolError, bulk_upsert_inventory
@@ -3860,6 +3984,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "delete_inventory_item",
         "find_inventory",
         "get_attribute_profile",
+        "get_book_details",
         "get_inventory_status",
         "get_inventory_snapshot",
         "lookup_book_by_isbn",
@@ -3878,6 +4003,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "type": "string",
     }
     assert tools_by_name["get_attribute_profile"].input_schema["required"] == ["category"]
+    assert tools_by_name["get_book_details"].input_schema["required"] == ["item_id"]
     assert tools_by_name["get_inventory_snapshot"].input_schema["properties"]["limit"] == {
         "default": 100,
         "title": "Limit",
@@ -3885,9 +4011,11 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert tools_by_name["find_inventory"].annotations.read_only_hint is True
     assert tools_by_name["get_attribute_profile"].annotations.read_only_hint is True
+    assert tools_by_name["get_book_details"].annotations.read_only_hint is True
     assert tools_by_name["get_inventory_snapshot"].annotations.read_only_hint is True
     assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
     assert tools_by_name["lookup_book_by_isbn"].annotations.open_world_hint is True
+    assert tools_by_name["get_book_details"].annotations.open_world_hint is True
     for tool_name in {
         "find_inventory",
         "get_attribute_profile",

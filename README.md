@@ -85,6 +85,7 @@ The MCP server provides these tools:
 | --- | --- |
 | `find_inventory` | Find ranked holdings and their recorded locations. |
 | `get_attribute_profile` | Read the stable attribute profile for a category. |
+| `get_book_details` | Read a workspace book and fetch details or candidates from Open Library. |
 | `get_inventory_snapshot` | Read locations, relations, and holdings together. |
 | `get_inventory_status` | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | Fetch a bibliographic draft from Open Library. |
@@ -101,6 +102,12 @@ provenance reference.
 When recording a book, use `attributes.schema: "book"` and put the user-provided title, authors, and
 publishers under `attributes.book`. `get_attribute_profile` describes this minimum contract; it does
 not make optional fields mandatory.
+
+When a client needs book details, call `get_book_details` with the item's UUID. Open Library is
+queried on demand using a confirmed ISBN when available, or the stored title, authors, and
+publishers otherwise. The read-only response includes details or candidates and optional cover URLs;
+it does not write the external metadata into the item. Ask the user to disambiguate candidates before
+persisting a confirmed identifier through the normal inventory workflow.
 
 The MCP server sends basic usage guidance to compatible clients. The more detailed conversational
 workflow lives in

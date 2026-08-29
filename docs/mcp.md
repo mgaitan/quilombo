@@ -22,6 +22,7 @@ Authorization: Bearer qlo_...
 | --- | --- | --- | --- |
 | `find_inventory` | `query`; optional `category`, `location_key`, `include_descendants`, `limit`, `cursor` | read-only | Find ranked holdings and their locations. |
 | `get_attribute_profile` | `category` | read-only | Read the stable attribute profile for a category. |
+| `get_book_details` | `item_id` | external read | Read a workspace book and fetch details or candidates from Open Library. |
 | `get_inventory_snapshot` | optional `location_key`, `category`, `include_descendants`, `limit`, `cursor` | read-only | Read bounded locations, relations, items, and holdings together. |
 | `get_inventory_status` | none | read-only | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library. |
@@ -69,9 +70,18 @@ Tool annotations distinguish corrective writes (`audit_inventory`, `move_invento
 `delete_inventory_item`). Every mutation is marked idempotent: retrying the same payload replays
 the original event, while reusing its key with a different payload returns a `conflict` error.
 
-`lookup_book_by_isbn` uses a 5-second timeout and retries transient upstream failures at most twice.
-Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`. Invalid
-upstream responses and exhausted retries return a clean upstream error.
+`get_book_details` reads the requested item inside the authorized workspace and queries Open Library
+on demand. It uses a stored ISBN first when one has been confirmed; otherwise it searches with the
+book profile's title and any stored authors or publishers. An ISBN match returns details and a source
+URL. A metadata search returns one or more candidates, including edition identifiers and cover URLs
+when Open Library provides them. Ambiguous candidates remain a client-side confirmation workflow.
+The tool never changes the item or stores the external response, and its result does not include a
+suggested upsert payload.
+
+`lookup_book_by_isbn` remains available for a caller that already has an ISBN and wants a direct
+catalog lookup. Both tools use a 5-second timeout and retry transient upstream failures at most
+twice. Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`.
+Invalid upstream responses and exhausted retries return a clean upstream error.
 
 The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
 `next_cursor` when another page is available. Snapshot responses also return

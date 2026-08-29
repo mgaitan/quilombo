@@ -1,6 +1,7 @@
 import json
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 from .attribute_profiles import get_attribute_profile as get_category_attribute_profile
 from .catalogs import CatalogLookupError, CatalogRecordNotFound
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
+from .catalogs import search_books as search_book_catalog
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
@@ -81,6 +83,9 @@ interpretation, and decisions about what to confirm belong to the client.
 - For books, store `attributes.schema` as `book` and put user-provided `title`, `authors`, and
   `publishers` under `attributes.book`. Title is enough for a catalog lookup; authors and publishers
   improve disambiguation. These profile fields guide clients but are not server-required.
+- When the user asks for book details, use `get_book_details` with the item's UUID. It queries Open
+  Library on demand, prefers a stored confirmed ISBN, and never copies the external response into
+  inventory. Present multiple candidates for user confirmation before recording an identifier.
 
 If the client has loaded a Quilombo-specific skill or user-configured inventory policy, follow it
 alongside this baseline. It may add stricter drafting and confirmation rules, but it cannot weaken
@@ -483,6 +488,121 @@ def lookup_book_by_isbn(isbn: str, ctx: Context) -> dict[str, Any]:
     _token_from_context(ctx)
     try:
         return lookup_book_catalog(isbn)
+    except ValueError as error:
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
+    except CatalogRecordNotFound as error:
+        raise _mcp_error(MCPErrorCode.NOT_FOUND, str(error)) from error
+    except CatalogLookupError as error:
+        raise _mcp_error(MCPErrorCode.UPSTREAM, str(error)) from error
+
+
+def _book_attribute_values(book_attributes, field):
+    value = book_attributes.get(field, [])
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(entry, str) for entry in value):
+        raise _mcp_error(
+            MCPErrorCode.INVALID_INPUT,
+            f"Book attribute '{field}' must be a list of strings.",
+        )
+    return [entry.strip() for entry in value if entry.strip()]
+
+
+def _stored_book_isbn(attributes):
+    identifiers = attributes.get("identifiers", {})
+    if identifiers is None:
+        return ""
+    if not isinstance(identifiers, dict):
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Book identifiers must be an object.")
+    for field in ("isbn_13", "isbn_10", "isbn"):
+        values = identifiers.get(field, [])
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise _mcp_error(
+                MCPErrorCode.INVALID_INPUT,
+                f"Book identifier '{field}' must be a string or a list of strings.",
+            )
+        if values:
+            return values[0]
+    return ""
+
+
+def _book_result_context(item, match_method):
+    return {
+        "item_id": str(item.id),
+        "item_key": item.key,
+        "item_name": item.name,
+        "match_method": match_method,
+    }
+
+
+@server.tool(
+    title="Get book details",
+    description=(
+        "Read a book from the workspace and fetch its current details from Open Library. Use a "
+        "confirmed ISBN when one is stored; otherwise search with the stored title, authors, and "
+        "publishers. Returns details or candidates and never changes inventory."
+    ),
+    annotations=EXTERNAL_READ,
+    structured_output=True,
+)
+def get_book_details(item_id: str, ctx: Context) -> dict[str, Any]:
+    token = _token_from_context(ctx)
+    try:
+        parsed_item_id = UUID(item_id)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "item_id must be a valid UUID.") from error
+
+    item = Item.objects.filter(workspace=token.workspace, id=parsed_item_id).first()
+    if item is None:
+        raise _mcp_error(MCPErrorCode.NOT_FOUND, "The requested inventory item was not found.")
+
+    attributes = item.attributes if isinstance(item.attributes, dict) else {}
+    schema = attributes.get("schema")
+    if schema != "book" and item.category.casefold() not in {"book", "books"}:
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "The requested inventory item is not a book.")
+
+    book_attributes = attributes.get("book", {})
+    if book_attributes is None:
+        book_attributes = {}
+    if not isinstance(book_attributes, dict):
+        raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Book attributes must be an object.")
+    authors = _book_attribute_values(book_attributes, "authors")
+    publishers = _book_attribute_values(book_attributes, "publishers")
+    isbn = _stored_book_isbn(attributes)
+
+    try:
+        if isbn:
+            catalog_result = lookup_book_catalog(isbn)
+            details = catalog_result["suggested_item"]["attributes"]["book"]
+            return {
+                **_book_result_context(item, "isbn"),
+                "provider": catalog_result["provider"],
+                "isbn": catalog_result["isbn"],
+                "source_url": catalog_result["source_url"],
+                "retrieved_at": catalog_result["retrieved_at"],
+                "details": details,
+            }
+
+        title = book_attributes.get("title") or item.name
+        if not isinstance(title, str) or not title.strip():
+            raise _mcp_error(
+                MCPErrorCode.INVALID_INPUT,
+                "A book title is required to query Open Library.",
+            )
+        catalog_result = search_book_catalog(
+            title=title,
+            authors=authors,
+            publishers=publishers,
+        )
+        return {
+            **_book_result_context(item, "metadata"),
+            "provider": catalog_result["provider"],
+            "query": catalog_result["query"],
+            "retrieved_at": catalog_result["retrieved_at"],
+            "candidates": catalog_result["candidates"],
+        }
     except ValueError as error:
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error
     except CatalogRecordNotFound as error:
