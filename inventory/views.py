@@ -34,6 +34,7 @@ from .catalogs import (
     lookup_book_by_isbn,
     lookup_book_details,
     normalize_edition_key,
+    normalize_isbn,
 )
 from .forms import (
     HoldingForm,
@@ -706,6 +707,24 @@ def _book_catalog_input(item):
     }
 
 
+def _catalog_result_isbns(catalog_result):
+    identifiers = catalog_result.get("identifiers", {})
+    if not isinstance(identifiers, dict):
+        return set()
+    values = set()
+    for field in ("isbn_13", "isbn_10", "isbn"):
+        entries = identifiers.get(field, [])
+        entries = [entries] if isinstance(entries, str) else entries
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            try:
+                values.add(normalize_isbn(entry))
+            except TypeError, ValueError:
+                continue
+    return values
+
+
 @login_required
 def item_detail(request, workspace_slug, item_id):
     membership = _workspace_membership(request.user, workspace_slug)
@@ -770,14 +789,31 @@ def item_book_confirm(request, workspace_slug, item_id):
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
 
     try:
-        catalog_result = lookup_book_details(
-            title=item.name,
-            authors=[],
-            publishers=[],
-            isbn=isbn,
-            edition=edition if not isbn else "",
-        )
+        normalized_isbn = normalize_isbn(isbn) if isbn else ""
         normalized_edition = normalize_edition_key(edition) if edition else ""
+        if normalized_isbn and normalized_edition:
+            catalog_result = lookup_book_details(
+                title=item.name,
+                authors=[],
+                publishers=[],
+                edition=normalized_edition,
+            )
+            if normalized_isbn not in _catalog_result_isbns(catalog_result):
+                messages.error(
+                    request,
+                    _("The selected ISBN does not belong to that Open Library edition."),
+                )
+                return HttpResponseRedirect(
+                    reverse("web-item-detail", args=[workspace.slug, item.id])
+                )
+        else:
+            catalog_result = lookup_book_details(
+                title=item.name,
+                authors=[],
+                publishers=[],
+                isbn=normalized_isbn,
+                edition=normalized_edition,
+            )
     except ValueError as error:
         messages.error(request, str(error))
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
@@ -793,8 +829,8 @@ def item_book_confirm(request, workspace_slug, item_id):
     identifiers = attributes.get("identifiers")
     if not isinstance(identifiers, dict):
         identifiers = {}
-    if isbn:
-        identifiers["isbn"] = [catalog_result["isbn"]]
+    if normalized_isbn:
+        identifiers["isbn"] = [normalized_isbn]
     if normalized_edition:
         identifiers["openlibrary_edition"] = [normalized_edition]
     attributes["identifiers"] = identifiers

@@ -2913,12 +2913,10 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
     assert urlopen_mock.call_count == 3
 
     confirmation_payload = {
-        "ISBN:9780140328721": {
-            "title": "Matilda",
-            "authors": [{"name": "Roald Dahl"}],
-            "publishers": [{"name": "Puffin"}],
-            "identifiers": {"isbn_13": ["9780140328721"]},
-        }
+        "title": "Matilda",
+        "authors": [{"name": "Roald Dahl"}],
+        "publishers": [{"name": "Puffin"}],
+        "identifiers": {"isbn_13": ["9780140328721"]},
     }
     cache.clear()
     with patch(
@@ -2937,6 +2935,38 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
         "openlibrary_edition": ["OL111M"],
     }
     assert "Puffin" not in book.attributes
+
+
+@pytest.mark.django_db
+def test_web_book_confirmation_rejects_mismatched_isbn_and_edition(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={"schema": "book", "book": {"title": "Matilda"}},
+    )
+    client.force_login(users[0])
+    edition_payload = {
+        "title": "Matilda",
+        "publishers": [{"name": "Ace"}],
+        "identifiers": {"isbn_13": ["9780439023481"]},
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(edition_payload).encode()),
+    ):
+        response = client.post(
+            f"/app/workshop/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL222M"},
+        )
+
+    assert response.status_code == 302
+    book.refresh_from_db()
+    assert "identifiers" not in book.attributes
 
 
 @pytest.mark.django_db
