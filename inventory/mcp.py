@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from .attribute_profiles import get_attribute_profile as get_category_attribute_profile
 from .catalogs import CatalogLookupError, CatalogRecordNotFound
 from .catalogs import lookup_book_by_isbn as lookup_book_catalog
-from .catalogs import search_books as search_book_catalog
+from .catalogs import lookup_book_details as lookup_book_catalog_details
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation
 from .oauth import QuilomboOAuthProvider, resolve_inventory_token
 from .serializers import (
@@ -477,9 +477,8 @@ def get_attribute_profile(category: str, ctx: Context) -> dict[str, Any]:
 @server.tool(
     title="Look up book metadata by ISBN",
     description=(
-        "Look up bibliographic metadata in Open Library and return a suggested item payload. "
-        "This never writes inventory. Confirm useful fields and carry the source URL and retrieval "
-        "time into the provenance of any later bulk upsert."
+        "Look up bibliographic metadata in Open Library by ISBN. This never writes inventory; use "
+        "get_book_details when the ISBN belongs to an existing workspace item."
     ),
     annotations=EXTERNAL_READ,
     structured_output=True,
@@ -508,13 +507,13 @@ def _book_attribute_values(book_attributes, field):
     return [entry.strip() for entry in value if entry.strip()]
 
 
-def _stored_book_isbn(attributes):
+def _stored_book_identifier(attributes):
     identifiers = attributes.get("identifiers", {})
     if identifiers is None:
-        return ""
+        return "", ""
     if not isinstance(identifiers, dict):
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Book identifiers must be an object.")
-    for field in ("isbn_13", "isbn_10", "isbn"):
+    for field in ("isbn_13", "isbn_10", "isbn", "openlibrary_edition"):
         values = identifiers.get(field, [])
         if isinstance(values, str):
             values = [values]
@@ -524,8 +523,8 @@ def _stored_book_isbn(attributes):
                 f"Book identifier '{field}' must be a string or a list of strings.",
             )
         if values:
-            return values[0]
-    return ""
+            return field, values[0]
+    return "", ""
 
 
 def _book_result_context(item, match_method):
@@ -570,38 +569,26 @@ def get_book_details(item_id: str, ctx: Context) -> dict[str, Any]:
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, "Book attributes must be an object.")
     authors = _book_attribute_values(book_attributes, "authors")
     publishers = _book_attribute_values(book_attributes, "publishers")
-    isbn = _stored_book_isbn(attributes)
+    identifier_type, identifier = _stored_book_identifier(attributes)
 
     try:
-        if isbn:
-            catalog_result = lookup_book_catalog(isbn)
-            details = catalog_result["suggested_item"]["attributes"]["book"]
-            return {
-                **_book_result_context(item, "isbn"),
-                "provider": catalog_result["provider"],
-                "isbn": catalog_result["isbn"],
-                "source_url": catalog_result["source_url"],
-                "retrieved_at": catalog_result["retrieved_at"],
-                "details": details,
-            }
-
         title = book_attributes.get("title") or item.name
-        if not isinstance(title, str) or not title.strip():
-            raise _mcp_error(
-                MCPErrorCode.INVALID_INPUT,
-                "A book title is required to query Open Library.",
-            )
-        catalog_result = search_book_catalog(
+        if not identifier_type:
+            if not isinstance(title, str) or not title.strip():
+                raise _mcp_error(
+                    MCPErrorCode.INVALID_INPUT,
+                    "A book title is required to query Open Library.",
+                )
+        catalog_result = lookup_book_catalog_details(
             title=title,
             authors=authors,
             publishers=publishers,
+            isbn=identifier if identifier_type in {"isbn_13", "isbn_10", "isbn"} else "",
+            edition=identifier if identifier_type == "openlibrary_edition" else "",
         )
         return {
             **_book_result_context(item, "metadata"),
-            "provider": catalog_result["provider"],
-            "query": catalog_result["query"],
-            "retrieved_at": catalog_result["retrieved_at"],
-            "candidates": catalog_result["candidates"],
+            **catalog_result,
         }
     except ValueError as error:
         raise _mcp_error(MCPErrorCode.INVALID_INPUT, str(error)) from error

@@ -30,6 +30,67 @@
     <div><dt>{% translate "Tracking mode" %}</dt><dd>{{ item.get_tracking_mode_display }}</dd></div>
     {% if item.aliases %}<div><dt>{% translate "Aliases" %}</dt><dd>{{ item.aliases|join:", " }}</dd></div>{% endif %}
   </dl>
+  {% if catalog_error %}
+    <section class="book-catalog book-catalog-error">
+      <h2>{% translate "Open Library" %}</h2>
+      <p>{{ catalog_error }}</p>
+    </section>
+  {% elif catalog_result %}
+    <section class="book-catalog">
+      <div class="section-heading">
+        <div>
+          <h2>{% translate "Open Library" %}</h2>
+          <p class="row-detail">{% translate "Fetched on demand" %} · <a href="{{ catalog_result.source_url }}" rel="noreferrer">{% translate "Source" %}</a></p>
+        </div>
+      </div>
+      {% if catalog_result.match_method == "metadata" %}
+        <p>{% translate "Several editions may match this book. Confirm the one you have." %}</p>
+        <div class="book-candidates">
+          {% for candidate in catalog_result.candidates %}
+            <article class="book-candidate">
+              {% if candidate.cover_url %}<img src="{{ candidate.cover_url }}" alt="" loading="lazy">{% endif %}
+              <div>
+                <h3>{{ candidate.title }}</h3>
+                <dl class="book-candidate-metadata">
+                  {% if candidate.authors %}<div><dt>{% translate "Authors" %}</dt><dd>{{ candidate.authors|join:", " }}</dd></div>{% endif %}
+                  {% if candidate.publishers %}<div><dt>{% translate "Publishers" %}</dt><dd>{{ candidate.publishers|join:", " }}</dd></div>{% endif %}
+                  {% if candidate.publication_year %}<div><dt>{% translate "Year" %}</dt><dd>{{ candidate.publication_year }}</dd></div>{% endif %}
+                  {% if candidate.page_count %}<div><dt>{% translate "Pages" %}</dt><dd>{{ candidate.page_count }}</dd></div>{% endif %}
+                  {% if candidate.isbn %}<div><dt>ISBN</dt><dd>{{ candidate.isbn|join:", " }}</dd></div>{% endif %}
+                  {% if candidate.openlibrary_edition %}<div><dt>{% translate "Edition" %}</dt><dd>{{ candidate.openlibrary_edition }}</dd></div>{% endif %}
+                </dl>
+                {% if can_write and candidate.isbn or can_write and candidate.openlibrary_edition %}
+                  <form method="post" action="{% url 'web-item-book-confirm' workspace.slug item.id %}">
+                    {% csrf_token %}
+                    {% if candidate.isbn %}<input type="hidden" name="isbn" value="{{ candidate.isbn.0 }}">{% endif %}
+                    {% if candidate.openlibrary_edition %}<input type="hidden" name="edition" value="{{ candidate.openlibrary_edition }}">{% endif %}
+                    <button class="button" type="submit">{% translate "Confirm this edition" %}</button>
+                  </form>
+                {% endif %}
+                <p class="row-detail"><a href="{{ candidate.source_url }}" rel="noreferrer">{% translate "View in Open Library" %}</a></p>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        {% with book=catalog_result.details %}
+          <div class="book-details">
+            {% if book.cover_url %}<img src="{{ book.cover_url }}" alt="" loading="lazy">{% endif %}
+            <dl class="book-candidate-metadata">
+              {% if book.title %}<div><dt>{% translate "Title" %}</dt><dd>{{ book.title }}</dd></div>{% endif %}
+              {% if book.authors %}<div><dt>{% translate "Authors" %}</dt><dd>{{ book.authors|join:", " }}</dd></div>{% endif %}
+              {% if book.publishers %}<div><dt>{% translate "Publishers" %}</dt><dd>{{ book.publishers|join:", " }}</dd></div>{% endif %}
+              {% if book.publish_date %}<div><dt>{% translate "Published" %}</dt><dd>{{ book.publish_date }}</dd></div>{% endif %}
+              {% if book.page_count %}<div><dt>{% translate "Pages" %}</dt><dd>{{ book.page_count }}</dd></div>{% endif %}
+              {% if catalog_result.isbn %}<div><dt>ISBN</dt><dd>{{ catalog_result.isbn }}</dd></div>{% endif %}
+              {% if catalog_result.openlibrary_edition %}<div><dt>{% translate "Edition" %}</dt><dd>{{ catalog_result.openlibrary_edition }}</dd></div>{% endif %}
+            </dl>
+          </div>
+          {% if book.synopsis %}<p class="book-synopsis">{{ book.synopsis }}</p>{% endif %}
+        {% endwith %}
+      {% endif %}
+    </section>
+  {% endif %}
   {% if latest_item_edit %}
     <section class="item-last-edit">
       <h2>{{ latest_item_edit.get_kind_display }}</h2>

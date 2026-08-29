@@ -73,8 +73,9 @@ the original event, while reusing its key with a different payload returns a `co
 `get_book_details` reads the requested item inside the authorized workspace and queries Open Library
 on demand. It uses a stored ISBN first when one has been confirmed; otherwise it searches with the
 book profile's title and any stored authors or publishers. An ISBN match returns details and a source
-URL. A metadata search returns one or more candidates, including edition identifiers and cover URLs
-when Open Library provides them. Ambiguous candidates remain a client-side confirmation workflow.
+URL. A metadata search returns one or more edition-specific candidates, including the edition's ISBN,
+publisher, page count, and cover URL when Open Library provides them. Ambiguous candidates remain a
+client-side confirmation workflow.
 The tool never changes the item or stores the external response, and its result does not include a
 suggested upsert payload.
 

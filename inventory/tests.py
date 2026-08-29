@@ -1470,6 +1470,66 @@ def test_book_lookup_rejects_structurally_invalid_catalog_payload(payload):
 
 
 @pytest.mark.django_db
+def test_book_catalog_expands_work_editions_into_specific_candidates():
+    from inventory.catalogs import search_books
+
+    search_payload = {
+        "docs": [
+            {
+                "title": "Matilda",
+                "author_name": ["Roald Dahl"],
+                "publisher": ["Puffin", "Ace"],
+                "edition_key": ["OL111M", "OL222M"],
+                "isbn": ["9780140328721", "9780439023481"],
+            }
+        ]
+    }
+    edition_payloads = [
+        {
+            "title": "Matilda",
+            "publishers": ["Puffin"],
+            "publish_date": "1988",
+            "number_of_pages": 240,
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "covers": [111],
+        },
+        {
+            "title": "Matilda",
+            "publishers": ["Ace"],
+            "publish_date": "2000",
+            "number_of_pages": 256,
+            "identifiers": {"isbn_13": ["9780439023481"]},
+            "covers": [222],
+        },
+    ]
+
+    cache.clear()
+    responses = [
+        io.BytesIO(json.dumps(search_payload).encode()),
+        *(io.BytesIO(json.dumps(payload).encode()) for payload in edition_payloads),
+    ]
+    with patch("inventory.catalogs.urlopen", side_effect=responses) as urlopen_mock:
+        result = search_books(title="Matilda", authors=["Roald Dahl"])
+
+    assert [candidate["openlibrary_edition"] for candidate in result["candidates"]] == [
+        "OL111M",
+        "OL222M",
+    ]
+    assert [candidate["isbn"] for candidate in result["candidates"]] == [
+        ["9780140328721"],
+        ["9780439023481"],
+    ]
+    assert [candidate["publishers"] for candidate in result["candidates"]] == [
+        ["Puffin"],
+        ["Ace"],
+    ]
+    assert result["candidates"][0]["cover_url"].endswith("/111-M.jpg")
+    assert urlopen_mock.call_count == 3
+    assert urlopen_mock.call_args_list[1].args[0].full_url.endswith("/books/OL111M.json")
+    assert urlopen_mock.call_args_list[2].args[0].full_url.endswith("/books/OL222M.json")
+
+
+@pytest.mark.django_db
 def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(
         "/accounts/signup/",
@@ -2753,6 +2813,94 @@ def test_web_crud_renders_library_paths(client, users, workspaces):
     client.post("/i18n/setlang/", {"language": "en", "next": "/app/library/locations/"})
     english_locations = client.get("/app/library/locations/")
     assert "Locations" in english_locations.content.decode()
+
+
+@pytest.mark.django_db
+def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={
+            "schema": "book",
+            "book": {"title": "Matilda", "authors": ["Roald Dahl"]},
+        },
+    )
+    client.force_login(users[0])
+    search_payload = {
+        "docs": [
+            {
+                "title": "Matilda",
+                "author_name": ["Roald Dahl"],
+                "publisher": ["Puffin", "Ace"],
+                "edition_key": ["OL111M", "OL222M"],
+                "isbn": ["9780140328721", "9780439023481"],
+            }
+        ]
+    }
+    edition_payloads = [
+        {
+            "title": "Matilda",
+            "publishers": ["Puffin"],
+            "publish_date": "1988",
+            "number_of_pages": 240,
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "covers": [111],
+        },
+        {
+            "title": "Matilda",
+            "publishers": ["Ace"],
+            "publish_date": "2000",
+            "number_of_pages": 256,
+            "identifiers": {"isbn_13": ["9780439023481"]},
+            "covers": [222],
+        },
+    ]
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        side_effect=[
+            io.BytesIO(json.dumps(search_payload).encode()),
+            *(io.BytesIO(json.dumps(payload).encode()) for payload in edition_payloads),
+        ],
+    ) as urlopen_mock:
+        detail = client.get(f"/app/workshop/items/{book.id}/")
+
+    content = detail.content.decode()
+    assert detail.status_code == 200
+    assert "Open Library" in content
+    assert "9780140328721" in content
+    assert "9780439023481" in content
+    assert "Confirm this edition" in content
+    assert urlopen_mock.call_count == 3
+
+    confirmation_payload = {
+        "ISBN:9780140328721": {
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        }
+    }
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(confirmation_payload).encode()),
+    ):
+        confirmed = client.post(
+            f"/app/workshop/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL111M"},
+        )
+
+    assert confirmed.status_code == 302
+    book.refresh_from_db()
+    assert book.attributes["identifiers"] == {
+        "isbn": ["9780140328721"],
+        "openlibrary_edition": ["OL111M"],
+    }
+    assert "Puffin" not in book.attributes
 
 
 @pytest.mark.django_db

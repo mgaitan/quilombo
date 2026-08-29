@@ -105,9 +105,10 @@ not make optional fields mandatory.
 
 When a client needs book details, call `get_book_details` with the item's UUID. Open Library is
 queried on demand using a confirmed ISBN when available, or the stored title, authors, and
-publishers otherwise. The read-only response includes details or candidates and optional cover URLs;
-it does not write the external metadata into the item. Ask the user to disambiguate candidates before
-persisting a confirmed identifier through the normal inventory workflow.
+publishers otherwise. The read-only response includes details or edition candidates and optional
+cover URLs; it does not write the external metadata into the item. Ask the user to disambiguate
+candidates before persisting a confirmed identifier through the normal inventory workflow. The web
+item detail uses the same lookup and offers the same confirmation flow to members with write access.
 
 The MCP server sends basic usage guidance to compatible clients. The more detailed conversational
 workflow lives in
