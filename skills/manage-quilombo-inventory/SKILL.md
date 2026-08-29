@@ -94,6 +94,19 @@ when provided, authors and publishers in the book profile. Use `get_attribute_pr
 the contract is not already known. Catalog lookup and ISBN disambiguation are separate workflows;
 they may enrich a confirmed identifier later without blocking a bulk upsert.
 
+When the user asks for details about a recorded book, call `get_book_details` with its item UUID.
+The tool queries Open Library on demand, preferring a stored confirmed ISBN and otherwise using the
+book profile's title, authors, and publishers. Report the returned details or candidates, including a
+thumbnail URL when present. Do not copy the external response into `attributes`; if several editions
+match, ask which one the user has before recording a confirmed ISBN.
+
+When the user gives a shelf and a list of ISBNs, normalize and validate the ISBNs, then call
+`lookup_books_by_isbn` before writing. Present the resolved title, author, publisher, edition, and
+cover for each found ISBN, and list missing ISBNs separately. Ask for corrections or confirmation
+before creating the book items and shelf holdings in one `bulk_upsert_inventory` call. Store the
+confirmed ISBN and optional Open Library edition identifier; do not copy the complete lookup response
+into `attributes`.
+
 1. Convert the observation into stable location, item, holding, and relation records.
 2. Search or inspect a snapshot first to reuse existing keys and aliases. Preserve useful user
    vocabulary in aliases; include known translations and spelling variants, but do not invent

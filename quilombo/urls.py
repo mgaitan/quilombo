@@ -18,6 +18,7 @@ from inventory.views import (
     holding_delete,
     holding_edit,
     home,
+    item_book_confirm,
     item_create,
     item_delete,
     item_detail,
@@ -73,6 +74,11 @@ urlpatterns = [
         "app/<slug:workspace_slug>/items/<uuid:item_id>/",
         item_detail,
         name="web-item-detail",
+    ),
+    path(
+        "app/<slug:workspace_slug>/items/<uuid:item_id>/book/confirm/",
+        item_book_confirm,
+        name="web-item-book-confirm",
     ),
     path(
         "app/<slug:workspace_slug>/items/<uuid:item_id>/edit/",

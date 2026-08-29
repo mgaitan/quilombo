@@ -1470,6 +1470,102 @@ def test_book_lookup_rejects_structurally_invalid_catalog_payload(payload):
 
 
 @pytest.mark.django_db
+def test_book_catalog_expands_work_editions_into_specific_candidates():
+    from inventory.catalogs import search_books
+
+    search_payload = {
+        "docs": [
+            {
+                "title": "Matilda",
+                "author_name": ["Roald Dahl"],
+                "publisher": ["Puffin", "Ace"],
+                "edition_key": ["OL111M", "OL222M"],
+                "isbn": ["9780140328721", "9780439023481"],
+            }
+        ]
+    }
+    edition_payloads = [
+        {
+            "title": "Matilda",
+            "publishers": ["Puffin"],
+            "publish_date": "1988",
+            "number_of_pages": 240,
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "covers": [111],
+        },
+        {
+            "title": "Matilda",
+            "publishers": ["Ace"],
+            "publish_date": "2000",
+            "number_of_pages": 256,
+            "identifiers": {"isbn_13": ["9780439023481"]},
+            "covers": [222],
+        },
+    ]
+
+    cache.clear()
+    responses = [
+        io.BytesIO(json.dumps(search_payload).encode()),
+        *(io.BytesIO(json.dumps(payload).encode()) for payload in edition_payloads),
+    ]
+    with patch("inventory.catalogs.urlopen", side_effect=responses) as urlopen_mock:
+        result = search_books(title="Matilda", authors=["Roald Dahl"])
+
+    assert [candidate["openlibrary_edition"] for candidate in result["candidates"]] == [
+        "OL111M",
+        "OL222M",
+    ]
+    assert [candidate["isbn"] for candidate in result["candidates"]] == [
+        ["9780140328721"],
+        ["9780439023481"],
+    ]
+    assert [candidate["publishers"] for candidate in result["candidates"]] == [
+        ["Puffin"],
+        ["Ace"],
+    ]
+    assert result["candidates"][0]["cover_url"].endswith("/111-M.jpg")
+    assert urlopen_mock.call_count == 3
+    assert urlopen_mock.call_args_list[1].args[0].full_url.endswith("/books/OL111M.json")
+    assert urlopen_mock.call_args_list[2].args[0].full_url.endswith("/books/OL222M.json")
+
+
+@pytest.mark.django_db
+def test_book_catalog_looks_up_multiple_isbns_in_batches_and_reports_missing_records():
+    from inventory.catalogs import lookup_books_by_isbn
+
+    payload = {
+        "ISBN:9780140328721": {
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        }
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = lookup_books_by_isbn(["9780140328721", "9780439023481", "9780140328721"])
+
+    assert result["requested"] == ["9780140328721", "9780439023481"]
+    assert result["duplicates"] == ["9780140328721"]
+    assert result["results"][0]["status"] == "found"
+    assert result["results"][0]["details"]["title"] == "Matilda"
+    assert result["results"][1] == {
+        "isbn": "9780439023481",
+        "status": "not_found",
+        "message": "No Open Library record was found for that ISBN.",
+    }
+    assert urlopen_mock.call_count == 1
+    requested_bibkeys = parse_qs(urlopen_mock.call_args.args[0].full_url.split("?", 1)[1])[
+        "bibkeys"
+    ][0]
+    assert requested_bibkeys == "ISBN:9780140328721,ISBN:9780439023481"
+
+
+@pytest.mark.django_db
 def test_public_signup_requires_email_verification_before_login(client):
     response = client.post(
         "/accounts/signup/",
@@ -2756,6 +2852,124 @@ def test_web_crud_renders_library_paths(client, users, workspaces):
 
 
 @pytest.mark.django_db
+def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={
+            "schema": "book",
+            "book": {"title": "Matilda", "authors": ["Roald Dahl"]},
+        },
+    )
+    client.force_login(users[0])
+    search_payload = {
+        "docs": [
+            {
+                "title": "Matilda",
+                "author_name": ["Roald Dahl"],
+                "publisher": ["Puffin", "Ace"],
+                "edition_key": ["OL111M", "OL222M"],
+                "isbn": ["9780140328721", "9780439023481"],
+            }
+        ]
+    }
+    edition_payloads = [
+        {
+            "title": "Matilda",
+            "publishers": ["Puffin"],
+            "publish_date": "1988",
+            "number_of_pages": 240,
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "covers": [111],
+        },
+        {
+            "title": "Matilda",
+            "publishers": ["Ace"],
+            "publish_date": "2000",
+            "number_of_pages": 256,
+            "identifiers": {"isbn_13": ["9780439023481"]},
+            "covers": [222],
+        },
+    ]
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        side_effect=[
+            io.BytesIO(json.dumps(search_payload).encode()),
+            *(io.BytesIO(json.dumps(payload).encode()) for payload in edition_payloads),
+        ],
+    ) as urlopen_mock:
+        detail = client.get(f"/app/workshop/items/{book.id}/")
+
+    content = detail.content.decode()
+    assert detail.status_code == 200
+    assert "Open Library" in content
+    assert "9780140328721" in content
+    assert "9780439023481" in content
+    assert "Confirm this edition" in content
+    assert urlopen_mock.call_count == 3
+
+    confirmation_payload = {
+        "title": "Matilda",
+        "authors": [{"name": "Roald Dahl"}],
+        "publishers": [{"name": "Puffin"}],
+        "identifiers": {"isbn_13": ["9780140328721"]},
+    }
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(confirmation_payload).encode()),
+    ):
+        confirmed = client.post(
+            f"/app/workshop/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL111M"},
+        )
+
+    assert confirmed.status_code == 302
+    book.refresh_from_db()
+    assert book.attributes["identifiers"] == {
+        "isbn": ["9780140328721"],
+        "openlibrary_edition": ["OL111M"],
+    }
+    assert "Puffin" not in book.attributes
+
+
+@pytest.mark.django_db
+def test_web_book_confirmation_rejects_mismatched_isbn_and_edition(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={"schema": "book", "book": {"title": "Matilda"}},
+    )
+    client.force_login(users[0])
+    edition_payload = {
+        "title": "Matilda",
+        "publishers": [{"name": "Ace"}],
+        "identifiers": {"isbn_13": ["9780439023481"]},
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(edition_payload).encode()),
+    ):
+        response = client.post(
+            f"/app/workshop/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL222M"},
+        )
+
+    assert response.status_code == 302
+    book.refresh_from_db()
+    assert "identifiers" not in book.attributes
+
+
+@pytest.mark.django_db
 def test_web_crud_rejects_read_only_and_cross_workspace_writes(client, users, workspaces):
     workshop, library = workspaces
     own_location = Location.objects.create(workspace=workshop, key="bench", name="Bench")
@@ -3555,6 +3769,130 @@ def test_mcp_attribute_profile_handles_alias_and_invalid_categories(users, works
 
 
 @pytest.mark.django_db
+def test_mcp_book_details_uses_stored_isbn_without_mutating_inventory(users, workspaces):
+    from inventory.mcp import get_book_details
+
+    item = Item.objects.create(
+        workspace=workspaces[0],
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={
+            "schema": "book",
+            "book": {"title": "Matilda", "authors": ["Roald Dahl"]},
+            "identifiers": {"isbn_13": ["9780140328721"]},
+        },
+    )
+    original_attributes = item.attributes.copy()
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP books")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    payload = {
+        "ISBN:9780140328721": {
+            "url": "https://openlibrary.org/books/OL7353617M/Matilda",
+            "title": "Matilda",
+            "authors": [{"name": "Roald Dahl"}],
+            "publishers": [{"name": "Puffin"}],
+            "identifiers": {"isbn_13": ["9780140328721"]},
+            "cover": {"medium": "https://covers.openlibrary.org/example.jpg"},
+        }
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = get_book_details(str(item.id), ctx)
+
+    assert result["match_method"] == "isbn"
+    assert result["isbn"] == "9780140328721"
+    assert result["details"]["title"] == "Matilda"
+    assert result["details"]["authors"] == ["Roald Dahl"]
+    assert "suggested_item" not in result
+    assert urlopen_mock.call_count == 1
+    item.refresh_from_db()
+    assert item.attributes == original_attributes
+    assert not InventoryEvent.objects.exists()
+
+
+@pytest.mark.django_db
+def test_mcp_book_details_searches_profile_and_isolates_workspace(users, workspaces):
+    from inventory.mcp import MCPErrorCode, StructuredToolError, get_book_details
+
+    item = Item.objects.create(
+        workspace=workspaces[0],
+        key="the-left-hand-of-darkness",
+        name="The Left Hand of Darkness",
+        attributes={
+            "schema": "book",
+            "book": {
+                "title": "The Left Hand of Darkness",
+                "authors": ["Ursula K. Le Guin"],
+                "publishers": ["Ace"],
+            },
+        },
+    )
+    _, foreign_token = ApiToken.issue(workspace=workspaces[1], user=users[1], name="MCP other")
+    foreign_ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {foreign_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    with pytest.raises(StructuredToolError) as inaccessible:
+        get_book_details(str(item.id), foreign_ctx)
+    assert inaccessible.value.code == MCPErrorCode.NOT_FOUND.value
+
+    _, raw_token = ApiToken.issue(workspace=workspaces[0], user=users[0], name="MCP books")
+    ctx = SimpleNamespace(
+        headers={"authorization": f"Bearer {raw_token}"},
+        session=SimpleNamespace(client_params=None),
+    )
+    payload = {
+        "numFound": 2,
+        "docs": [
+            {
+                "title": "The Left Hand of Darkness",
+                "author_name": ["Ursula K. Le Guin"],
+                "publisher": ["Ace"],
+                "first_publish_year": 1969,
+                "edition_key": ["OL123M"],
+                "isbn": ["9780441007318"],
+                "cover_i": 123,
+                "number_of_pages_median": 304,
+            },
+            {
+                "title": "The Left Hand of Darkness",
+                "author_name": ["Ursula K. Le Guin"],
+                "publisher": ["Gollancz"],
+                "edition_key": ["OL456M"],
+            },
+        ],
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(payload).encode()),
+    ) as urlopen_mock:
+        result = get_book_details(str(item.id), ctx)
+
+    assert result["match_method"] == "metadata"
+    assert result["query"] == {
+        "title": "The Left Hand of Darkness",
+        "authors": ["Ursula K. Le Guin"],
+        "publishers": ["Ace"],
+    }
+    assert len(result["candidates"]) == 2
+    assert result["candidates"][0]["cover_url"].endswith("/123-M.jpg")
+    assert result["candidates"][0]["openlibrary_edition"] == "OL123M"
+    assert urlopen_mock.call_count == 1
+    item.refresh_from_db()
+    assert item.attributes["schema"] == "book"
+
+
+@pytest.mark.django_db
 @override_settings(MCP_MAX_MUTATION_COLLECTION_ITEMS=2)
 def test_mcp_mutation_collection_limits_reject_before_writing(users, workspaces):
     from inventory.mcp import StructuredToolError, bulk_upsert_inventory
@@ -3860,9 +4198,11 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "delete_inventory_item",
         "find_inventory",
         "get_attribute_profile",
+        "get_book_details",
         "get_inventory_status",
         "get_inventory_snapshot",
         "lookup_book_by_isbn",
+        "lookup_books_by_isbn",
         "move_inventory",
         "update_inventory_item",
     }
@@ -3878,6 +4218,8 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
         "type": "string",
     }
     assert tools_by_name["get_attribute_profile"].input_schema["required"] == ["category"]
+    assert tools_by_name["get_book_details"].input_schema["required"] == ["item_id"]
+    assert tools_by_name["lookup_books_by_isbn"].input_schema["required"] == ["isbns"]
     assert tools_by_name["get_inventory_snapshot"].input_schema["properties"]["limit"] == {
         "default": 100,
         "title": "Limit",
@@ -3885,9 +4227,12 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
     }
     assert tools_by_name["find_inventory"].annotations.read_only_hint is True
     assert tools_by_name["get_attribute_profile"].annotations.read_only_hint is True
+    assert tools_by_name["get_book_details"].annotations.read_only_hint is True
     assert tools_by_name["get_inventory_snapshot"].annotations.read_only_hint is True
     assert tools_by_name["bulk_upsert_inventory"].annotations.read_only_hint is False
     assert tools_by_name["lookup_book_by_isbn"].annotations.open_world_hint is True
+    assert tools_by_name["get_book_details"].annotations.open_world_hint is True
+    assert tools_by_name["lookup_books_by_isbn"].annotations.open_world_hint is True
     for tool_name in {
         "find_inventory",
         "get_attribute_profile",

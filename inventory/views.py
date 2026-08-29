@@ -1,9 +1,11 @@
 import json
+from copy import deepcopy
 from io import BytesIO
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -26,7 +28,14 @@ from rest_framework import filters, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from .catalogs import CatalogLookupError, CatalogRecordNotFound, lookup_book_by_isbn
+from .catalogs import (
+    CatalogLookupError,
+    CatalogRecordNotFound,
+    lookup_book_by_isbn,
+    lookup_book_details,
+    normalize_edition_key,
+    normalize_isbn,
+)
 from .forms import (
     HoldingForm,
     ItemForm,
@@ -661,6 +670,61 @@ def item_list(request, workspace_slug):
     )
 
 
+def _book_catalog_input(item):
+    attributes = item.attributes if isinstance(item.attributes, dict) else {}
+    if attributes.get("schema") != "book" and item.category.casefold() not in {"book", "books"}:
+        return None
+    book = attributes.get("book") if isinstance(attributes.get("book"), dict) else {}
+
+    def strings(field):
+        value = book.get(field, [])
+        if not isinstance(value, list):
+            return []
+        return [entry.strip() for entry in value if isinstance(entry, str) and entry.strip()]
+
+    identifiers = attributes.get("identifiers")
+    if not isinstance(identifiers, dict):
+        identifiers = {}
+    isbn = ""
+    edition = ""
+    for field in ("isbn_13", "isbn_10", "isbn"):
+        values = identifiers.get(field, [])
+        values = [values] if isinstance(values, str) else values
+        if isinstance(values, list) and values and isinstance(values[0], str):
+            isbn = values[0]
+            break
+    if not isbn:
+        values = identifiers.get("openlibrary_edition", [])
+        values = [values] if isinstance(values, str) else values
+        if isinstance(values, list) and values and isinstance(values[0], str):
+            edition = values[0]
+    return {
+        "title": book.get("title") or item.name,
+        "authors": strings("authors"),
+        "publishers": strings("publishers"),
+        "isbn": isbn,
+        "edition": edition,
+    }
+
+
+def _catalog_result_isbns(catalog_result):
+    identifiers = catalog_result.get("identifiers", {})
+    if not isinstance(identifiers, dict):
+        return set()
+    values = set()
+    for field in ("isbn_13", "isbn_10", "isbn"):
+        entries = identifiers.get(field, [])
+        entries = [entries] if isinstance(entries, str) else entries
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            try:
+                values.add(normalize_isbn(entry))
+            except TypeError, ValueError:
+                continue
+    return values
+
+
 @login_required
 def item_detail(request, workspace_slug, item_id):
     membership = _workspace_membership(request.user, workspace_slug)
@@ -683,6 +747,18 @@ def item_detail(request, workspace_slug, item_id):
         .order_by("-created_at", "-id")
         .first()
     )
+    catalog_result = None
+    catalog_error = ""
+    catalog_input = _book_catalog_input(item)
+    if catalog_input:
+        try:
+            catalog_result = lookup_book_details(**catalog_input)
+        except ValueError as error:
+            catalog_error = str(error)
+        except CatalogRecordNotFound as error:
+            catalog_error = str(error)
+        except CatalogLookupError as error:
+            catalog_error = str(error)
     return render(
         request,
         "inventory/item_detail.html",
@@ -692,8 +768,75 @@ def item_detail(request, workspace_slug, item_id):
             "holdings": holdings,
             "latest_item_edit": latest_item_edit,
             "can_write": membership_can_write(membership),
+            "catalog_result": catalog_result,
+            "catalog_error": catalog_error,
         },
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def item_book_confirm(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    if _book_catalog_input(item) is None:
+        messages.error(request, _("The selected item is not a book."))
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    isbn = request.POST.get("isbn", "").strip()
+    edition = request.POST.get("edition", "").strip()
+    if not isbn and not edition:
+        messages.error(request, _("That edition has no confirmable identifier."))
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+    try:
+        normalized_isbn = normalize_isbn(isbn) if isbn else ""
+        normalized_edition = normalize_edition_key(edition) if edition else ""
+        if normalized_isbn and normalized_edition:
+            catalog_result = lookup_book_details(
+                title=item.name,
+                authors=[],
+                publishers=[],
+                edition=normalized_edition,
+            )
+            if normalized_isbn not in _catalog_result_isbns(catalog_result):
+                messages.error(
+                    request,
+                    _("The selected ISBN does not belong to that Open Library edition."),
+                )
+                return HttpResponseRedirect(
+                    reverse("web-item-detail", args=[workspace.slug, item.id])
+                )
+        else:
+            catalog_result = lookup_book_details(
+                title=item.name,
+                authors=[],
+                publishers=[],
+                isbn=normalized_isbn,
+                edition=normalized_edition,
+            )
+    except ValueError as error:
+        messages.error(request, str(error))
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    except CatalogRecordNotFound as error:
+        messages.error(request, str(error))
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+    except CatalogLookupError as error:
+        messages.error(request, str(error))
+        return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+    attributes = deepcopy(item.attributes) if isinstance(item.attributes, dict) else {}
+    attributes["schema"] = "book"
+    identifiers = attributes.get("identifiers")
+    if not isinstance(identifiers, dict):
+        identifiers = {}
+    if normalized_isbn:
+        identifiers["isbn"] = [normalized_isbn]
+    if normalized_edition:
+        identifiers["openlibrary_edition"] = [normalized_edition]
+    attributes["identifiers"] = identifiers
+    update_item(workspace=workspace, item=item, data={"attributes": attributes}, actor=request.user)
+    messages.success(request, _("The Open Library edition was confirmed."))
+    return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
 
 
 @login_required

@@ -22,9 +22,11 @@ Authorization: Bearer qlo_...
 | --- | --- | --- | --- |
 | `find_inventory` | `query`; optional `category`, `location_key`, `include_descendants`, `limit`, `cursor` | read-only | Find ranked holdings and their locations. |
 | `get_attribute_profile` | `category` | read-only | Read the stable attribute profile for a category. |
+| `get_book_details` | `item_id` | external read | Read a workspace book and fetch details or candidates from Open Library. |
 | `get_inventory_snapshot` | optional `location_key`, `category`, `include_descendants`, `limit`, `cursor` | read-only | Read bounded locations, relations, items, and holdings together. |
 | `get_inventory_status` | none | read-only | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library. |
+| `lookup_books_by_isbn` | `isbns` | external read | Resolve a bulk list of exact ISBNs before an inventory write. |
 | `audit_inventory` | `location_key`, `location_status`, `idempotency_key`; optional `holdings`, `provenance` | idempotent write | Verify a location and selected holdings, with optional corrections. |
 | `bulk_upsert_inventory` | `idempotency_key`; optional `locations`, `items`, `holdings`, `location_relations`, `provenance` | idempotent write | Transactionally create or replace related inventory facts. |
 | `move_inventory` | `item_key`, `from_location_key`, `to_location_key`, `quantity`, `idempotency_key`; optional `provenance` | idempotent write | Move a holding between locations. |
@@ -64,14 +66,32 @@ improve disambiguation. Do not invent them, and do not add external catalog meta
 ordinary inventory upsert merely because a lookup might be useful later. Unknown attributes remain
 valid and must be preserved.
 
+For a bulk observation such as “index the books on shelf X; ISBNs are ...”, call
+`lookup_books_by_isbn` before writing. It accepts up to 100 ISBNs, normalizes duplicates, queries
+Open Library in batches, and returns one result per unique ISBN with `found` or `not_found` status.
+Found rows include the edition's details and source; missing rows remain explicit so the client can
+ask for corrections. After user confirmation, create the item and shelf holding records with one
+`bulk_upsert_inventory` call. Store the confirmed ISBN and optional Open Library edition identifier,
+not the complete external response.
+
 Tool annotations distinguish corrective writes (`audit_inventory`, `move_inventory`, and
 `update_inventory_item`) from overwriting or destructive writes (`bulk_upsert_inventory` and
 `delete_inventory_item`). Every mutation is marked idempotent: retrying the same payload replays
 the original event, while reusing its key with a different payload returns a `conflict` error.
 
-`lookup_book_by_isbn` uses a 5-second timeout and retries transient upstream failures at most twice.
-Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`. Invalid
-upstream responses and exhausted retries return a clean upstream error.
+`get_book_details` reads the requested item inside the authorized workspace and queries Open Library
+on demand. It uses a stored ISBN first when one has been confirmed; otherwise it searches with the
+book profile's title and any stored authors or publishers. An ISBN match returns details and a source
+URL. A metadata search returns one or more edition-specific candidates, including the edition's ISBN,
+publisher, page count, and cover URL when Open Library provides them. Ambiguous candidates remain a
+client-side confirmation workflow.
+The tool never changes the item or stores the external response, and its result does not include a
+suggested upsert payload.
+
+`lookup_book_by_isbn` remains available for a caller that already has an ISBN and wants a direct
+catalog lookup. Both tools use a 5-second timeout and retry transient upstream failures at most
+twice. Configure these values with `BOOK_CATALOG_TIMEOUT_SECONDS` and `BOOK_CATALOG_MAX_RETRIES`.
+Invalid upstream responses and exhausted retries return a clean upstream error.
 
 The collection reads `find_inventory` and `get_inventory_snapshot` return `truncated` and an opaque
 `next_cursor` when another page is available. Snapshot responses also return
