@@ -18,7 +18,7 @@
     {% if item_form %}
       <div class="form-grid">
         {% for field in item_form %}
-          <div class="field{% if field.name == 'description' or field.name == 'aliases' %} field-wide{% endif %}">
+          <div class="field{% if field.name == 'description' or field.name == 'aliases' %} field-wide{% endif %}"{% if field.name == 'authors' or field.name == 'publishers' or field.name == 'isbn' or field.name == 'openlibrary_edition' or field.name == 'publication_date' or field.name == 'publication_year' or field.name == 'edition' or field.name == 'language' or field.name == 'page_count' %} data-book-attribute-field{% endif %}>
             {{ field.label_tag }}
             {{ field }}
             {% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}
@@ -70,10 +70,12 @@
         const trackingMode = document.getElementById("id_tracking_mode");
         const unit = document.getElementById("id_unit");
         if (!schema || !trackingMode || !unit) return;
+        const bookFields = document.querySelectorAll("[data-book-attribute-field]");
         const updateSchemaDefaults = () => {
           const isBook = schema.value === "book";
           trackingMode.disabled = isBook;
           unit.disabled = isBook;
+          bookFields.forEach((field) => { field.hidden = !isBook; });
           if (isBook) {
             trackingMode.value = "discrete";
             unit.value = "copy";

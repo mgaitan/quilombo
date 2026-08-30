@@ -30,6 +30,14 @@
     <div><dt>{% translate "Tracking mode" %}</dt><dd>{{ item.get_tracking_mode_display }}</dd></div>
     {% if item.aliases %}<div><dt>{% translate "Aliases" %}</dt><dd>{{ item.aliases|join:", " }}</dd></div>{% endif %}
   </dl>
+  {% if item_attribute_rows %}
+    <section class="item-attributes">
+      <h2>{% translate "Structured metadata" %}</h2>
+      <dl class="book-candidate-metadata">
+        {% for row in item_attribute_rows %}<div><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div>{% endfor %}
+      </dl>
+    </section>
+  {% endif %}
   {% if catalog_error %}
     <section class="book-catalog book-catalog-error">
       <h2>{% translate "Open Library" %}</h2>

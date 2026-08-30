@@ -27,6 +27,50 @@ ATTRIBUTE_PROFILES = {
                 "recommended": True,
                 "lookup_role": "disambiguation",
             },
+            {
+                "key": "publication_date",
+                "type": "string",
+                "label": "Publication date",
+                "optional": True,
+            },
+            {
+                "key": "publication_year",
+                "type": "integer",
+                "label": "Publication year",
+                "optional": True,
+            },
+            {
+                "key": "edition",
+                "type": "string",
+                "label": "Edition",
+                "optional": True,
+            },
+            {
+                "key": "language",
+                "type": "string",
+                "label": "Language",
+                "optional": True,
+            },
+            {
+                "key": "page_count",
+                "type": "integer",
+                "label": "Pages",
+                "optional": True,
+            },
+        ],
+        "identifier_fields": [
+            {
+                "key": "isbn",
+                "type": "isbn",
+                "label": "ISBN",
+                "optional": True,
+            },
+            {
+                "key": "openlibrary_edition",
+                "type": "string",
+                "label": "Open Library edition",
+                "optional": True,
+            },
         ],
     }
 }
@@ -35,7 +79,12 @@ BOOK_CATEGORIES = frozenset({"book", "books", "libro", "libros"})
 
 
 def normalize_item_attributes(attributes, category=""):
-    normalized = deepcopy(attributes) if isinstance(attributes, dict) else {}
+    if isinstance(attributes, dict):
+        normalized = deepcopy(attributes)
+    elif attributes is None:
+        normalized = {}
+    else:
+        normalized = {"legacy_attributes": deepcopy(attributes)}
     if not normalized.get("schema") and category.strip().casefold() in BOOK_CATEGORIES:
         normalized["schema"] = "book"
     return normalized

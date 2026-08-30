@@ -724,12 +724,76 @@ def _book_catalog_input(item):
         if isinstance(values, list) and values and isinstance(values[0], str):
             edition = values[0]
     return {
-        "title": book.get("title") or item.name,
+        "title": item.name,
         "authors": strings("authors"),
         "publishers": strings("publishers"),
         "isbn": isbn,
         "edition": edition,
     }
+
+
+def _item_attribute_rows(attributes):
+    if not isinstance(attributes, dict):
+        return []
+
+    rows = []
+    book = attributes.get("book")
+    if isinstance(book, dict):
+        labels = {
+            "authors": _("Authors"),
+            "publishers": _("Publishers"),
+            "publication_date": _("Publication date"),
+            "publication_year": _("Year"),
+            "edition": _("Edition"),
+            "language": _("Language"),
+            "page_count": _("Pages"),
+        }
+        for key in labels:
+            if key in book and book[key] not in (None, "", [], {}):
+                rows.append({"label": labels[key], "value": _attribute_value(book[key])})
+        for key in sorted(set(book) - set(labels) - {"title"}):
+            rows.append(
+                {
+                    "label": _("Book · %(key)s") % {"key": key},
+                    "value": _attribute_value(book[key]),
+                }
+            )
+
+    identifiers = attributes.get("identifiers")
+    if isinstance(identifiers, dict):
+        identifier_labels = {
+            "isbn": "ISBN",
+            "isbn_10": "ISBN-10",
+            "isbn_13": "ISBN-13",
+            "openlibrary_edition": _("Open Library edition"),
+        }
+        for key in identifier_labels:
+            if key in identifiers and identifiers[key] not in (None, "", [], {}):
+                rows.append(
+                    {
+                        "label": identifier_labels[key],
+                        "value": _attribute_value(identifiers[key]),
+                    }
+                )
+        for key in sorted(set(identifiers) - set(identifier_labels)):
+            rows.append(
+                {
+                    "label": _("Identifier · %(key)s") % {"key": key},
+                    "value": _attribute_value(identifiers[key]),
+                }
+            )
+
+    for key in sorted(set(attributes) - {"schema", "book", "identifiers"}):
+        rows.append({"label": key, "value": _attribute_value(attributes[key])})
+    return rows
+
+
+def _attribute_value(value):
+    if isinstance(value, list):
+        return ", ".join(_attribute_value(entry) for entry in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
 
 
 def _catalog_result_isbns(catalog_result):
@@ -795,6 +859,7 @@ def item_detail(request, workspace_slug, item_id):
             "can_write": membership_can_write(membership),
             "catalog_result": catalog_result,
             "catalog_error": catalog_error,
+            "item_attribute_rows": _item_attribute_rows(item.attributes),
         },
     )
 

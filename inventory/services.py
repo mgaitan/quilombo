@@ -905,6 +905,34 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
     relation_rows = data.get("location_relations", [])
     now = timezone.now()
 
+    existing_items = {
+        item.key: item for item in workspace.items.filter(key__in=[row["key"] for row in item_rows])
+    }
+    discrete_item_ids = {
+        item.id
+        for row in item_rows
+        for item in [existing_items.get(row["key"])]
+        if item
+        and schema_item_defaults(row.get("attributes", {}), row.get("category", item.category)).get(
+            "tracking_mode", row.get("tracking_mode", item.tracking_mode)
+        )
+        == Item.TrackingMode.DISCRETE
+    }
+    fractional_item_keys = {
+        existing_item.key
+        for item_id, quantity in Holding.objects.select_for_update()
+        .filter(workspace=workspace, item_id__in=discrete_item_ids)
+        .values_list("item_id", "quantity")
+        for existing_item in existing_items.values()
+        if existing_item.id == item_id and quantity != quantity.to_integral_value()
+    }
+    if fractional_item_keys:
+        keys = ", ".join(sorted(fractional_item_keys))
+        raise BulkUpsertError(
+            "All holdings must have whole quantities before switching to discrete tracking; "
+            f"correct these items first: {keys}"
+        )
+
     locations = [
         Location(
             workspace=workspace,
