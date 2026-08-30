@@ -486,6 +486,57 @@ class TransferItemSerializer(serializers.Serializer):
         return attrs
 
 
+class TransferLabelSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField(max_length=200, trim_whitespace=False)
+
+    def validate_name(self, value):
+        if not normalize_label_identity(value):
+            raise serializers.ValidationError("A label cannot be empty.")
+        if len(label_display_value(value)) > 200:
+            raise serializers.ValidationError("A normalized label cannot exceed 200 characters.")
+        return value
+
+
+class TransferLabelAliasSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    label_id = serializers.UUIDField()
+    value = serializers.CharField(max_length=200, trim_whitespace=False)
+
+    def validate_value(self, value):
+        if not normalize_label_identity(value):
+            raise serializers.ValidationError("A label alias cannot be empty.")
+        if len(label_display_value(value)) > 200:
+            raise serializers.ValidationError("A normalized alias cannot exceed 200 characters.")
+        return value
+
+
+class TransferItemLabelSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    item_id = serializers.UUIDField()
+    label_id = serializers.UUIDField()
+    original_value = serializers.CharField(max_length=200, trim_whitespace=False)
+    source = serializers.ChoiceField(choices=ItemLabel.Source)
+    confidence = serializers.DecimalField(
+        required=False,
+        default=None,
+        allow_null=True,
+        max_digits=4,
+        decimal_places=3,
+        min_value=Decimal("0"),
+        max_value=Decimal("1"),
+    )
+    source_reference = serializers.CharField(required=False, allow_blank=True, default="")
+    metadata = serializers.JSONField(required=False, default=dict)
+    created_by_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    created_at = serializers.DateTimeField()
+
+    def validate_metadata(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Metadata must be a JSON object.")
+        return value
+
+
 class TransferHoldingSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     item_id = serializers.UUIDField()
@@ -503,18 +554,29 @@ class TransferLocationRelationSerializer(serializers.Serializer):
 
 
 class InventoryDocumentSerializer(serializers.Serializer):
-    format_version = serializers.ChoiceField(choices=["1.0"])
+    format_version = serializers.ChoiceField(choices=["1.0", "1.1"])
     workspace = serializers.JSONField(required=False, default=dict)
     exported_at = serializers.DateTimeField(required=False)
     locations = TransferLocationSerializer(many=True, default=list, max_length=10000)
     items = TransferItemSerializer(many=True, default=list, max_length=10000)
+    labels = TransferLabelSerializer(many=True, default=list, max_length=10000)
+    label_aliases = TransferLabelAliasSerializer(many=True, default=list, max_length=50000)
+    item_labels = TransferItemLabelSerializer(many=True, default=list, max_length=50000)
     holdings = TransferHoldingSerializer(many=True, default=list, max_length=50000)
     location_relations = TransferLocationRelationSerializer(
         many=True, default=list, max_length=50000
     )
 
     def validate(self, attrs):
-        for collection in ("locations", "items", "holdings", "location_relations"):
+        for collection in (
+            "locations",
+            "items",
+            "labels",
+            "label_aliases",
+            "item_labels",
+            "holdings",
+            "location_relations",
+        ):
             ids = [row["id"] for row in attrs[collection]]
             if len(ids) != len(set(ids)):
                 raise serializers.ValidationError({collection: "Contains duplicate IDs."})
@@ -522,6 +584,18 @@ class InventoryDocumentSerializer(serializers.Serializer):
             keys = [row["key"] for row in attrs[collection]]
             if len(keys) != len(set(keys)):
                 raise serializers.ValidationError({collection: "Contains duplicate keys."})
+        label_keys = [normalize_label_identity(row["name"]) for row in attrs["labels"]]
+        if len(label_keys) != len(set(label_keys)):
+            raise serializers.ValidationError({"labels": "Contains duplicate normalized names."})
+        alias_keys = [normalize_label_identity(row["value"]) for row in attrs["label_aliases"]]
+        if len(alias_keys) != len(set(alias_keys)):
+            raise serializers.ValidationError(
+                {"label_aliases": "Contains duplicate normalized values."}
+            )
+        if set(label_keys) & set(alias_keys):
+            raise serializers.ValidationError(
+                {"label_aliases": "An alias cannot duplicate a canonical label identity."}
+            )
         holding_keys = [(row["item_id"], row["location_id"]) for row in attrs["holdings"]]
         if len(holding_keys) != len(set(holding_keys)):
             raise serializers.ValidationError(
@@ -538,6 +612,7 @@ class InventoryDocumentSerializer(serializers.Serializer):
 
         location_ids = {row["id"] for row in attrs["locations"]}
         item_ids = {row["id"] for row in attrs["items"]}
+        label_ids = {row["id"] for row in attrs["labels"]}
         for row in attrs["locations"]:
             if row["parent_id"] and row["parent_id"] not in location_ids:
                 raise serializers.ValidationError(
@@ -547,6 +622,16 @@ class InventoryDocumentSerializer(serializers.Serializer):
             if row["item_id"] not in item_ids or row["location_id"] not in location_ids:
                 raise serializers.ValidationError(
                     {"holdings": "Every item_id and location_id must exist in the document."}
+                )
+        for row in attrs["label_aliases"]:
+            if row["label_id"] not in label_ids:
+                raise serializers.ValidationError(
+                    {"label_aliases": "Every label_id must exist in the document."}
+                )
+        for row in attrs["item_labels"]:
+            if row["item_id"] not in item_ids or row["label_id"] not in label_ids:
+                raise serializers.ValidationError(
+                    {"item_labels": "Every item_id and label_id must exist in the document."}
                 )
         for row in attrs["location_relations"]:
             if row["subject_id"] not in location_ids or row["object_id"] not in location_ids:

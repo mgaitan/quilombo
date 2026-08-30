@@ -2,16 +2,28 @@ import csv
 import io
 import json
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Workspace
+from .labels import normalize_label_identity
+from .models import (
+    Holding,
+    InventoryEvent,
+    Item,
+    ItemLabel,
+    Label,
+    LabelAlias,
+    Location,
+    LocationRelation,
+    Workspace,
+)
 from .serializers import InventoryDocumentSerializer
 from .services import event_metadata_from_provenance
 from .state import capture_inventory_state, inventory_state_hash
 
-FORMAT_VERSION = "1.0"
-CSV_FIELDS = [
+FORMAT_VERSION = "1.1"
+CSV_FIELDS_V1_0 = [
     "record_type",
     "id",
     "key",
@@ -35,6 +47,17 @@ CSV_FIELDS = [
     "subject_id",
     "relation",
     "object_id",
+]
+CSV_FIELDS = [
+    *CSV_FIELDS_V1_0,
+    "label_id",
+    "value",
+    "original_value",
+    "source",
+    "confidence",
+    "source_reference",
+    "created_by_id",
+    "created_at",
 ]
 
 
@@ -86,6 +109,38 @@ def export_inventory_document(workspace):
             }
             for item in workspace.items.order_by("key", "id")
         ],
+        "labels": [
+            {
+                "id": str(label.id),
+                "name": label.name,
+            }
+            for label in workspace.labels.order_by("name", "id")
+        ],
+        "label_aliases": [
+            {
+                "id": str(alias.id),
+                "label_id": str(alias.label_id),
+                "value": alias.value,
+            }
+            for alias in workspace.label_aliases.order_by("value", "id")
+        ],
+        "item_labels": [
+            {
+                "id": str(assertion.id),
+                "item_id": str(assertion.item_id),
+                "label_id": str(assertion.label_id),
+                "original_value": assertion.original_value,
+                "source": assertion.source,
+                "confidence": (
+                    str(assertion.confidence) if assertion.confidence is not None else None
+                ),
+                "source_reference": assertion.source_reference,
+                "metadata": assertion.metadata,
+                "created_by_id": assertion.created_by_id,
+                "created_at": assertion.created_at.isoformat(),
+            }
+            for assertion in workspace.item_labels.order_by("created_at", "id")
+        ],
         "holdings": [
             {
                 "id": str(holding.id),
@@ -118,6 +173,9 @@ def export_inventory_csv(document):
     for collection, record_type in (
         ("locations", "location"),
         ("items", "item"),
+        ("labels", "label"),
+        ("label_aliases", "label_alias"),
+        ("item_labels", "item_label"),
         ("holdings", "holding"),
         ("location_relations", "location_relation"),
     ):
@@ -154,22 +212,32 @@ def parse_inventory_document(*, format_name, document=None, content=None):
 
 
 def _parse_csv(content):
+    reader = csv.DictReader(io.StringIO(content))
+    if reader.fieldnames == CSV_FIELDS:
+        format_version = FORMAT_VERSION
+    elif reader.fieldnames == CSV_FIELDS_V1_0:
+        format_version = "1.0"
+    else:
+        raise ValueError("CSV header does not match a supported format version.")
     document = {
-        "format_version": FORMAT_VERSION,
+        "format_version": format_version,
         "locations": [],
         "items": [],
+        "labels": [],
+        "label_aliases": [],
+        "item_labels": [],
         "holdings": [],
         "location_relations": [],
     }
     readers = {
         "location": ("locations", _csv_location),
         "item": ("items", _csv_item),
+        "label": ("labels", _csv_label),
+        "label_alias": ("label_aliases", _csv_label_alias),
+        "item_label": ("item_labels", _csv_item_label),
         "holding": ("holdings", _csv_holding),
         "location_relation": ("location_relations", _csv_relation),
     }
-    reader = csv.DictReader(io.StringIO(content))
-    if reader.fieldnames != CSV_FIELDS:
-        raise ValueError("CSV header does not match format version 1.0.")
     for line_number, row in enumerate(reader, start=2):
         target = readers.get(row.get("record_type", ""))
         if not target:
@@ -216,6 +284,36 @@ def _csv_item(row):
     }
 
 
+def _csv_label(row):
+    return {
+        "id": row["id"],
+        "name": row["name"],
+    }
+
+
+def _csv_label_alias(row):
+    return {
+        "id": row["id"],
+        "label_id": row["label_id"],
+        "value": row["value"],
+    }
+
+
+def _csv_item_label(row):
+    return {
+        "id": row["id"],
+        "item_id": row["item_id"],
+        "label_id": row["label_id"],
+        "original_value": row["original_value"],
+        "source": row["source"],
+        "confidence": row.get("confidence") or None,
+        "source_reference": row.get("source_reference", ""),
+        "metadata": _json_cell(row, "metadata", {}),
+        "created_by_id": row.get("created_by_id") or None,
+        "created_at": row["created_at"],
+    }
+
+
 def _csv_holding(row):
     approximate = row.get("approximate", "").casefold()
     if approximate not in {"true", "false"}:
@@ -243,6 +341,9 @@ def _validate_target(workspace, document):
     model_rows = (
         (Location, document["locations"]),
         (Item, document["items"]),
+        (Label, document["labels"]),
+        (LabelAlias, document["label_aliases"]),
+        (ItemLabel, document["item_labels"]),
         (Holding, document["holdings"]),
         (LocationRelation, document["location_relations"]),
     )
@@ -259,6 +360,38 @@ def _validate_target(workspace, document):
             raise InventoryTransferError(
                 f"A {model._meta.verbose_name} key is already assigned to another ID."
             )
+
+    incoming_label_ids = {row["id"] for row in document["labels"]}
+    final_label_keys = dict(
+        Label.objects.filter(workspace=workspace)
+        .exclude(id__in=incoming_label_ids)
+        .values_list("normalized_key", "id")
+    )
+    for row in document["labels"]:
+        normalized_key = normalize_label_identity(row["name"])
+        if normalized_key in final_label_keys:
+            raise InventoryTransferError("A canonical label identity already uses another ID.")
+        final_label_keys[normalized_key] = row["id"]
+
+    incoming_alias_ids = {row["id"] for row in document["label_aliases"]}
+    final_alias_keys = dict(
+        LabelAlias.objects.filter(workspace=workspace)
+        .exclude(id__in=incoming_alias_ids)
+        .values_list("normalized_key", "id")
+    )
+    for row in document["label_aliases"]:
+        normalized_key = normalize_label_identity(row["value"])
+        if normalized_key in final_alias_keys:
+            raise InventoryTransferError("A label alias identity already uses another ID.")
+        final_alias_keys[normalized_key] = row["id"]
+    if set(final_label_keys) & set(final_alias_keys):
+        raise InventoryTransferError("A label alias conflicts with a canonical label identity.")
+
+    created_by_ids = {
+        row["created_by_id"] for row in document["item_labels"] if row["created_by_id"]
+    }
+    if get_user_model().objects.filter(id__in=created_by_ids).count() != len(created_by_ids):
+        raise InventoryTransferError("An item label creator does not exist in this installation.")
 
     holding_by_pair = {
         (item_id, location_id): holding_id
@@ -292,6 +425,9 @@ def _import_summary(workspace, document):
     for name, model in (
         ("locations", Location),
         ("items", Item),
+        ("labels", Label),
+        ("label_aliases", LabelAlias),
+        ("item_labels", ItemLabel),
         ("holdings", Holding),
         ("location_relations", LocationRelation),
     ):
@@ -348,6 +484,42 @@ def import_inventory_document(
             )
             items[item.id] = item
 
+        labels = {}
+        for row in document["labels"]:
+            label, _ = Label.objects.update_or_create(
+                id=row["id"],
+                workspace=workspace,
+                defaults={"name": row["name"]},
+            )
+            labels[label.id] = label
+
+        for row in document["label_aliases"]:
+            LabelAlias.objects.update_or_create(
+                id=row["id"],
+                workspace=workspace,
+                defaults={
+                    "label": labels[row["label_id"]],
+                    "value": row["value"],
+                },
+            )
+
+        for row in document["item_labels"]:
+            assertion, _ = ItemLabel.objects.update_or_create(
+                id=row["id"],
+                workspace=workspace,
+                defaults={
+                    "item": items[row["item_id"]],
+                    "label": labels[row["label_id"]],
+                    "original_value": row["original_value"],
+                    "source": row["source"],
+                    "confidence": row["confidence"],
+                    "source_reference": row["source_reference"],
+                    "metadata": row["metadata"],
+                    "created_by_id": row["created_by_id"],
+                },
+            )
+            ItemLabel.objects.filter(id=assertion.id).update(created_at=row["created_at"])
+
         for row in document["holdings"]:
             Holding.objects.update_or_create(
                 id=row["id"],
@@ -386,7 +558,7 @@ def import_inventory_document(
         observed_at=provenance.get("observed_at"),
         metadata={
             **event_metadata_from_provenance(provenance),
-            "transfer_format_version": FORMAT_VERSION,
+            "transfer_format_version": document["format_version"],
         },
         summary=summary,
         undo_data={

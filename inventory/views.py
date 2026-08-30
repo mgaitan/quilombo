@@ -203,6 +203,16 @@ def _inventory_count(key, count):
         return ngettext("%(count)s item", "%(count)s items", count) % {"count": count}
     if key == "holdings":
         return ngettext("%(count)s holding", "%(count)s holdings", count) % {"count": count}
+    if key == "labels":
+        return ngettext("%(count)s label", "%(count)s labels", count) % {"count": count}
+    if key == "label_aliases":
+        return ngettext("%(count)s label alias", "%(count)s label aliases", count) % {
+            "count": count
+        }
+    if key == "item_labels":
+        return ngettext("%(count)s label assertion", "%(count)s label assertions", count) % {
+            "count": count
+        }
     return ngettext("%(count)s spatial relation", "%(count)s spatial relations", count) % {
         "count": count
     }
@@ -210,7 +220,15 @@ def _inventory_count(key, count):
 
 def _inventory_count_lines(summary):
     lines = []
-    for key in ("locations", "items", "holdings", "location_relations"):
+    for key in (
+        "locations",
+        "items",
+        "labels",
+        "label_aliases",
+        "item_labels",
+        "holdings",
+        "location_relations",
+    ):
         value = summary.get(key, 0)
         if isinstance(value, dict):
             created = value.get("created", 0)
