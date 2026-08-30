@@ -407,6 +407,18 @@ code {
   padding: 9px 10px;
   background: #fff;
 }
+.auth-page form .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.auth-page form .checkbox-field label { margin: 0; }
+.auth-page form input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: #303532;
+}
 .auth-page form button {
   justify-self: start;
   border: 1px solid #303532;

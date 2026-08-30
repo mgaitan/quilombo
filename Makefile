@@ -56,7 +56,7 @@ neon-local-migrate: ## Apply current Django migrations to the isolated Neon bran
 	@DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= uv run python manage.py migrate
 
 runserver-neon-local: ## Run the web app against the isolated Neon branch
-	@DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= PUBLIC_BASE_URL=http://127.0.0.1:8001 uv run python manage.py runserver 127.0.0.1:8001
+	@set -a; [ ! -f .env ] || . ./.env; set +a; unset PROD_DATABASE_URL; DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= PUBLIC_BASE_URL=http://localhost:8000 uv run python manage.py runserver 127.0.0.1:8000
 
 docs: ## Build strict Sphinx/MyST documentation
 	uv run --group docs sphinx-build -b html -W --keep-going $(DOCS_SOURCE) $(DOCS_BUILD)/html
