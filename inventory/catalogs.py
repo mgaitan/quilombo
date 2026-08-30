@@ -281,6 +281,7 @@ def search_books(*, title, authors=None, publishers=None, limit=5):
         raise CatalogRecordNotFound("No Open Library records matched that book.")
     result = {
         "provider": "open_library",
+        "source_url": search_url,
         "query": {
             "title": title.strip(),
             "authors": authors or [],
@@ -473,6 +474,7 @@ def lookup_book_details(*, title, authors=None, publishers=None, isbn="", editio
     return {
         "match_method": "metadata",
         "provider": result["provider"],
+        "source_url": result["source_url"],
         "query": result["query"],
         "retrieved_at": result["retrieved_at"],
         "candidates": result["candidates"],

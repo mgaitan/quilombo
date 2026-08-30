@@ -25,8 +25,9 @@ relative locations.
 - State clearly when a write has completed. Do not describe a proposal as already applied.
 - Reply in the user's language and preserve their useful vocabulary as aliases.
 - For books, store `attributes.schema: "book"`. The item's `name` is the canonical title; put known
-  `authors` and `publishers` as string lists under `attributes.book`. These fields are optional to
-  storage, and the item name is enough for a later catalog lookup.
+  authors, publishers, publication date/year, edition, language, and page count under
+  `attributes.book`, and ISBN or Open Library edition identifiers under `attributes.identifiers`.
+  These fields are optional to storage, and the item name is enough for a later catalog lookup.
 
 ## Guide a first inventory
 

@@ -1,7 +1,10 @@
+import re
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from .attribute_profiles import normalize_item_attributes, schema_item_defaults
+from .catalogs import normalize_edition_key, normalize_isbn
 from .models import Holding, Item, Location
 from .services import normalize_aliases
 
@@ -64,6 +67,19 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
     aliases = forms.CharField(
         label=_("Aliases"), required=False, help_text=_("Separate aliases with commas.")
     )
+    authors = forms.CharField(label=_("Author(s)"), required=False)
+    publishers = forms.CharField(label=_("Publisher(s)"), required=False)
+    isbn = forms.CharField(
+        label=_("ISBN"),
+        required=False,
+        help_text=_("Separate multiple ISBNs with commas."),
+    )
+    openlibrary_edition = forms.CharField(label=_("Open Library edition"), required=False)
+    publication_date = forms.CharField(label=_("Publication date"), required=False)
+    publication_year = forms.IntegerField(label=_("Publication year"), required=False, min_value=0)
+    edition = forms.CharField(label=_("Edition"), required=False)
+    language = forms.CharField(label=_("Language"), required=False)
+    page_count = forms.IntegerField(label=_("Pages"), required=False, min_value=0)
 
     class Meta:
         model = Item
@@ -99,9 +115,47 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
         defaults = schema_item_defaults(attributes)
         if defaults:
             self.initial.update(defaults)
+        book = attributes.get("book") if isinstance(attributes.get("book"), dict) else {}
+        identifiers = (
+            attributes.get("identifiers") if isinstance(attributes.get("identifiers"), dict) else {}
+        )
+        for field in ("authors", "publishers"):
+            values = book.get(field, [])
+            if isinstance(values, list):
+                self.initial[field] = ", ".join(str(value) for value in values)
+        for field in ("publication_date", "publication_year", "edition", "language", "page_count"):
+            if field in book:
+                self.initial[field] = book[field]
+        isbn_values = identifiers.get("isbn", [])
+        if isinstance(isbn_values, str):
+            isbn_values = [isbn_values]
+        if isinstance(isbn_values, list) and isbn_values:
+            self.initial["isbn"] = ", ".join(isbn_values)
+        edition_values = identifiers.get("openlibrary_edition", [])
+        if isinstance(edition_values, str):
+            edition_values = [edition_values]
+        if isinstance(edition_values, list) and edition_values:
+            self.initial["openlibrary_edition"] = edition_values[0]
         if self.initial["schema"] == "book" or self.data.get("schema") == "book":
             self.fields["tracking_mode"].required = False
             self.fields["unit"].required = False
+
+    def clean_isbn(self):
+        value = self.cleaned_data.get("isbn", "")
+        values = [part.strip() for part in re.split(r"[,\n]+", value) if part.strip()]
+        try:
+            return list(dict.fromkeys(normalize_isbn(part) for part in values))
+        except ValueError as error:
+            raise forms.ValidationError(str(error)) from error
+
+    def clean_openlibrary_edition(self):
+        value = self.cleaned_data.get("openlibrary_edition", "").strip()
+        if not value:
+            return ""
+        try:
+            return normalize_edition_key(value)
+        except ValueError as error:
+            raise forms.ValidationError(str(error)) from error
 
     def clean_key(self):
         key = self.cleaned_data["key"]
@@ -125,6 +179,60 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
             attributes["schema"] = schema
         else:
             attributes.pop("schema", None)
+        if schema == "book":
+            book = attributes.get("book")
+            if not isinstance(book, dict):
+                book = {}
+            for field in ("authors", "publishers"):
+                values = normalize_aliases((cleaned_data.get(field) or "").split(","))
+                if values:
+                    book[field] = values
+                else:
+                    book.pop(field, None)
+            for field in (
+                "publication_date",
+                "publication_year",
+                "edition",
+                "language",
+                "page_count",
+            ):
+                value = cleaned_data.get(field)
+                if value in (None, ""):
+                    book.pop(field, None)
+                else:
+                    book[field] = value
+            if book:
+                attributes["book"] = book
+            else:
+                attributes.pop("book", None)
+
+            identifiers = attributes.get("identifiers")
+            if not isinstance(identifiers, dict):
+                identifiers = {}
+            if cleaned_data.get("isbn"):
+                identifiers["isbn"] = cleaned_data["isbn"]
+            else:
+                identifiers.pop("isbn", None)
+            if cleaned_data.get("openlibrary_edition"):
+                identifiers["openlibrary_edition"] = [cleaned_data["openlibrary_edition"]]
+            else:
+                identifiers.pop("openlibrary_edition", None)
+            if identifiers:
+                attributes["identifiers"] = identifiers
+            else:
+                attributes.pop("identifiers", None)
+        for field in (
+            "authors",
+            "publishers",
+            "isbn",
+            "openlibrary_edition",
+            "publication_date",
+            "publication_year",
+            "edition",
+            "language",
+            "page_count",
+        ):
+            cleaned_data.pop(field, None)
         cleaned_data["attributes"] = attributes
         cleaned_data.update(schema_item_defaults(attributes))
         if (

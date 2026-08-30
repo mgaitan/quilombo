@@ -50,10 +50,18 @@ For books, set `attributes.schema` to `book` and keep user-provided bibliographi
 ```json
 {
   "name": "The Gray Angel Chronicles",
-  "schema": "book",
-  "book": {
-    "authors": ["Alejandro Dolina"],
-    "publishers": ["Editorial Planeta"]
+  "category": "book",
+  "attributes": {
+    "schema": "book",
+    "book": {
+      "authors": ["Alejandro Dolina"],
+      "publishers": ["Editorial Planeta"],
+      "publication_year": 2020,
+      "language": "es"
+    },
+    "identifiers": {
+      "isbn": ["9789500437911"]
+    }
   }
 }
 ```

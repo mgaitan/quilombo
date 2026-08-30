@@ -851,6 +851,94 @@ def test_bulk_upsert_rolls_back_invalid_references(users, workspaces):
 
 
 @pytest.mark.django_db
+def test_bulk_upsert_rejects_omitted_fractional_holding_when_switching_to_discrete(
+    users, workspaces
+):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="legacy-book",
+        name="Legacy book",
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+    Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("1.5")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/bulk-upsert/",
+        {
+            "idempotency_key": "convert-legacy-book",
+            "items": [
+                {
+                    "key": item.key,
+                    "name": item.name,
+                    "attributes": {"schema": "book"},
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    item.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.BULK
+    assert item.unit == "unit"
+    assert item.attributes == {}
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_can_convert_and_replace_fractional_holding_atomically(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="legacy-book",
+        name="Legacy book",
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("1.5")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/bulk-upsert/",
+        {
+            "idempotency_key": "convert-and-replace-book",
+            "items": [
+                {
+                    "key": item.key,
+                    "name": item.name,
+                    "attributes": {"schema": "book"},
+                }
+            ],
+            "holdings": [
+                {
+                    "item_key": item.key,
+                    "location_key": location.key,
+                    "quantity": "2",
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert item.unit == "copy"
+    assert holding.quantity == Decimal("2")
+
+
+@pytest.mark.django_db
 def test_bulk_upsert_query_count_is_constant_for_large_batch(users, workspaces):
     client = APIClient()
     client.force_authenticate(users[0])
@@ -3365,11 +3453,82 @@ def test_web_book_type_sets_schema_and_item_defaults(client, users, workspaces):
     item = workspace.items.get(key="matilda")
     assert new_item_page.status_code == 200
     assert 'name="schema"' in new_item_page.content.decode()
+    assert 'name="isbn"' in new_item_page.content.decode()
     assert created.status_code == 302
     assert item.attributes == {"schema": "book"}
     assert item.tracking_mode == Item.TrackingMode.DISCRETE
     assert item.unit == "copy"
     assert item.holdings.get().quantity == Decimal("1")
+
+
+@pytest.mark.django_db
+def test_web_book_form_edits_metadata_and_preserves_unknown_attributes(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="matilda",
+        name="Matilda",
+        category="books",
+        attributes={
+            "schema": "book",
+            "book": {"custom_note": "signed", "authors": ["Old author"]},
+            "identifiers": {
+                "openlibrary_edition": ["OL111M"],
+                "custom": ["x"],
+                "isbn": ["9780140328721", "9780439023481"],
+            },
+            "custom_attribute": {"color": "red"},
+        },
+    )
+    client.force_login(users[0])
+
+    edit_page = client.get(f"/app/workshop/items/{book.id}/edit/")
+    assert 'value="9780140328721, 9780439023481"' in edit_page.content.decode()
+
+    edit = client.post(
+        f"/app/workshop/items/{book.id}/edit/",
+        {
+            "key": "matilda",
+            "name": "Matilda",
+            "schema": "book",
+            "description": "",
+            "category": "books",
+            "aliases": "",
+            "authors": "Roald Dahl",
+            "publishers": "Puffin",
+            "isbn": "9780140328721, 9780439023481",
+            "openlibrary_edition": "OL111M",
+            "publication_date": "1988-10-01",
+            "publication_year": "1988",
+            "edition": "First edition",
+            "language": "en",
+            "page_count": "240",
+            "minimum_quantity": "",
+            "target_quantity": "",
+        },
+    )
+
+    assert edit.status_code == 302
+    book.refresh_from_db()
+    assert book.attributes == {
+        "schema": "book",
+        "book": {
+            "custom_note": "signed",
+            "authors": ["Roald Dahl"],
+            "publishers": ["Puffin"],
+            "publication_date": "1988-10-01",
+            "publication_year": 1988,
+            "edition": "First edition",
+            "language": "en",
+            "page_count": 240,
+        },
+        "identifiers": {
+            "openlibrary_edition": ["OL111M"],
+            "custom": ["x"],
+            "isbn": ["9780140328721", "9780439023481"],
+        },
+        "custom_attribute": {"color": "red"},
+    }
 
 
 @pytest.mark.django_db
@@ -3487,6 +3646,30 @@ def test_item_api_rejects_book_conversion_with_fractional_holdings(users, worksp
 
 
 @pytest.mark.django_db
+def test_item_api_preserves_non_object_attributes_on_partial_update(users, workspaces):
+    workspace, _ = workspaces
+    item = Item.objects.create(
+        workspace=workspace,
+        key="legacy-item",
+        name="Legacy item",
+        attributes=["legacy", {"source": "import"}],
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.patch(
+        f"/api/workspaces/{workspace.slug}/items/{item.id}/",
+        {"name": "Updated legacy item"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    item.refresh_from_db()
+    assert item.name == "Updated legacy item"
+    assert item.attributes == {"legacy_attributes": ["legacy", {"source": "import"}]}
+
+
+@pytest.mark.django_db
 def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, workspaces):
     workspace, _ = workspaces
     book = Item.objects.create(
@@ -3496,7 +3679,11 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
         category="books",
         attributes={
             "schema": "book",
-            "book": {"title": "Matilda", "authors": ["Roald Dahl"]},
+            "book": {
+                "authors": ["Roald Dahl"],
+                "publishers": ["Puffin"],
+                "publication_year": 1988,
+            },
         },
     )
     client.force_login(users[0])
@@ -3542,9 +3729,13 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
     content = detail.content.decode()
     assert detail.status_code == 200
     assert "Open Library" in content
+    assert "Metadatos estructurados" in content
+    assert content.index("Autores") < content.index("Editoriales")
+    assert "https://openlibrary.org/search.json" in content
+    assert "1988" in content
     assert "9780140328721" in content
     assert "9780439023481" in content
-    assert "Confirm this edition" in content
+    assert "Confirmar esta edición" in content
     assert urlopen_mock.call_count == 3
 
     confirmation_payload = {
@@ -3570,6 +3761,41 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
         "openlibrary_edition": ["OL111M"],
     }
     assert "Puffin" not in book.attributes
+
+
+@pytest.mark.django_db
+def test_web_book_detail_expands_catalog_candidates_without_covers(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="book-without-cover",
+        name="Book without cover",
+        category="books",
+        attributes={"schema": "book", "book": {"authors": ["An Author"]}},
+    )
+    client.force_login(users[0])
+    search_payload = {
+        "docs": [
+            {
+                "title": "Book without cover",
+                "author_name": ["An Author"],
+                "publisher": ["A Publisher"],
+            }
+        ]
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(search_payload).encode()),
+    ):
+        detail = client.get(f"/app/{workspace.slug}/items/{book.id}/")
+
+    content = detail.content.decode()
+    assert detail.status_code == 200
+    assert 'class="book-candidate book-candidate-no-cover"' in content
+    assert "An Author" in content
+    assert "A Publisher" in content
 
 
 @pytest.mark.django_db
@@ -3602,6 +3828,41 @@ def test_web_book_confirmation_rejects_mismatched_isbn_and_edition(client, users
     assert response.status_code == 302
     book.refresh_from_db()
     assert "identifiers" not in book.attributes
+
+
+@pytest.mark.django_db
+def test_web_book_confirmation_accepts_isbn_when_edition_has_no_isbn(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="book-with-unlisted-isbn",
+        name="Book with unlisted ISBN",
+        category="books",
+        attributes={"schema": "book", "book": {"title": "Book with unlisted ISBN"}},
+    )
+    client.force_login(users[0])
+    edition_payload = {
+        "title": "Book with unlisted ISBN",
+        "publishers": ["A Publisher"],
+        "covers": [123],
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(edition_payload).encode()),
+    ):
+        response = client.post(
+            f"/app/{workspace.slug}/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL222M"},
+        )
+
+    assert response.status_code == 302
+    book.refresh_from_db()
+    assert book.attributes["identifiers"] == {
+        "isbn": ["9780140328721"],
+        "openlibrary_edition": ["OL222M"],
+    }
 
 
 @pytest.mark.django_db

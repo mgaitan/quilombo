@@ -36,9 +36,10 @@ For a book, a useful record might look like:
   "attributes": {
     "schema": "book",
     "book": {
-      "title": "The Gray Angel Chronicles",
       "authors": ["Alejandro Dolina"],
-      "publishers": []
+      "publishers": [],
+      "publication_year": 2020,
+      "language": "es"
     }
   },
   "description": "Blue edition, medium height"

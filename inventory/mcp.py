@@ -459,7 +459,8 @@ def get_inventory_status(ctx: Context) -> dict[str, Any]:
     title="Get an attribute profile",
     description=(
         "Return the stable attribute profile for a category. Use the book profile when recording "
-        "books so user-provided authors and publishers are stored under attributes.book; the "
+        "books so user-provided bibliographic fields are stored under attributes.book and "
+        "identifiers such as ISBN under attributes.identifiers; the "
         "item name is the canonical title. "
         "Profiles guide clients and do not make optional fields mandatory."
     ),

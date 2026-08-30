@@ -905,6 +905,42 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
     relation_rows = data.get("location_relations", [])
     now = timezone.now()
 
+    existing_items = {
+        item.key: item for item in workspace.items.filter(key__in=[row["key"] for row in item_rows])
+    }
+    holding_replacements = {
+        (row["item_key"], row["location_key"]): row["quantity"] for row in holding_rows
+    }
+    discrete_item_ids = {
+        item.id
+        for row in item_rows
+        for item in [existing_items.get(row["key"])]
+        if item
+        and schema_item_defaults(row.get("attributes", {}), row.get("category", item.category)).get(
+            "tracking_mode", row.get("tracking_mode", item.tracking_mode)
+        )
+        == Item.TrackingMode.DISCRETE
+    }
+    item_keys_by_id = {item.id: item.key for item in existing_items.values()}
+    fractional_item_keys = {
+        item_keys_by_id[item_id]
+        for item_id, location_key, quantity in Holding.objects.select_for_update()
+        .filter(workspace=workspace, item_id__in=discrete_item_ids)
+        .values_list("item_id", "location__key", "quantity")
+        if quantity != quantity.to_integral_value()
+        and (
+            (item_keys_by_id[item_id], location_key) not in holding_replacements
+            or holding_replacements[(item_keys_by_id[item_id], location_key)]
+            != holding_replacements[(item_keys_by_id[item_id], location_key)].to_integral_value()
+        )
+    }
+    if fractional_item_keys:
+        keys = ", ".join(sorted(fractional_item_keys))
+        raise BulkUpsertError(
+            "All holdings must have whole quantities before switching to discrete tracking; "
+            f"correct these items first: {keys}"
+        )
+
     locations = [
         Location(
             workspace=workspace,
