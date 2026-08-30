@@ -3729,12 +3729,13 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
     content = detail.content.decode()
     assert detail.status_code == 200
     assert "Open Library" in content
-    assert "Structured metadata" in content
-    assert content.index("Authors") < content.index("Publishers")
+    assert "Metadatos estructurados" in content
+    assert content.index("Autores") < content.index("Editoriales")
+    assert "https://openlibrary.org/search.json" in content
     assert "1988" in content
     assert "9780140328721" in content
     assert "9780439023481" in content
-    assert "Confirm this edition" in content
+    assert "Confirmar esta edición" in content
     assert urlopen_mock.call_count == 3
 
     confirmation_payload = {

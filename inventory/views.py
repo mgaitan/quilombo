@@ -707,6 +707,13 @@ def _book_catalog_input(item):
             return []
         return [entry.strip() for entry in value if isinstance(entry, str) and entry.strip()]
 
+    authors = strings("authors")
+    if not authors and isinstance(attributes.get("author"), str):
+        authors = [attributes["author"].strip()] if attributes["author"].strip() else []
+    publishers = strings("publishers")
+    if not publishers and isinstance(attributes.get("publisher"), str):
+        publishers = [attributes["publisher"].strip()] if attributes["publisher"].strip() else []
+
     identifiers = attributes.get("identifiers")
     if not isinstance(identifiers, dict):
         identifiers = {}
@@ -725,8 +732,8 @@ def _book_catalog_input(item):
             edition = values[0]
     return {
         "title": item.name,
-        "authors": strings("authors"),
-        "publishers": strings("publishers"),
+        "authors": authors,
+        "publishers": publishers,
         "isbn": isbn,
         "edition": edition,
     }
@@ -784,7 +791,11 @@ def _item_attribute_rows(attributes):
             )
 
     for key in sorted(set(attributes) - {"schema", "book", "identifiers"}):
-        rows.append({"label": key, "value": _attribute_value(attributes[key])})
+        labels = {
+            "author": _("Author"),
+            "publisher": _("Publisher"),
+        }
+        rows.append({"label": labels.get(key, key), "value": _attribute_value(attributes[key])})
     return rows
 
 

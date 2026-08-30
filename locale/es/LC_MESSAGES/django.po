@@ -848,3 +848,54 @@ msgstr "Continuar con GitHub"
 
 msgid "or"
 msgstr "o"
+
+msgid "Structured metadata"
+msgstr "Metadatos estructurados"
+
+msgid "Authors"
+msgstr "Autores"
+
+msgid "Author"
+msgstr "Autor"
+
+msgid "Publishers"
+msgstr "Editoriales"
+
+msgid "Publisher"
+msgstr "Editorial"
+
+msgid "Publication date"
+msgstr "Fecha de publicación"
+
+msgid "Year"
+msgstr "Año"
+
+msgid "Pages"
+msgstr "Páginas"
+
+msgid "Edition"
+msgstr "Edición"
+
+msgid "Title"
+msgstr "Título"
+
+msgid "Published"
+msgstr "Publicado"
+
+msgid "Confirm this edition"
+msgstr "Confirmar esta edición"
+
+msgid "View in Open Library"
+msgstr "Ver en Open Library"
+
+msgid "Several editions may match this book. Confirm the one you have."
+msgstr "Varias ediciones pueden coincidir con este libro. Confirmá la que tenés."
+
+msgid "Open Library edition"
+msgstr "Edición de Open Library"
+
+msgid "Book · %(key)s"
+msgstr "Libro · %(key)s"
+
+msgid "Identifier · %(key)s"
+msgstr "Identificador · %(key)s"
