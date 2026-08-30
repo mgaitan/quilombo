@@ -59,7 +59,7 @@ wait_for_endpoint() {
   for _ in $(seq 1 60); do
     state="$(api "${API_BASE_URL}/projects/${PROJECT_ID}/branches/${branch}/endpoints" \
       | jq -r --arg endpoint "${endpoint}" '.endpoints[] | select(.id == $endpoint) | .current_state')"
-    if [[ "${state}" == "active" || "${state}" == "ready" ]]; then
+    if [[ "${state}" == "active" || "${state}" == "idle" || "${state}" == "ready" ]]; then
       return
     fi
     sleep 2
@@ -89,7 +89,7 @@ ensure_branch() {
 database_url() {
   local branch endpoint
   IFS=$'\t' read -r branch endpoint <<<"$(ensure_branch)"
-  api "${API_BASE_URL}/projects/${PROJECT_ID}/connection_uri?branch_id=${branch}&endpoint_id=${endpoint}&role_name=${ROLE_NAME}&database_name=${DATABASE_NAME}" \
+  api "${API_BASE_URL}/projects/${PROJECT_ID}/connection_uri?branch_id=${branch}&endpoint_id=${endpoint}&role_name=${ROLE_NAME}&database_name=${DATABASE_NAME}&pooled=false" \
     | jq -er '.uri'
 }
 
