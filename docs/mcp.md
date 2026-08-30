@@ -54,17 +54,18 @@ user-provided facts in this shape:
 {
   "schema": "book",
   "book": {
-    "title": "Matilda",
     "authors": ["Roald Dahl"],
     "publishers": ["Puffin"]
   }
 }
 ```
 
-The title is enough to attempt a later Open Library lookup. Authors and publishers are optional and
-improve disambiguation. Do not invent them, and do not add external catalog metadata during the
-ordinary inventory upsert merely because a lookup might be useful later. Unknown attributes remain
-valid and must be preserved.
+The item's `name` is the canonical title and is enough to attempt a later Open Library lookup.
+Authors and publishers are optional and improve disambiguation. Do not invent them, and do not add
+external catalog metadata during the ordinary inventory upsert merely because a lookup might be
+useful later. Unknown attributes remain valid and must be preserved.
+The book profile also defines discrete tracking with `copy` as the unit; write paths derive those
+values from `schema="book"`.
 
 For a bulk observation such as “index the books on shelf X; ISBNs are ...”, call
 `lookup_books_by_isbn` before writing. It accepts up to 100 ISBNs, normalizes duplicates, queries
@@ -81,7 +82,7 @@ the original event, while reusing its key with a different payload returns a `co
 
 `get_book_details` reads the requested item inside the authorized workspace and queries Open Library
 on demand. It uses a stored ISBN first when one has been confirmed; otherwise it searches with the
-book profile's title and any stored authors or publishers. An ISBN match returns details and a source
+item name and any stored authors or publishers. An ISBN match returns details and a source
 URL. A metadata search returns one or more edition-specific candidates, including the edition's ISBN,
 publisher, page count, and cover URL when Open Library provides them. Ambiguous candidates remain a
 client-side confirmation workflow.

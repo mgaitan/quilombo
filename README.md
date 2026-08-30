@@ -100,12 +100,13 @@ Mutating tools write immediately. Clients should show the proposed change and ob
 before calling them. Every intended mutation gets a unique idempotency key and may include a short
 provenance reference.
 
-When recording a book, use `attributes.schema: "book"` and put the user-provided title, authors, and
-publishers under `attributes.book`. `get_attribute_profile` describes this minimum contract; it does
-not make optional fields mandatory.
+When recording a book, use `attributes.schema: "book"`. The item's `name` is the canonical title;
+put user-provided authors and publishers under `attributes.book`. `get_attribute_profile` describes
+this contract; it does not make optional fields mandatory. The book profile uses discrete tracking
+with `copy` as the unit, and write paths derive those values from `schema="book"`.
 
 When a client needs book details, call `get_book_details` with the item's UUID. Open Library is
-queried on demand using a confirmed ISBN when available, or the stored title, authors, and
+queried on demand using a confirmed ISBN when available, or the item's name and stored authors and
 publishers otherwise. The read-only response includes details or edition candidates and optional
 cover URLs; it does not write the external metadata into the item. Ask the user to disambiguate
 candidates before persisting a confirmed identifier through the normal inventory workflow. The web

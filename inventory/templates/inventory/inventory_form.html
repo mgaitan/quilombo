@@ -61,3 +61,27 @@
     </div>
   </form>
 {% endblock %}
+
+{% block scripts %}
+  {% if item_form %}
+    <script>
+      (() => {
+        const schema = document.getElementById("id_schema");
+        const trackingMode = document.getElementById("id_tracking_mode");
+        const unit = document.getElementById("id_unit");
+        if (!schema || !trackingMode || !unit) return;
+        const updateSchemaDefaults = () => {
+          const isBook = schema.value === "book";
+          trackingMode.disabled = isBook;
+          unit.disabled = isBook;
+          if (isBook) {
+            trackingMode.value = "discrete";
+            unit.value = "copy";
+          }
+        };
+        schema.addEventListener("change", updateSchemaDefaults);
+        updateSchemaDefaults();
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

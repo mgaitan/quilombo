@@ -1,6 +1,7 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from .attribute_profiles import normalize_item_attributes, schema_item_defaults
 from .models import Holding, Item, Location
 from .services import normalize_aliases
 
@@ -52,6 +53,14 @@ class AliasesFormMixin:
 
 
 class ItemForm(AliasesFormMixin, forms.ModelForm):
+    schema = forms.ChoiceField(
+        label=_("Type"),
+        choices=[
+            ("", _("Generic object")),
+            ("book", _("Book")),
+        ],
+        required=False,
+    )
     aliases = forms.CharField(
         label=_("Aliases"), required=False, help_text=_("Separate aliases with commas.")
     )
@@ -61,6 +70,7 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
         fields = [
             "key",
             "name",
+            "schema",
             "description",
             "category",
             "aliases",
@@ -84,6 +94,14 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.workspace = workspace
         self.instance.workspace = workspace
+        attributes = self.instance.attributes if isinstance(self.instance.attributes, dict) else {}
+        self.initial["schema"] = attributes.get("schema", "")
+        defaults = schema_item_defaults(attributes)
+        if defaults:
+            self.initial.update(defaults)
+        if self.initial["schema"] == "book" or self.data.get("schema") == "book":
+            self.fields["tracking_mode"].required = False
+            self.fields["unit"].required = False
 
     def clean_key(self):
         key = self.cleaned_data["key"]
@@ -96,6 +114,19 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        attributes = normalize_item_attributes(
+            self.instance.attributes,
+            self.instance.category,
+        )
+        schema = cleaned_data.pop("schema", "")
+        if not schema and "schema" not in self.data:
+            schema = attributes.get("schema", "")
+        if schema:
+            attributes["schema"] = schema
+        else:
+            attributes.pop("schema", None)
+        cleaned_data["attributes"] = attributes
+        cleaned_data.update(schema_item_defaults(attributes))
         if (
             self.instance.pk
             and cleaned_data.get("tracking_mode") == Item.TrackingMode.DISCRETE

@@ -26,6 +26,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import gettext as _
 
+from .attribute_profiles import normalize_item_attributes, schema_item_defaults
 from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Membership, Workspace
 from .state import capture_inventory_state, inventory_state_hash, restore_inventory_state
 
@@ -141,6 +142,11 @@ def update_location(*, workspace, location, data):
 @transaction.atomic
 def create_item_with_holding(*, workspace, item_data, holding_data):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
+    item_data = dict(item_data)
+    item_data["attributes"] = normalize_item_attributes(
+        item_data.get("attributes"), item_data.get("category", "")
+    )
+    item_data.update(schema_item_defaults(item_data["attributes"]))
     item = Item(workspace=workspace, **item_data)
     item.full_clean()
     item.save()
@@ -154,6 +160,11 @@ def create_item_with_holding(*, workspace, item_data, holding_data):
 def update_item(*, workspace, item, data, actor):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
+    data = dict(data)
+    data["attributes"] = normalize_item_attributes(
+        data.get("attributes", item.attributes), data.get("category", item.category)
+    )
+    data.update(schema_item_defaults(data["attributes"]))
     changed_fields = sorted(field for field, value in data.items() if getattr(item, field) != value)
     if data.get("tracking_mode", item.tracking_mode) == Item.TrackingMode.DISCRETE:
         quantities = (
@@ -897,9 +908,15 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
             description=row.get("description", ""),
             category=row.get("category", ""),
             aliases=normalize_aliases(row.get("aliases", [])),
-            attributes=row.get("attributes", {}),
-            tracking_mode=row.get("tracking_mode", Item.TrackingMode.BULK),
-            unit=row.get("unit", "unit"),
+            attributes=normalize_item_attributes(
+                row.get("attributes", {}), row.get("category", "")
+            ),
+            tracking_mode=schema_item_defaults(
+                row.get("attributes", {}), row.get("category", "")
+            ).get("tracking_mode", row.get("tracking_mode", Item.TrackingMode.BULK)),
+            unit=schema_item_defaults(row.get("attributes", {}), row.get("category", "")).get(
+                "unit", row.get("unit", "unit")
+            ),
             minimum_quantity=row.get("minimum_quantity"),
             target_quantity=row.get("target_quantity"),
             updated_at=now,
@@ -1148,7 +1165,13 @@ def update_inventory_item(*, workspace, actor, data, request_hash):
     if not item:
         raise InventoryNotFoundError("The requested item was not found in this workspace.")
 
-    item_fields = data.get("item", {})
+    item_fields = dict(data.get("item", {}))
+    if item_fields:
+        item_fields["attributes"] = normalize_item_attributes(
+            item_fields.get("attributes", item.attributes),
+            item_fields.get("category", item.category),
+        )
+        item_fields.update(schema_item_defaults(item_fields["attributes"]))
     holding_rows = data.get("holdings", [])
     minimum = item_fields.get("minimum_quantity", item.minimum_quantity)
     target = item_fields.get("target_quantity", item.target_quantity)

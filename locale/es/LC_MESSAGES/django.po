@@ -470,6 +470,15 @@ msgstr "Descripción"
 msgid "Category"
 msgstr "Categoría"
 
+msgid "Type"
+msgstr "Tipo"
+
+msgid "Generic object"
+msgstr "Objeto genérico"
+
+msgid "Book"
+msgstr "Libro"
+
 msgid "Tracking mode"
 msgstr "Modo de seguimiento"
 
