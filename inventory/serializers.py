@@ -1,12 +1,16 @@
+from decimal import Decimal
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .attribute_profiles import normalize_item_attributes, schema_item_defaults
+from .labels import label_display_value, normalize_label_identity
 from .models import (
     ApiToken,
     Holding,
     InventoryEvent,
     Item,
+    ItemLabel,
     Location,
     LocationRelation,
     VerificationStatus,
@@ -259,6 +263,70 @@ class ProvenanceSerializer(serializers.Serializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Metadata must be a JSON object.")
         return value
+
+
+class LabelSuggestionQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(max_length=200, trim_whitespace=False)
+    limit = serializers.IntegerField(required=False, default=20, min_value=1, max_value=50)
+
+    def validate_q(self, value):
+        if not normalize_label_identity(value):
+            raise serializers.ValidationError("A label query cannot be empty.")
+        return value
+
+
+class LabelSuggestionSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    aliases = serializers.ListField(child=serializers.CharField())
+
+
+class ItemLabelAssertionSerializer(serializers.Serializer):
+    item_key = serializers.CharField(max_length=128)
+    value = serializers.CharField(max_length=200, trim_whitespace=False)
+    canonical_label_id = serializers.UUIDField(required=False)
+    source = serializers.ChoiceField(choices=ItemLabel.Source)
+    confidence = serializers.DecimalField(
+        required=False,
+        allow_null=True,
+        max_digits=4,
+        decimal_places=3,
+        min_value=Decimal("0"),
+        max_value=Decimal("1"),
+    )
+
+    def validate_value(self, value):
+        if not normalize_label_identity(value):
+            raise serializers.ValidationError("A label cannot be empty.")
+        if len(label_display_value(value)) > 200:
+            raise serializers.ValidationError("A normalized label cannot exceed 200 characters.")
+        return value
+
+
+class ItemLabelAssertionRequestSerializer(serializers.Serializer):
+    idempotency_key = serializers.CharField(max_length=160)
+    provenance = ProvenanceSerializer(required=False)
+    assertions = ItemLabelAssertionSerializer(many=True, allow_empty=False, max_length=5000)
+
+    def validate_assertions(self, rows):
+        identities = [
+            (
+                row["item_key"],
+                normalize_label_identity(row["value"]),
+                row.get("canonical_label_id"),
+                row["source"],
+            )
+            for row in rows
+        ]
+        if len(identities) != len(set(identities)):
+            raise serializers.ValidationError("The request contains a duplicate assertion.")
+        return rows
+
+
+class ItemLabelAssertionResultSerializer(serializers.Serializer):
+    event_id = serializers.UUIDField()
+    replayed = serializers.BooleanField()
+    processed = serializers.JSONField()
 
 
 class AuditHoldingSerializer(serializers.Serializer):

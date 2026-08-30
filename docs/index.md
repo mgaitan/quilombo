@@ -22,6 +22,7 @@ flowchart LR
 
 getting_started.md
 concepts.md
+labels.md
 audits.md
 ```
 

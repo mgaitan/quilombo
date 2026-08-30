@@ -74,7 +74,11 @@ from .serializers import (
     HoldingSerializer,
     InventoryImportResultSerializer,
     InventoryImportSerializer,
+    ItemLabelAssertionRequestSerializer,
+    ItemLabelAssertionResultSerializer,
     ItemSerializer,
+    LabelSuggestionQuerySerializer,
+    LabelSuggestionSerializer,
     LocationRelationSerializer,
     LocationSerializer,
     SearchQuerySerializer,
@@ -86,7 +90,9 @@ from .services import (
     BulkUpsertError,
     IdempotencyConflict,
     InventoryUndoError,
+    LabelConflictError,
     add_search_match_details,
+    assert_item_labels,
     build_holding_clue_context,
     bulk_upsert_inventory,
     create_holding,
@@ -103,6 +109,7 @@ from .services import (
     rename_workspace,
     search_holdings,
     share_workspace,
+    suggest_labels,
     undo_inventory_event,
     update_holding,
     update_item,
@@ -1140,6 +1147,61 @@ class BulkUpsertView(WorkspaceAccessMixin, GenericAPIView):
             "processed": event.summary,
         }
         output = BulkUpsertResultSerializer(result)
+        return Response(
+            output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
+        )
+
+
+class LabelSuggestionView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = LabelSuggestionQuerySerializer
+
+    @extend_schema(
+        parameters=[LabelSuggestionQuerySerializer],
+        responses=LabelSuggestionSerializer(many=True),
+    )
+    def get(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        suggestions = suggest_labels(
+            workspace=self.get_workspace(),
+            query=serializer.validated_data["q"],
+            limit=serializer.validated_data["limit"],
+        )
+        return Response(LabelSuggestionSerializer(suggestions, many=True).data)
+
+
+class ItemLabelAssertionView(WorkspaceAccessMixin, GenericAPIView):
+    serializer_class = ItemLabelAssertionRequestSerializer
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: ItemLabelAssertionResultSerializer,
+            status.HTTP_201_CREATED: ItemLabelAssertionResultSerializer,
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        self.require_write_access()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            event, replayed = assert_item_labels(
+                workspace=self.get_workspace(),
+                actor=request.user,
+                data=serializer.validated_data,
+                request_hash=hash_request(serializer.validated_data),
+            )
+        except (IdempotencyConflict, LabelConflictError) as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        except BulkUpsertError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        output = ItemLabelAssertionResultSerializer(
+            {
+                "event_id": event.id,
+                "replayed": replayed,
+                "processed": event.summary,
+            }
+        )
         return Response(
             output.data, status=status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
         )

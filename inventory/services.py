@@ -15,6 +15,8 @@ from django.db.models import (
     Case,
     DecimalField,
     FloatField,
+    IntegerField,
+    Min,
     Q,
     Sum,
     TextField,
@@ -27,7 +29,19 @@ from django.utils.text import slugify
 from django.utils.translation import gettext as _
 
 from .attribute_profiles import normalize_item_attributes, schema_item_defaults
-from .models import Holding, InventoryEvent, Item, Location, LocationRelation, Membership, Workspace
+from .labels import label_display_value, normalize_label_identity, normalize_label_search
+from .models import (
+    Holding,
+    InventoryEvent,
+    Item,
+    ItemLabel,
+    Label,
+    LabelAlias,
+    Location,
+    LocationRelation,
+    Membership,
+    Workspace,
+)
 from .state import capture_inventory_state, inventory_state_hash, restore_inventory_state
 
 
@@ -44,6 +58,10 @@ class InventoryConflictError(BulkUpsertError):
 
 
 class IdempotencyConflict(BulkUpsertError):
+    pass
+
+
+class LabelConflictError(BulkUpsertError):
     pass
 
 
@@ -282,6 +300,55 @@ def normalize_aliases(values):
         seen.add(normalized)
         aliases.append(alias)
     return aliases
+
+
+def suggest_labels(*, workspace, query, limit=20):
+    identity_query = normalize_label_identity(query)
+    search_query = normalize_label_search(query)
+    if not identity_query:
+        return []
+
+    candidate_filter = Q(normalized_key__icontains=identity_query) | Q(
+        aliases__normalized_key__icontains=identity_query
+    )
+    if search_query:
+        candidate_filter |= Q(search_key__icontains=search_query) | Q(
+            aliases__search_key__icontains=search_query
+        )
+    rank_cases = [
+        When(normalized_key=identity_query, then=Value(0)),
+        When(aliases__normalized_key=identity_query, then=Value(1)),
+    ]
+    if search_query:
+        rank_cases.extend(
+            [
+                When(search_key=search_query, then=Value(2)),
+                When(aliases__search_key=search_query, then=Value(3)),
+            ]
+        )
+    rank_cases.append(When(normalized_key__startswith=identity_query, then=Value(4)))
+    if search_query:
+        rank_cases.append(When(search_key__startswith=search_query, then=Value(4)))
+    rank_cases.append(When(aliases__normalized_key__startswith=identity_query, then=Value(5)))
+    if search_query:
+        rank_cases.append(When(aliases__search_key__startswith=search_query, then=Value(5)))
+    candidates = list(
+        Label.objects.filter(workspace=workspace)
+        .filter(candidate_filter)
+        .annotate(
+            suggestion_rank=Min(Case(*rank_cases, default=Value(6), output_field=IntegerField()))
+        )
+        .prefetch_related("aliases")
+        .order_by("suggestion_rank", "name", "id")[:limit]
+    )
+    return [
+        {
+            "id": label.id,
+            "name": label.name,
+            "aliases": [alias.value for alias in label.aliases.all()],
+        }
+        for label in candidates
+    ]
 
 
 def _search_tokens(value):
@@ -1153,6 +1220,137 @@ def _replayed_event(*, workspace, data, request_hash):
     if event and event.request_hash != request_hash:
         raise IdempotencyConflict("Idempotency key was already used with a different payload.")
     return event
+
+
+@transaction.atomic
+def assert_item_labels(*, workspace, actor, data, request_hash):
+    Workspace.objects.select_for_update().get(pk=workspace.pk)
+    if event := _replayed_event(workspace=workspace, data=data, request_hash=request_hash):
+        return event, True
+
+    rows = data["assertions"]
+    item_keys = {row["item_key"] for row in rows}
+    items = {
+        item.key: item
+        for item in Item.objects.select_for_update().filter(workspace=workspace, key__in=item_keys)
+    }
+    if len(items) != len(item_keys):
+        raise InventoryNotFoundError("An item was not found in this workspace.")
+
+    requested_label_ids = {
+        row["canonical_label_id"] for row in rows if row.get("canonical_label_id")
+    }
+    requested_labels = {
+        label.id: label
+        for label in Label.objects.select_for_update().filter(
+            workspace=workspace, id__in=requested_label_ids
+        )
+    }
+    if len(requested_labels) != len(requested_label_ids):
+        raise InventoryNotFoundError("A canonical label was not found in this workspace.")
+
+    normalized_keys = {normalize_label_identity(row["value"]) for row in rows}
+    labels_by_key = {
+        label.normalized_key: label
+        for label in Label.objects.select_for_update().filter(
+            workspace=workspace, normalized_key__in=normalized_keys
+        )
+    }
+    aliases_by_key = {
+        alias.normalized_key: alias
+        for alias in LabelAlias.objects.select_for_update()
+        .select_related("label")
+        .filter(workspace=workspace, normalized_key__in=normalized_keys)
+    }
+
+    provenance = data.get("provenance", {})
+    metadata = event_metadata_from_provenance(provenance)
+    assertions = []
+    labels_created = 0
+    aliases_created = 0
+    for row in rows:
+        original_value = row["value"]
+        normalized_key = normalize_label_identity(original_value)
+        canonical_match = labels_by_key.get(normalized_key)
+        alias_match = aliases_by_key.get(normalized_key)
+        requested_label = requested_labels.get(row.get("canonical_label_id"))
+
+        if requested_label:
+            if canonical_match and canonical_match.id != requested_label.id:
+                raise LabelConflictError(
+                    "That value is already a canonical label; merge it explicitly instead."
+                )
+            if alias_match and alias_match.label_id != requested_label.id:
+                raise LabelConflictError("That alias already points to another canonical label.")
+            label = requested_label
+            if normalized_key != label.normalized_key and not alias_match and not canonical_match:
+                alias = LabelAlias(
+                    workspace=workspace,
+                    label=label,
+                    value=label_display_value(original_value),
+                )
+                alias.full_clean()
+                alias.save()
+                aliases_by_key[normalized_key] = alias
+                aliases_created += 1
+        else:
+            if canonical_match and alias_match and alias_match.label_id != canonical_match.id:
+                raise LabelConflictError("That value resolves to multiple canonical labels.")
+            if canonical_match:
+                label = canonical_match
+            elif alias_match:
+                label = alias_match.label
+            else:
+                label = Label(
+                    workspace=workspace,
+                    name=label_display_value(original_value),
+                )
+                label.full_clean()
+                label.save()
+                labels_by_key[normalized_key] = label
+                labels_created += 1
+
+        assertion = ItemLabel(
+            workspace=workspace,
+            item=items[row["item_key"]],
+            label=label,
+            original_value=original_value,
+            source=row["source"],
+            confidence=row.get("confidence"),
+            source_reference=provenance.get("source_reference", ""),
+            metadata=metadata,
+            created_by=actor,
+        )
+        assertion.full_clean()
+        assertion.save()
+        assertions.append(
+            {
+                "id": str(assertion.id),
+                "item_key": assertion.item.key,
+                "label_id": str(label.id),
+                "label": label.name,
+                "original_value": assertion.original_value,
+                "source": assertion.source,
+                "confidence": str(assertion.confidence)
+                if assertion.confidence is not None
+                else None,
+            }
+        )
+
+    summary = {
+        "assertions": assertions,
+        "labels_created": labels_created,
+        "aliases_created": aliases_created,
+    }
+    event = _mutation_event(
+        workspace=workspace,
+        actor=actor,
+        kind=InventoryEvent.Kind.LABEL_ASSERTION,
+        data=data,
+        request_hash=request_hash,
+        summary=summary,
+    )
+    return event, False
 
 
 @transaction.atomic

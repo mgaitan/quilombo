@@ -10,7 +10,9 @@ from .views import (
     InventoryExportView,
     InventoryImportView,
     InventorySearchView,
+    ItemLabelAssertionView,
     ItemViewSet,
+    LabelSuggestionView,
     LocationRelationViewSet,
     LocationViewSet,
     StockStatusView,
@@ -67,6 +69,16 @@ urlpatterns = [
         "workspaces/<slug:workspace_slug>/bulk-upsert/",
         BulkUpsertView.as_view(),
         name="bulk-upsert",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/labels/",
+        LabelSuggestionView.as_view(),
+        name="label-suggestions",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/label-assertions/",
+        ItemLabelAssertionView.as_view(),
+        name="label-assertions",
     ),
     path("workspaces/<slug:workspace_slug>/", include(router.urls)),
 ]

@@ -56,6 +56,13 @@ and reports which terms and fields matched. Short technical codes are exact toke
 not match `AAA`. The API does not invent semantic synonyms; clients can add known aliases or issue
 separate translated searches.
 
+## Labels
+
+Labels add open vocabulary without conflating canonical identity with an assertion about an item.
+Deterministic normalization handles case, Unicode compatibility forms, and whitespace; aliases and
+multilingual equivalence require explicit confirmation. See [Labels and emerging facets](labels.md)
+for the model, API flow, and facet-promotion design.
+
 ## Provenance
 
 Quilombo stores provenance metadata supplied by the client, such as “processed from a workshop
