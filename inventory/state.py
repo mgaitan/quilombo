@@ -4,10 +4,13 @@ from decimal import Decimal
 
 from django.utils.dateparse import parse_datetime
 
-from .models import Holding, Item, Location, LocationRelation
+from .models import Holding, Item, ItemLabel, Label, LabelAlias, Location, LocationRelation
 
 
 def capture_inventory_state(workspace):
+    labels = list(workspace.labels.order_by("name", "id"))
+    label_aliases = list(workspace.label_aliases.order_by("value", "id")) if labels else []
+    item_labels = list(workspace.item_labels.order_by("created_at", "id")) if labels else []
     return {
         "locations": [
             {
@@ -53,6 +56,45 @@ def capture_inventory_state(workspace):
             }
             for item in workspace.items.order_by("key", "id")
         ],
+        "labels": [
+            {
+                "id": str(label.id),
+                "name": label.name,
+                "normalized_key": label.normalized_key,
+                "search_key": label.search_key,
+                "created_at": label.created_at.isoformat(),
+                "updated_at": label.updated_at.isoformat(),
+            }
+            for label in labels
+        ],
+        "label_aliases": [
+            {
+                "id": str(alias.id),
+                "label_id": str(alias.label_id),
+                "value": alias.value,
+                "normalized_key": alias.normalized_key,
+                "search_key": alias.search_key,
+                "created_at": alias.created_at.isoformat(),
+            }
+            for alias in label_aliases
+        ],
+        "item_labels": [
+            {
+                "id": str(assertion.id),
+                "item_id": str(assertion.item_id),
+                "label_id": str(assertion.label_id),
+                "original_value": assertion.original_value,
+                "source": assertion.source,
+                "confidence": (
+                    str(assertion.confidence) if assertion.confidence is not None else None
+                ),
+                "source_reference": assertion.source_reference,
+                "metadata": assertion.metadata,
+                "created_by_id": assertion.created_by_id,
+                "created_at": assertion.created_at.isoformat(),
+            }
+            for assertion in item_labels
+        ],
         "holdings": [
             {
                 "id": str(holding.id),
@@ -95,6 +137,9 @@ def inventory_state_hash(state):
 def restore_inventory_state(workspace, state):
     workspace.location_relations.all().delete()
     workspace.holdings.all().delete()
+    workspace.item_labels.all().delete()
+    workspace.label_aliases.all().delete()
+    workspace.labels.all().delete()
     workspace.items.all().delete()
     workspace.locations.update(parent=None)
     workspace.locations.all().delete()
@@ -155,6 +200,62 @@ def restore_inventory_state(workspace, state):
         items[row["id"]].created_at = parse_datetime(row["created_at"])
         items[row["id"]].updated_at = parse_datetime(row["updated_at"])
     Item.objects.bulk_update(items.values(), ["created_at", "updated_at"])
+
+    labels = {
+        row["id"]: Label(
+            id=row["id"],
+            workspace=workspace,
+            name=row["name"],
+            normalized_key=row["normalized_key"],
+            search_key=row["search_key"],
+            created_at=parse_datetime(row["created_at"]),
+            updated_at=parse_datetime(row["updated_at"]),
+        )
+        for row in state.get("labels", [])
+    }
+    Label.objects.bulk_create(labels.values())
+    for row in state.get("labels", []):
+        labels[row["id"]].created_at = parse_datetime(row["created_at"])
+        labels[row["id"]].updated_at = parse_datetime(row["updated_at"])
+    Label.objects.bulk_update(labels.values(), ["created_at", "updated_at"])
+
+    label_aliases = [
+        LabelAlias(
+            id=row["id"],
+            workspace=workspace,
+            label_id=row["label_id"],
+            value=row["value"],
+            normalized_key=row["normalized_key"],
+            search_key=row["search_key"],
+            created_at=parse_datetime(row["created_at"]),
+        )
+        for row in state.get("label_aliases", [])
+    ]
+    LabelAlias.objects.bulk_create(label_aliases)
+    for alias, row in zip(label_aliases, state.get("label_aliases", []), strict=True):
+        alias.created_at = parse_datetime(row["created_at"])
+    LabelAlias.objects.bulk_update(label_aliases, ["created_at"])
+
+    item_labels = [
+        ItemLabel(
+            id=row["id"],
+            workspace=workspace,
+            item_id=row["item_id"],
+            label_id=row["label_id"],
+            original_value=row["original_value"],
+            source=row["source"],
+            confidence=Decimal(row["confidence"]) if row["confidence"] is not None else None,
+            source_reference=row["source_reference"],
+            metadata=row["metadata"],
+            created_by_id=row["created_by_id"],
+            created_at=parse_datetime(row["created_at"]),
+        )
+        for row in state.get("item_labels", [])
+    ]
+    ItemLabel.objects.bulk_create(item_labels)
+    for assertion, row in zip(item_labels, state.get("item_labels", []), strict=True):
+        assertion.created_at = parse_datetime(row["created_at"])
+    ItemLabel.objects.bulk_update(item_labels, ["created_at"])
 
     holdings = [
         Holding(

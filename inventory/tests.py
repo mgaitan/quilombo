@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import csv
 import hashlib
 import io
 import json
@@ -31,12 +32,16 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Implementation
 from rest_framework.test import APIClient
 
+from .labels import normalize_label_identity, normalize_label_search
 from .models import (
     AccessEvent,
     ApiToken,
     Holding,
     InventoryEvent,
     Item,
+    ItemLabel,
+    Label,
+    LabelAlias,
     Location,
     LocationRelation,
     Membership,
@@ -59,6 +64,7 @@ from .services import (
     undo_inventory_event,
     update_inventory_item,
 )
+from .transfers import CSV_FIELDS_V1_0, parse_inventory_document
 
 SOCIAL_PROVIDER_SETTINGS = {
     "github": {
@@ -206,6 +212,217 @@ def test_api_rejects_cross_workspace_holding(users, workspaces):
 
     assert response.status_code == 400
     assert "another workspace" in str(response.json())
+
+
+def test_label_identity_normalization_is_conservative():
+    assert normalize_label_identity("  Ｂｏｓｃｈ  ") == "bosch"
+    assert normalize_label_identity("eléctrica") != normalize_label_identity("electrica")
+    assert normalize_label_identity("tool") != normalize_label_identity("tools")
+    assert normalize_label_identity("C++") != normalize_label_identity("C")
+    assert normalize_label_search("eléctrica") == normalize_label_search("electrica")
+    assert normalize_label_search("C++") == normalize_label_search("C")
+
+
+@pytest.mark.django_db
+def test_label_assertions_preserve_input_and_replay_idempotently(users, workspaces):
+    workspace, _ = workspaces
+    Item.objects.create(workspace=workspace, key="drill", name="Cordless drill")
+    client = APIClient()
+    client.force_authenticate(users[0])
+    url = "/api/workspaces/workshop/label-assertions/"
+    payload = {
+        "idempotency_key": "workshop-label-001",
+        "provenance": {
+            "source_kind": "agent",
+            "source_reference": "conversation://workshop-42",
+            "metadata": {"observation": "bench photo"},
+        },
+        "assertions": [
+            {
+                "item_key": "drill",
+                "value": "  Bosch  ",
+                "source": "user",
+                "confidence": "1",
+            }
+        ],
+    }
+
+    created = client.post(url, payload, format="json")
+    replayed = client.post(url, payload, format="json")
+
+    assert created.status_code == 201
+    assert replayed.status_code == 200
+    assert replayed.json()["replayed"] is True
+    label = workspace.labels.get()
+    assertion = workspace.item_labels.get()
+    assert label.name == "Bosch"
+    assert label.normalized_key == "bosch"
+    assert assertion.original_value == "  Bosch  "
+    assert assertion.source == ItemLabel.Source.USER
+    assert assertion.confidence == Decimal("1")
+    assert assertion.source_reference == "conversation://workshop-42"
+    assert assertion.metadata == {"observation": "bench photo"}
+    assert assertion.created_by == users[0]
+    assert workspace.inventory_events.get().kind == InventoryEvent.Kind.LABEL_ASSERTION
+
+    changed = {**payload, "assertions": [{**payload["assertions"][0], "confidence": "0.8"}]}
+    conflict = client.post(url, changed, format="json")
+    assert conflict.status_code == 409
+    assert workspace.item_labels.count() == 1
+
+
+@pytest.mark.django_db
+def test_confirmed_label_equivalence_creates_alias_and_drives_suggestions(users, workspaces):
+    workspace, _ = workspaces
+    Item.objects.create(workspace=workspace, key="sander", name="Orbital sander")
+    label = Label.objects.create(workspace=workspace, name="Bosch")
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/label-assertions/",
+        {
+            "idempotency_key": "confirm-bosch-alias",
+            "assertions": [
+                {
+                    "item_key": "sander",
+                    "value": "herramientas Bosch",
+                    "canonical_label_id": str(label.id),
+                    "source": "confirmation",
+                }
+            ],
+        },
+        format="json",
+    )
+    suggestions = client.get("/api/workspaces/workshop/labels/", {"q": "HERRAMIENTAS bosch"})
+
+    assert response.status_code == 201
+    assert response.json()["processed"]["aliases_created"] == 1
+    alias = workspace.label_aliases.get()
+    assert alias.value == "herramientas Bosch"
+    assert alias.label == label
+    assert suggestions.status_code == 200
+    assert suggestions.json() == [
+        {"id": str(label.id), "name": "Bosch", "aliases": ["herramientas Bosch"]}
+    ]
+
+
+@pytest.mark.django_db
+def test_label_suggestions_do_not_silently_merge_accents_or_languages(users, workspaces):
+    _, library = workspaces
+    book = Item.objects.create(workspace=library, key="rayuela", name="Rayuela")
+    fiction = Label.objects.create(workspace=library, name="Ficción")
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    suggestion = client.get("/api/workspaces/library/labels/", {"q": "ficcion"})
+    assert suggestion.status_code == 200
+    assert suggestion.json()[0]["id"] == str(fiction.id)
+    assert not library.label_aliases.exists()
+
+    response = client.post(
+        "/api/workspaces/library/label-assertions/",
+        {
+            "idempotency_key": "confirm-fiction-translation",
+            "assertions": [
+                {
+                    "item_key": book.key,
+                    "value": "Fiction",
+                    "canonical_label_id": str(fiction.id),
+                    "source": "confirmation",
+                }
+            ],
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    assert library.labels.count() == 1
+    assert library.label_aliases.get().value == "Fiction"
+
+
+@pytest.mark.django_db
+def test_label_mutation_is_tenant_scoped_and_rolls_back(users, workspaces):
+    workshop, library = workspaces
+    Item.objects.create(workspace=workshop, key="hammer", name="Hammer")
+    foreign_label = Label.objects.create(workspace=library, name="Reference")
+    client = APIClient()
+    client.force_authenticate(users[0])
+    url = "/api/workspaces/workshop/label-assertions/"
+
+    foreign = client.post(
+        url,
+        {
+            "idempotency_key": "foreign-label",
+            "assertions": [
+                {
+                    "item_key": "hammer",
+                    "value": "reference",
+                    "canonical_label_id": str(foreign_label.id),
+                    "source": "agent",
+                }
+            ],
+        },
+        format="json",
+    )
+    invalid_batch = client.post(
+        url,
+        {
+            "idempotency_key": "rollback-labels",
+            "assertions": [
+                {"item_key": "hammer", "value": "steel", "source": "user"},
+                {"item_key": "missing", "value": "wood", "source": "user"},
+            ],
+        },
+        format="json",
+    )
+
+    assert foreign.status_code == 400
+    assert invalid_batch.status_code == 400
+    assert not workshop.labels.exists()
+    assert not workshop.item_labels.exists()
+    assert not workshop.inventory_events.exists()
+    assert client.get("/api/workspaces/library/labels/", {"q": "reference"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_read_only_member_can_suggest_but_not_assert_labels(users, workspaces):
+    workshop, _ = workspaces
+    Item.objects.create(workspace=workshop, key="pliers", name="Pliers")
+    Label.objects.create(workspace=workshop, name="hand tool")
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    suggestions = client.get("/api/workspaces/workshop/labels/", {"q": "hand"})
+    mutation = client.post(
+        "/api/workspaces/workshop/label-assertions/",
+        {
+            "idempotency_key": "read-only-label",
+            "assertions": [{"item_key": "pliers", "value": "tool", "source": "user"}],
+        },
+        format="json",
+    )
+
+    assert suggestions.status_code == 200
+    assert suggestions.json()[0]["name"] == "hand tool"
+    assert mutation.status_code == 403
+
+
+@pytest.mark.django_db
+def test_item_label_rejects_related_objects_from_another_workspace(workspaces):
+    workshop, library = workspaces
+    item = Item.objects.create(workspace=workshop, key="vise", name="Vise")
+    label = Label.objects.create(workspace=library, name="reference")
+    assertion = ItemLabel(
+        workspace=workshop,
+        item=item,
+        label=label,
+        original_value="reference",
+        source=ItemLabel.Source.USER,
+    )
+
+    with pytest.raises(ValidationError, match="another workspace"):
+        assertion.full_clean()
 
 
 @pytest.mark.django_db
@@ -496,6 +713,19 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
         last_observed_at=timezone.now(),
         last_observed_by=users[0],
     )
+    label = Label.objects.create(workspace=workspace, name="Poetry")
+    label_alias = LabelAlias.objects.create(workspace=workspace, label=label, value="Poesía")
+    label_assertion = ItemLabel.objects.create(
+        workspace=workspace,
+        item=item,
+        label=label,
+        original_value="Poesía",
+        source=ItemLabel.Source.CONFIRMATION,
+        confidence=Decimal("0.950"),
+        source_reference="catalog://poetry",
+        metadata={"language": "es"},
+        created_by=users[0],
+    )
     original_timestamps = {
         "location_created": source.created_at,
         "location_updated": source.updated_at,
@@ -539,6 +769,21 @@ def test_previewed_move_undo_restores_quantities_and_records_compensation(users,
     assert restored.verification_status == VerificationStatus.CONFIRMED
     assert restored.last_observed_at == original_holding.last_observed_at
     assert restored.last_observed_by == users[0]
+    restored_label = workspace.labels.get(id=label.id)
+    restored_alias = workspace.label_aliases.get(id=label_alias.id)
+    restored_assertion = workspace.item_labels.get(id=label_assertion.id)
+    assert restored_label.name == "Poetry"
+    assert restored_alias.label == restored_label
+    assert restored_alias.value == "Poesía"
+    assert restored_assertion.item_id == item.id
+    assert restored_assertion.label == restored_label
+    assert restored_assertion.original_value == "Poesía"
+    assert restored_assertion.source == ItemLabel.Source.CONFIRMATION
+    assert restored_assertion.confidence == Decimal("0.950")
+    assert restored_assertion.source_reference == "catalog://poetry"
+    assert restored_assertion.metadata == {"language": "es"}
+    assert restored_assertion.created_by == users[0]
+    assert restored_assertion.created_at == label_assertion.created_at
     assert not workspace.holdings.filter(location=destination).exists()
     assert undo.kind == InventoryEvent.Kind.UNDO
     assert undo.summary["original_kind"] == InventoryEvent.Kind.MOVE
@@ -661,6 +906,19 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
         relation=LocationRelation.Relation.NEAR,
         object=root,
     )
+    label = Label.objects.create(workspace=workshop, name="Steel")
+    label_alias = LabelAlias.objects.create(workspace=workshop, label=label, value="Acero")
+    label_assertion = ItemLabel.objects.create(
+        workspace=workshop,
+        item=item,
+        label=label,
+        original_value="  Acero  ",
+        source=ItemLabel.Source.CONFIRMATION,
+        confidence=Decimal("0.875"),
+        source_reference="conversation://materials",
+        metadata={"language": "es"},
+        created_by=users[0],
+    )
     client = APIClient()
     client.force_authenticate(users[0])
 
@@ -669,15 +927,23 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
 
     assert exported.status_code == 200
     assert "workshop-inventory.json" in exported.headers["Content-Disposition"]
-    assert document["format_version"] == "1.0"
+    assert document["format_version"] == "1.1"
     assert document["holdings"][0]["id"] == str(holding.id)
+    assert document["labels"][0] == {"id": str(label.id), "name": "Steel"}
+    assert document["label_aliases"][0]["value"] == "Acero"
+    assert document["item_labels"][0]["original_value"] == "  Acero  "
 
     drawer_id = drawer.id
     item_id = item.id
     holding_id = holding.id
+    label_id = label.id
+    label_alias_id = label_alias.id
+    label_assertion_id = label_assertion.id
+    label_assertion_created_at = label_assertion.created_at
     relation.delete()
     holding.delete()
     item.delete()
+    label.delete()
     drawer.delete()
     root.delete()
     payload = {
@@ -696,6 +962,7 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
     assert preview.status_code == 200
     assert preview.json()["event_id"] is None
     assert preview.json()["summary"]["locations"] == {"created": 2, "updated": 0}
+    assert preview.json()["summary"]["labels"] == {"created": 1, "updated": 0}
     assert workshop.locations.count() == 0
     assert not workshop.inventory_events.filter(idempotency_key="json-import-001").exists()
 
@@ -709,10 +976,23 @@ def test_json_inventory_export_dry_run_import_and_idempotent_round_trip(users, w
     assert workshop.locations.get(id=drawer_id).aliases == ["cajón"]
     assert workshop.items.get(id=item_id).attributes == {"material": "steel"}
     assert workshop.holdings.get(id=holding_id).quantity == Decimal("8")
+    restored_label = workshop.labels.get(id=label_id)
+    assert restored_label.name == "Steel"
+    assert workshop.label_aliases.get(id=label_alias_id).label == restored_label
+    restored_assertion = workshop.item_labels.get(id=label_assertion_id)
+    assert restored_assertion.item_id == item_id
+    assert restored_assertion.label == restored_label
+    assert restored_assertion.original_value == "  Acero  "
+    assert restored_assertion.source == ItemLabel.Source.CONFIRMATION
+    assert restored_assertion.confidence == Decimal("0.875")
+    assert restored_assertion.source_reference == "conversation://materials"
+    assert restored_assertion.metadata == {"language": "es"}
+    assert restored_assertion.created_by == users[0]
+    assert restored_assertion.created_at == label_assertion_created_at
     event = workshop.inventory_events.get(idempotency_key="json-import-001")
     assert event.source_kind == InventoryEvent.SourceKind.IMPORT
     assert event.client_actor == "test-importer"
-    assert event.metadata["transfer_format_version"] == "1.0"
+    assert event.metadata["transfer_format_version"] == "1.1"
     assert "server_mcp_client" not in event.metadata
 
 
@@ -740,6 +1020,19 @@ def test_csv_inventory_round_trip_covers_library_records(users, workspaces):
         quantity=Decimal("1"),
         notes="Firmado",
     )
+    label = Label.objects.create(workspace=library, name="Poesía")
+    label_alias = LabelAlias.objects.create(workspace=library, label=label, value="Poetry")
+    label_assertion = ItemLabel.objects.create(
+        workspace=library,
+        item=book,
+        label=label,
+        original_value="Poetry",
+        source=ItemLabel.Source.IMPORT,
+        confidence=None,
+        source_reference="catalog://genres",
+        metadata={"catalog": "local"},
+        created_by=users[1],
+    )
     client = APIClient()
     client.force_authenticate(users[1])
 
@@ -750,12 +1043,17 @@ def test_csv_inventory_round_trip_covers_library_records(users, workspaces):
     assert exported.headers["Content-Type"].startswith("text/csv")
     assert content.splitlines()[0].startswith("record_type,id,key,name")
     assert "Poesía" in content
+    assert "item_label" in content
 
     shelf_id = shelf.id
     book_id = book.id
     holding_id = holding.id
+    label_id = label.id
+    label_alias_id = label_alias.id
+    label_assertion_id = label_assertion.id
     holding.delete()
     book.delete()
+    label.delete()
     shelf.delete()
     imported = client.post(
         "/api/workspaces/library/import/",
@@ -771,6 +1069,23 @@ def test_csv_inventory_round_trip_covers_library_records(users, workspaces):
     assert library.locations.get(id=shelf_id).metadata == {"floor": 2}
     assert library.items.get(id=book_id).attributes == {"author": "Juan Gelman"}
     assert library.holdings.get(id=holding_id).notes == "Firmado"
+    assert library.labels.get(id=label_id).name == "Poesía"
+    assert library.label_aliases.get(id=label_alias_id).value == "Poetry"
+    restored_assertion = library.item_labels.get(id=label_assertion_id)
+    assert restored_assertion.original_value == "Poetry"
+    assert restored_assertion.source == ItemLabel.Source.IMPORT
+    assert restored_assertion.source_reference == "catalog://genres"
+    assert restored_assertion.metadata == {"catalog": "local"}
+
+    legacy_output = io.StringIO(newline="")
+    writer = csv.DictWriter(legacy_output, fieldnames=CSV_FIELDS_V1_0, lineterminator="\n")
+    writer.writeheader()
+    for row in csv.DictReader(io.StringIO(content)):
+        if row["record_type"] in {"location", "item", "holding", "location_relation"}:
+            writer.writerow({field: row[field] for field in CSV_FIELDS_V1_0})
+    legacy_document = parse_inventory_document(format_name="csv", content=legacy_output.getvalue())
+    assert legacy_document["format_version"] == "1.0"
+    assert legacy_document["labels"] == []
 
 
 @pytest.mark.django_db
@@ -835,6 +1150,99 @@ def test_inventory_import_rejects_foreign_ids_without_partial_writes(users, work
     assert foreign_location.workspace == library
     assert inaccessible_export.status_code == 404
     assert inaccessible_import.status_code == 404
+
+
+@pytest.mark.django_db
+def test_inventory_import_rejects_foreign_label_record_ids(users, workspaces):
+    workshop, library = workspaces
+    foreign_item = Item.objects.create(workspace=library, key="foreign-book", name="Foreign book")
+    foreign_label = Label.objects.create(workspace=library, name="Foreign label")
+    foreign_alias = LabelAlias.objects.create(
+        workspace=library, label=foreign_label, value="Foreign alias"
+    )
+    foreign_assertion = ItemLabel.objects.create(
+        workspace=library,
+        item=foreign_item,
+        label=foreign_label,
+        original_value="Foreign label",
+        source=ItemLabel.Source.USER,
+        created_by=users[1],
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    new_item_id = uuid.uuid4()
+    new_label_id = uuid.uuid4()
+    base = {
+        "format_version": "1.1",
+        "locations": [],
+        "items": [],
+        "labels": [],
+        "label_aliases": [],
+        "item_labels": [],
+        "holdings": [],
+        "location_relations": [],
+    }
+    documents = [
+        {**base, "labels": [{"id": str(foreign_label.id), "name": "Intrusion"}]},
+        {
+            **base,
+            "labels": [{"id": str(new_label_id), "name": "Local label"}],
+            "label_aliases": [
+                {
+                    "id": str(foreign_alias.id),
+                    "label_id": str(new_label_id),
+                    "value": "Local alias",
+                }
+            ],
+        },
+        {
+            **base,
+            "items": [
+                {
+                    "id": str(new_item_id),
+                    "key": "local-item",
+                    "name": "Local item",
+                    "tracking_mode": "bulk",
+                    "unit": "unit",
+                    "minimum_quantity": None,
+                    "target_quantity": None,
+                }
+            ],
+            "labels": [{"id": str(new_label_id), "name": "Local label"}],
+            "item_labels": [
+                {
+                    "id": str(foreign_assertion.id),
+                    "item_id": str(new_item_id),
+                    "label_id": str(new_label_id),
+                    "original_value": "Local label",
+                    "source": "import",
+                    "confidence": None,
+                    "created_by_id": users[0].id,
+                    "created_at": timezone.now().isoformat(),
+                }
+            ],
+        },
+    ]
+
+    for index, document in enumerate(documents):
+        response = client.post(
+            "/api/workspaces/workshop/import/",
+            {
+                "format": "json",
+                "document": document,
+                "idempotency_key": f"foreign-label-record-{index}",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "another workspace" in response.json()["detail"]
+
+    assert not workshop.items.exists()
+    assert not workshop.labels.exists()
+    assert not workshop.label_aliases.exists()
+    assert not workshop.item_labels.exists()
+    assert not workshop.inventory_events.exists()
 
 
 @pytest.mark.django_db

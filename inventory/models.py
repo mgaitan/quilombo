@@ -5,10 +5,13 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+from .labels import label_display_value, normalize_label_identity, normalize_label_search
 
 
 class VerificationStatus(models.TextChoices):
@@ -279,6 +282,138 @@ class Item(models.Model):
         return f"{self.name} [{self.key}]"
 
 
+class Label(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="labels")
+    name = models.CharField(max_length=200)
+    normalized_key = models.CharField(max_length=400, editable=False)
+    search_key = models.CharField(max_length=400, editable=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "normalized_key"], name="unique_workspace_label_key"
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        display_name = label_display_value(self.name)
+        if not normalize_label_identity(display_name):
+            raise ValidationError({"name": "A label cannot be empty."})
+        if len(display_name) > 200:
+            raise ValidationError({"name": "A normalized label cannot exceed 200 characters."})
+
+    def save(self, *args, **kwargs):
+        self.name = label_display_value(self.name)
+        self.normalized_key = normalize_label_identity(self.name)
+        self.search_key = normalize_label_search(self.name)
+        if update_fields := kwargs.get("update_fields"):
+            if "name" in update_fields:
+                kwargs["update_fields"] = set(update_fields) | {"normalized_key", "search_key"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class LabelAlias(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="label_aliases")
+    label = models.ForeignKey(Label, on_delete=models.CASCADE, related_name="aliases")
+    value = models.CharField(max_length=200)
+    normalized_key = models.CharField(max_length=400, editable=False)
+    search_key = models.CharField(max_length=400, editable=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["value", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "normalized_key"],
+                name="unique_workspace_label_alias_key",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.label_id and self.label.workspace_id != self.workspace_id:
+            raise ValidationError({"label": "Label belongs to another workspace."})
+        display_value = label_display_value(self.value)
+        if not normalize_label_identity(display_value):
+            raise ValidationError({"value": "A label alias cannot be empty."})
+        if len(display_value) > 200:
+            raise ValidationError({"value": "A normalized alias cannot exceed 200 characters."})
+
+    def save(self, *args, **kwargs):
+        self.value = label_display_value(self.value)
+        self.normalized_key = normalize_label_identity(self.value)
+        self.search_key = normalize_label_search(self.value)
+        if update_fields := kwargs.get("update_fields"):
+            if "value" in update_fields:
+                kwargs["update_fields"] = set(update_fields) | {"normalized_key", "search_key"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.value} -> {self.label.name}"
+
+
+class ItemLabel(models.Model):
+    class Source(models.TextChoices):
+        USER = "user", _("User")
+        AGENT = "agent", _("Agent")
+        IMPORT = "import", _("Import")
+        CONFIRMATION = "confirmation", _("Confirmation")
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="item_labels")
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="label_assertions")
+    label = models.ForeignKey(Label, on_delete=models.PROTECT, related_name="item_assertions")
+    original_value = models.CharField(max_length=200)
+    source = models.CharField(max_length=16, choices=Source)
+    confidence = models.DecimalField(
+        max_digits=4,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    source_reference = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="item_label_assertions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(confidence__isnull=True)
+                | (Q(confidence__gte=0) & Q(confidence__lte=1)),
+                name="item_label_confidence_range",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        for field in ("item", "label"):
+            if not getattr(self, f"{field}_id"):
+                continue
+            if getattr(self, field).workspace_id != self.workspace_id:
+                raise ValidationError({field: "Object belongs to another workspace."})
+
+    def __str__(self):
+        return f"{self.item.key}: {self.original_value} -> {self.label.name}"
+
+
 class Holding(FreshnessMixin, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="holdings")
@@ -347,6 +482,7 @@ class InventoryEvent(models.Model):
         MOVE = "move", _("Move")
         ITEM_UPDATE = "item_update", _("Item update")
         ITEM_DELETE = "item_delete", _("Item delete")
+        LABEL_ASSERTION = "label_assertion", _("Label assertion")
         AUDIT = "audit", _("Audit")
         UNDO = "undo", _("Undo")
 
