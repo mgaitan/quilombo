@@ -3763,6 +3763,41 @@ def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, w
 
 
 @pytest.mark.django_db
+def test_web_book_detail_expands_catalog_candidates_without_covers(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="book-without-cover",
+        name="Book without cover",
+        category="books",
+        attributes={"schema": "book", "book": {"authors": ["An Author"]}},
+    )
+    client.force_login(users[0])
+    search_payload = {
+        "docs": [
+            {
+                "title": "Book without cover",
+                "author_name": ["An Author"],
+                "publisher": ["A Publisher"],
+            }
+        ]
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(search_payload).encode()),
+    ):
+        detail = client.get(f"/app/{workspace.slug}/items/{book.id}/")
+
+    content = detail.content.decode()
+    assert detail.status_code == 200
+    assert 'class="book-candidate book-candidate-no-cover"' in content
+    assert "An Author" in content
+    assert "A Publisher" in content
+
+
+@pytest.mark.django_db
 def test_web_book_confirmation_rejects_mismatched_isbn_and_edition(client, users, workspaces):
     workspace, _ = workspaces
     book = Item.objects.create(

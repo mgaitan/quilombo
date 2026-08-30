@@ -55,7 +55,7 @@
         <p>{% translate "Several editions may match this book. Confirm the one you have." %}</p>
         <div class="book-candidates">
           {% for candidate in catalog_result.candidates %}
-            <article class="book-candidate">
+            <article class="book-candidate{% if not candidate.cover_url %} book-candidate-no-cover{% endif %}">
               {% if candidate.cover_url %}<img src="{{ candidate.cover_url }}" alt="" loading="lazy">{% endif %}
               <div>
                 <h3>{{ candidate.title }}</h3>
@@ -82,7 +82,7 @@
         </div>
       {% else %}
         {% with book=catalog_result.details %}
-          <div class="book-details">
+          <div class="book-details{% if not book.cover_url %} book-details-no-cover{% endif %}">
             {% if book.cover_url %}<img src="{{ book.cover_url }}" alt="" loading="lazy">{% endif %}
             <dl class="book-candidate-metadata">
               {% if book.title %}<div><dt>{% translate "Title" %}</dt><dd>{{ book.title }}</dd></div>{% endif %}
