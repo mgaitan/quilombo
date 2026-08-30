@@ -471,6 +471,8 @@ code {
 .book-candidate { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 20px; min-width: 0; border: 1px solid #e3e6e3; padding: 20px; }
 .book-candidate-no-cover { grid-template-columns: minmax(0, 1fr); }
 .book-candidate > div { min-width: 0; }
+.book-candidate-with-cover .book-candidate-metadata div { grid-template-columns: 1fr; gap: 2px; }
+.book-candidate-with-cover .book-candidate-metadata dt { margin-top: 7px; }
 .book-candidate img,
 .book-details img { width: 78px; max-height: 116px; object-fit: cover; border: 1px solid #e3e6e3; }
 .book-candidate h3 { margin: 0 0 10px; font-size: 20px; }
@@ -478,10 +480,11 @@ code {
 .book-candidate-metadata { display: grid; gap: 6px; margin: 0; }
 .book-candidate-metadata div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
 .book-candidate-metadata dt { color: #6c726e; font: 600 12px system-ui, sans-serif; text-transform: uppercase; }
-.book-candidate-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.book-candidate-metadata dd { margin: 0; overflow-wrap: break-word; }
 .book-details { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 20px; max-width: 720px; }
 .book-details-no-cover { grid-template-columns: minmax(0, 1fr); }
 .book-synopsis { max-width: 720px; margin-top: 24px; }
+
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .field .helptext { margin-top: 6px; color: #737975; font-size: 13px; }
 .field .helptext ul { margin: 8px 0 0; padding-left: 20px; }
