@@ -2007,6 +2007,10 @@ def test_auth_pages_preserve_pending_oauth_consent_return(client):
         'href="/accounts/signup/?next=/oauth/consent/%3Frequest%3D'
         '12345678-1234-1234-1234-123456789abc"' in login_content
     )
+    assert (
+        'href="/accounts/password/reset/?next=/oauth/consent/%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in login_content
+    )
 
     signup = client.get("/accounts/signup/", {"next": consent_url})
     signup_content = signup.content.decode()
