@@ -899,7 +899,8 @@ def item_book_confirm(request, workspace_slug, item_id):
                 publishers=[],
                 edition=normalized_edition,
             )
-            if normalized_isbn not in _catalog_result_isbns(catalog_result):
+            edition_isbns = _catalog_result_isbns(catalog_result)
+            if edition_isbns and normalized_isbn not in edition_isbns:
                 messages.error(
                     request,
                     _("The selected ISBN does not belong to that Open Library edition."),

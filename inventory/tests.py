@@ -3831,6 +3831,41 @@ def test_web_book_confirmation_rejects_mismatched_isbn_and_edition(client, users
 
 
 @pytest.mark.django_db
+def test_web_book_confirmation_accepts_isbn_when_edition_has_no_isbn(client, users, workspaces):
+    workspace, _ = workspaces
+    book = Item.objects.create(
+        workspace=workspace,
+        key="book-with-unlisted-isbn",
+        name="Book with unlisted ISBN",
+        category="books",
+        attributes={"schema": "book", "book": {"title": "Book with unlisted ISBN"}},
+    )
+    client.force_login(users[0])
+    edition_payload = {
+        "title": "Book with unlisted ISBN",
+        "publishers": ["A Publisher"],
+        "covers": [123],
+    }
+
+    cache.clear()
+    with patch(
+        "inventory.catalogs.urlopen",
+        return_value=io.BytesIO(json.dumps(edition_payload).encode()),
+    ):
+        response = client.post(
+            f"/app/{workspace.slug}/items/{book.id}/book/confirm/",
+            {"isbn": "9780140328721", "edition": "OL222M"},
+        )
+
+    assert response.status_code == 302
+    book.refresh_from_db()
+    assert book.attributes["identifiers"] == {
+        "isbn": ["9780140328721"],
+        "openlibrary_edition": ["OL222M"],
+    }
+
+
+@pytest.mark.django_db
 def test_web_crud_rejects_read_only_and_cross_workspace_writes(client, users, workspaces):
     workshop, library = workspaces
     own_location = Location.objects.create(workspace=workshop, key="bench", name="Bench")

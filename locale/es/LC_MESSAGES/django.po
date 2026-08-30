@@ -899,3 +899,15 @@ msgstr "Libro · %(key)s"
 
 msgid "Identifier · %(key)s"
 msgstr "Identificador · %(key)s"
+
+msgid "The selected item is not a book."
+msgstr "El objeto seleccionado no es un libro."
+
+msgid "That edition has no confirmable identifier."
+msgstr "Esa edición no tiene un identificador que se pueda confirmar."
+
+msgid "The selected ISBN does not belong to that Open Library edition."
+msgstr "El ISBN seleccionado no pertenece a esa edición de Open Library."
+
+msgid "The Open Library edition was confirmed."
+msgstr "Se confirmó la edición de Open Library."
