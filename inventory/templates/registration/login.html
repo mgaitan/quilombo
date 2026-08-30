@@ -22,6 +22,7 @@
       {{ redirect_field }}
       <button class="button button-primary" type="submit">{% translate "Sign in" %}</button>
     </form>
+    <p class="auth-alternate"><a href="{% url 'account_reset_password' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">{% translate "Forgot your password?" %}</a></p>
     <p class="auth-alternate">{% translate "New to Quilombo?" %} <a href="{% url 'signup' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">{% translate "Create an account" %}</a></p>
   </section>
 {% endblock %}

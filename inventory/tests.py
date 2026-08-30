@@ -1702,6 +1702,56 @@ def test_password_user_can_log_in_with_username_or_email(client, identifier):
 
 
 @pytest.mark.django_db
+def test_password_reset_flow_sends_email_and_changes_password(client):
+    user = get_user_model().objects.create_user(
+        username="reset-user",
+        email="reset-user@example.com",
+        password="old-password-917",
+    )
+    user.emailaddress_set.create(email=user.email, verified=True, primary=True)
+
+    login_page = client.get("/accounts/login/")
+    assert 'href="/accounts/password/reset/"' in login_page.content.decode()
+
+    requested = client.post(
+        "/accounts/password/reset/",
+        {"email": user.email},
+    )
+
+    assert requested.status_code == 302
+    assert requested.url == "/accounts/password/reset/done/"
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].subject.endswith("Restablecé tu contraseña | Quilombo")
+    reset_url = next(
+        line.strip()
+        for line in mail.outbox[0].body.splitlines()
+        if "/accounts/password/reset/key/" in line
+    )
+
+    reset_page = client.get(urlsplit(reset_url).path, follow=True)
+    assert reset_page.status_code == 200
+    assert "Elegí una contraseña nueva" in reset_page.content.decode()
+    reset_path = reset_page.redirect_chain[-1][0]
+
+    completed = client.post(
+        reset_path,
+        {
+            "password1": "new-password-918",
+            "password2": "new-password-918",
+        },
+    )
+
+    assert completed.status_code == 302
+    assert completed.url == "/accounts/password/reset/key/done/"
+    login = client.post(
+        "/accounts/login/",
+        {"login": user.email, "password": "new-password-918"},
+    )
+    assert login.status_code == 302
+    assert login.url == "/app/"
+
+
+@pytest.mark.django_db
 def test_admin_dashboard_shows_recent_users_items_and_locations(client):
     admin_user = get_user_model().objects.create_superuser(
         username="admin", email="admin@example.com", password="password"
@@ -1955,6 +2005,10 @@ def test_auth_pages_preserve_pending_oauth_consent_return(client):
     assert f'<input type="hidden" name="next" value="{consent_url}">' in login_content
     assert (
         'href="/accounts/signup/?next=/oauth/consent/%3Frequest%3D'
+        '12345678-1234-1234-1234-123456789abc"' in login_content
+    )
+    assert (
+        'href="/accounts/password/reset/?next=/oauth/consent/%3Frequest%3D'
         '12345678-1234-1234-1234-123456789abc"' in login_content
     )
 
