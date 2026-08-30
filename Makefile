@@ -1,4 +1,4 @@
-.PHONY: install lint format format-check test postgres-up postgres-down postgres-migrate test-postgres docs docs-open qa help
+.PHONY: install lint format format-check test postgres-up postgres-down postgres-migrate test-postgres neon-local-status neon-local-url neon-local-refresh neon-local-migrate runserver-neon-local docs docs-open qa help
 
 DOCS_SOURCE := docs
 DOCS_BUILD := $(DOCS_SOURCE)/_build
@@ -42,6 +42,21 @@ postgres-migrate: postgres-up ## Apply migrations to the local PostgreSQL databa
 
 test-postgres: postgres-up ## Run the test suite against PostgreSQL
 	DATABASE_URL=$(POSTGRES_URL) uv run pytest -q
+
+neon-local-status: ## Show the isolated Neon branch used by local PR testing
+	@scripts/neon-local-db.sh status
+
+neon-local-url: ## Print the isolated Neon connection URL
+	@scripts/neon-local-db.sh url
+
+neon-local-refresh: ## Recreate the isolated Neon branch from the production snapshot
+	@scripts/neon-local-db.sh refresh
+
+neon-local-migrate: ## Apply current Django migrations to the isolated Neon branch
+	@DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= uv run python manage.py migrate
+
+runserver-neon-local: ## Run the web app against the isolated Neon branch
+	@set -a; [ ! -f .env ] || . ./.env; set +a; unset PROD_DATABASE_URL; DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= PUBLIC_BASE_URL=http://localhost:8000 uv run python manage.py runserver 127.0.0.1:8000
 
 docs: ## Build strict Sphinx/MyST documentation
 	uv run --group docs sphinx-build -b html -W --keep-going $(DOCS_SOURCE) $(DOCS_BUILD)/html

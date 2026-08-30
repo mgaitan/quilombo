@@ -2,14 +2,19 @@
 
 ## Workflow
 
-- Track implementation work in a GitHub issue before editing code.
-- Work on a dedicated branch and open a separate pull request for each issue.
+- When the user explicitly requests implementation through a pull request, do not create a new
+  tracking issue just for that work. Explain the scope, decisions, and verification in the pull
+  request instead.
+- Use GitHub issues to record work that may be implemented later. If an implementation does not
+  fully cover an existing request, leave that issue open and create/link a follow-up pull request
+  for the missing scope.
+- Work on a dedicated branch and open a separate pull request for each requested change.
 - Never merge a pull request unless the user explicitly asks to merge that specific pull request.
 - Never publish a GitHub Release unless the user explicitly asks to publish that specific release.
 - Requests to implement work, open a pull request, or prepare a release do not authorize merging or publishing.
 - Merge reviewed pull requests before preparing a release.
 - Deploy production only by publishing a GitHub Release; branch pushes must not deploy.
-- Use Conventional Commits and reference completed issues in commit bodies.
+- Use Conventional Commits and reference an existing issue in commit bodies when applicable.
 - Keep commits focused and leave unrelated working-tree changes untouched.
 
 ### Release versioning

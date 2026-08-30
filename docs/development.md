@@ -54,6 +54,29 @@ make qa
 make docs-open
 ```
 
+## Local PR testing with production-shaped data
+
+Local PR testing uses the Neon branch `local-pr-testing`, forked from the production branch. It is
+an isolated read-write database: local mutations stay on that branch and cannot change production.
+The branch contains a snapshot, not a live replica, so refresh it when current production data is
+needed. Refreshing deletes the local branch and all test writes on it.
+
+The helper reads `NEON_API_KEY` from the environment or `.env`, and never reads or writes
+`PROD_DATABASE_URL`:
+
+```bash
+make neon-local-status
+make neon-local-refresh
+make neon-local-migrate
+make runserver-neon-local
+```
+
+`make runserver-neon-local` forces development settings and the console email backend. Do not add
+production OAuth or email credentials to the local environment. The copied database may contain
+real account and inventory data, so keep the connection string private and use this branch only on
+trusted machines. The branch ID, project ID, database, and role can be overridden with
+`NEON_PRODUCTION_BRANCH_ID`, `NEON_PROJECT_ID`, `NEON_DATABASE_NAME`, and `NEON_DATABASE_ROLE`.
+
 Use `make help` to list all targets. The release workflow uses `make docs` to build the published
 site with warnings treated as errors.
 

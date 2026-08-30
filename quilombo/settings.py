@@ -219,7 +219,7 @@ LOGOUT_REDIRECT_URL = "/"
 
 DEFAULT_FROM_EMAIL = "Quilombo <no-reply@quilombo.life>"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-if RESEND_API_KEY:
+if IS_PROD and RESEND_API_KEY:
     EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
     ANYMAIL = {"RESEND_API_KEY": RESEND_API_KEY}
 else:
