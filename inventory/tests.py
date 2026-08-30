@@ -892,6 +892,53 @@ def test_bulk_upsert_rejects_omitted_fractional_holding_when_switching_to_discre
 
 
 @pytest.mark.django_db
+def test_bulk_upsert_can_convert_and_replace_fractional_holding_atomically(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="legacy-book",
+        name="Legacy book",
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("1.5")
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/bulk-upsert/",
+        {
+            "idempotency_key": "convert-and-replace-book",
+            "items": [
+                {
+                    "key": item.key,
+                    "name": item.name,
+                    "attributes": {"schema": "book"},
+                }
+            ],
+            "holdings": [
+                {
+                    "item_key": item.key,
+                    "location_key": location.key,
+                    "quantity": "2",
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    item.refresh_from_db()
+    holding.refresh_from_db()
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert item.unit == "copy"
+    assert holding.quantity == Decimal("2")
+
+
+@pytest.mark.django_db
 def test_bulk_upsert_query_count_is_constant_for_large_batch(users, workspaces):
     client = APIClient()
     client.force_authenticate(users[0])
@@ -3425,11 +3472,18 @@ def test_web_book_form_edits_metadata_and_preserves_unknown_attributes(client, u
         attributes={
             "schema": "book",
             "book": {"custom_note": "signed", "authors": ["Old author"]},
-            "identifiers": {"openlibrary_edition": ["OL111M"], "custom": ["x"]},
+            "identifiers": {
+                "openlibrary_edition": ["OL111M"],
+                "custom": ["x"],
+                "isbn": ["9780140328721", "9780439023481"],
+            },
             "custom_attribute": {"color": "red"},
         },
     )
     client.force_login(users[0])
+
+    edit_page = client.get(f"/app/workshop/items/{book.id}/edit/")
+    assert 'value="9780140328721, 9780439023481"' in edit_page.content.decode()
 
     edit = client.post(
         f"/app/workshop/items/{book.id}/edit/",
@@ -3442,7 +3496,7 @@ def test_web_book_form_edits_metadata_and_preserves_unknown_attributes(client, u
             "aliases": "",
             "authors": "Roald Dahl",
             "publishers": "Puffin",
-            "isbn": "9780140328721",
+            "isbn": "9780140328721, 9780439023481",
             "openlibrary_edition": "OL111M",
             "publication_date": "1988-10-01",
             "publication_year": "1988",
@@ -3471,7 +3525,7 @@ def test_web_book_form_edits_metadata_and_preserves_unknown_attributes(client, u
         "identifiers": {
             "openlibrary_edition": ["OL111M"],
             "custom": ["x"],
-            "isbn": ["9780140328721"],
+            "isbn": ["9780140328721", "9780439023481"],
         },
         "custom_attribute": {"color": "red"},
     }

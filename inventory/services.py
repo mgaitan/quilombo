@@ -908,6 +908,9 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
     existing_items = {
         item.key: item for item in workspace.items.filter(key__in=[row["key"] for row in item_rows])
     }
+    holding_replacements = {
+        (row["item_key"], row["location_key"]): row["quantity"] for row in holding_rows
+    }
     discrete_item_ids = {
         item.id
         for row in item_rows
@@ -918,13 +921,18 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         )
         == Item.TrackingMode.DISCRETE
     }
+    item_keys_by_id = {item.id: item.key for item in existing_items.values()}
     fractional_item_keys = {
-        existing_item.key
-        for item_id, quantity in Holding.objects.select_for_update()
+        item_keys_by_id[item_id]
+        for item_id, location_key, quantity in Holding.objects.select_for_update()
         .filter(workspace=workspace, item_id__in=discrete_item_ids)
-        .values_list("item_id", "quantity")
-        for existing_item in existing_items.values()
-        if existing_item.id == item_id and quantity != quantity.to_integral_value()
+        .values_list("item_id", "location__key", "quantity")
+        if quantity != quantity.to_integral_value()
+        and (
+            (item_keys_by_id[item_id], location_key) not in holding_replacements
+            or holding_replacements[(item_keys_by_id[item_id], location_key)]
+            != holding_replacements[(item_keys_by_id[item_id], location_key)].to_integral_value()
+        )
     }
     if fractional_item_keys:
         keys = ", ".join(sorted(fractional_item_keys))

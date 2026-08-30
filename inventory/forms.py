@@ -1,3 +1,5 @@
+import re
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
@@ -67,7 +69,11 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
     )
     authors = forms.CharField(label=_("Author(s)"), required=False)
     publishers = forms.CharField(label=_("Publisher(s)"), required=False)
-    isbn = forms.CharField(label=_("ISBN"), required=False)
+    isbn = forms.CharField(
+        label=_("ISBN"),
+        required=False,
+        help_text=_("Separate multiple ISBNs with commas."),
+    )
     openlibrary_edition = forms.CharField(label=_("Open Library edition"), required=False)
     publication_date = forms.CharField(label=_("Publication date"), required=False)
     publication_year = forms.IntegerField(label=_("Publication year"), required=False, min_value=0)
@@ -124,7 +130,7 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
         if isinstance(isbn_values, str):
             isbn_values = [isbn_values]
         if isinstance(isbn_values, list) and isbn_values:
-            self.initial["isbn"] = isbn_values[0]
+            self.initial["isbn"] = ", ".join(isbn_values)
         edition_values = identifiers.get("openlibrary_edition", [])
         if isinstance(edition_values, str):
             edition_values = [edition_values]
@@ -135,11 +141,10 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
             self.fields["unit"].required = False
 
     def clean_isbn(self):
-        value = self.cleaned_data.get("isbn", "").strip()
-        if not value:
-            return ""
+        value = self.cleaned_data.get("isbn", "")
+        values = [part.strip() for part in re.split(r"[,\n]+", value) if part.strip()]
         try:
-            return normalize_isbn(value)
+            return list(dict.fromkeys(normalize_isbn(part) for part in values))
         except ValueError as error:
             raise forms.ValidationError(str(error)) from error
 
@@ -205,7 +210,7 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
             if not isinstance(identifiers, dict):
                 identifiers = {}
             if cleaned_data.get("isbn"):
-                identifiers["isbn"] = [cleaned_data["isbn"]]
+                identifiers["isbn"] = cleaned_data["isbn"]
             else:
                 identifiers.pop("isbn", None)
             if cleaned_data.get("openlibrary_edition"):
