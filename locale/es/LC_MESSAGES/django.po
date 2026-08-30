@@ -33,6 +33,51 @@ msgstr "Salir"
 msgid "Sign in"
 msgstr "Ingresar"
 
+msgid "Forgot your password?"
+msgstr "¿Olvidaste tu contraseña?"
+
+msgid "Reset password"
+msgstr "Restablecer contraseña"
+
+msgid "Enter your email address and we will send you a link to choose a new password."
+msgstr "Ingresá tu dirección de correo y te enviaremos un enlace para elegir una contraseña nueva."
+
+msgid "Send reset link"
+msgstr "Enviar enlace de recuperación"
+
+msgid "Back to sign in"
+msgstr "Volver a ingresar"
+
+msgid "Check your email"
+msgstr "Revisá tu correo"
+
+msgid "If an account exists for that email address, we sent instructions to reset its password. Check your spam folder too."
+msgstr "Si existe una cuenta con esa dirección, enviamos instrucciones para restablecer su contraseña. Revisá también el correo no deseado."
+
+msgid "Set a new password"
+msgstr "Elegí una contraseña nueva"
+
+msgid "Choose a new password for your Quilombo account."
+msgstr "Elegí una contraseña nueva para tu cuenta de Quilombo."
+
+msgid "Save new password"
+msgstr "Guardar contraseña nueva"
+
+msgid "This reset link is invalid or has expired."
+msgstr "Este enlace de recuperación no es válido o venció."
+
+msgid "Request a new reset link"
+msgstr "Solicitar un enlace nuevo"
+
+msgid "Password reset"
+msgstr "Restablecimiento de contraseña"
+
+msgid "Your password has been reset."
+msgstr "Tu contraseña fue restablecida."
+
+msgid "You can now sign in with your new password."
+msgstr "Ya podés ingresar con tu contraseña nueva."
+
 msgid "Language"
 msgstr "Idioma"
 
