@@ -99,6 +99,9 @@ class ItemForm(AliasesFormMixin, forms.ModelForm):
         defaults = schema_item_defaults(attributes)
         if defaults:
             self.initial.update(defaults)
+        if self.initial["schema"] == "book" or self.data.get("schema") == "book":
+            self.fields["tracking_mode"].required = False
+            self.fields["unit"].required = False
 
     def clean_key(self):
         key = self.cleaned_data["key"]

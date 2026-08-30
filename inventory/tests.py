@@ -2892,8 +2892,6 @@ def test_web_book_type_sets_schema_and_item_defaults(client, users, workspaces):
             "description": "",
             "category": "libros",
             "aliases": "",
-            "tracking_mode": Item.TrackingMode.BULK,
-            "unit": "unit",
             "minimum_quantity": "",
             "target_quantity": "",
             "holding-location": shelf.id,
@@ -2926,10 +2924,20 @@ def test_legacy_book_schema_migration_preserves_attributes(users, workspaces):
         tracking_mode=Item.TrackingMode.BULK,
         unit="unit",
     )
+    schema_only_item = Item.objects.create(
+        workspace=workspace,
+        key="schema-only-book",
+        name="Schema-only book",
+        attributes={"schema": "book", "source": "legacy"},
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
 
     migration = import_module("inventory.migrations.0013_normalize_book_schema")
     migration.normalize_book_schema(
-        SimpleNamespace(get_model=lambda app_label, model_name: Item),
+        SimpleNamespace(
+            get_model=lambda app_label, model_name: {"Item": Item, "Holding": Holding}[model_name]
+        ),
         None,
     )
 
@@ -2938,6 +2946,82 @@ def test_legacy_book_schema_migration_preserves_attributes(users, workspaces):
     assert "title" not in item.attributes.get("book", {})
     assert item.tracking_mode == Item.TrackingMode.DISCRETE
     assert item.unit == "copy"
+    schema_only_item.refresh_from_db()
+    assert schema_only_item.attributes == {"schema": "book", "source": "legacy"}
+    assert schema_only_item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert schema_only_item.unit == "copy"
+
+
+@pytest.mark.django_db
+def test_legacy_book_schema_migration_rejects_fractional_holdings(users, workspaces):
+    from importlib import import_module
+
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="fractional-book",
+        name="Fractional book",
+        category="libros",
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+    Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1.5"),
+    )
+
+    migration = import_module("inventory.migrations.0013_normalize_book_schema")
+    with pytest.raises(RuntimeError, match="fractional holdings"):
+        migration.normalize_book_schema(
+            SimpleNamespace(
+                get_model=lambda app_label, model_name: {"Item": Item, "Holding": Holding}[
+                    model_name
+                ]
+            ),
+            None,
+        )
+
+    item.refresh_from_db()
+    assert item.attributes == {}
+    assert item.tracking_mode == Item.TrackingMode.BULK
+    assert item.unit == "unit"
+
+
+@pytest.mark.django_db
+def test_item_api_rejects_book_conversion_with_fractional_holdings(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    item = Item.objects.create(
+        workspace=workspace,
+        key="fractional-book",
+        name="Fractional book",
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+    Holding.objects.create(
+        workspace=workspace,
+        item=item,
+        location=location,
+        quantity=Decimal("1.5"),
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.patch(
+        f"/api/workspaces/{workspace.slug}/items/{item.id}/",
+        {"attributes": {"schema": "book"}},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "whole quantities" in response.content.decode()
+    item.refresh_from_db()
+    assert item.attributes == {}
+    assert item.tracking_mode == Item.TrackingMode.BULK
+    assert item.unit == "unit"
 
 
 @pytest.mark.django_db

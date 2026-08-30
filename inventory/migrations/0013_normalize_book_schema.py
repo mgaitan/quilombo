@@ -7,11 +7,34 @@ BOOK_CATEGORIES = {"book", "books", "libro", "libros"}
 
 def normalize_book_schema(apps, schema_editor):
     Item = apps.get_model("inventory", "Item")
+    Holding = apps.get_model("inventory", "Holding")
 
+    books = []
+    fractional_books = []
     for item in Item.objects.all().iterator():
-        if item.category.strip().casefold() not in BOOK_CATEGORIES:
+        attributes = item.attributes if isinstance(item.attributes, dict) else {}
+        if (
+            item.category.strip().casefold() not in BOOK_CATEGORIES
+            and attributes.get("schema") != "book"
+        ):
             continue
+        books.append(item)
+        if any(
+            quantity != quantity.to_integral_value()
+            for quantity in Holding.objects.filter(item_id=item.pk).values_list(
+                "quantity", flat=True
+            )
+        ):
+            fractional_books.append(item.key)
 
+    if fractional_books:
+        keys = ", ".join(sorted(fractional_books))
+        raise RuntimeError(
+            "Cannot normalize book tracking with fractional holdings; "
+            f"correct these items first: {keys}"
+        )
+
+    for item in books:
         if isinstance(item.attributes, dict):
             attributes = deepcopy(item.attributes)
         else:

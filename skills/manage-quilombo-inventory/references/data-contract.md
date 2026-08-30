@@ -44,22 +44,23 @@ These thresholds use the item's `unit`. Without a target, the minimum is also th
 target.
 
 For books, set `attributes.schema` to `book` and keep user-provided bibliographic facts under
-`attributes.book`. The minimum useful profile is:
+`attributes.book`. Use the item's `name` as its canonical title; do not duplicate it under
+`attributes.book.title`. The minimum useful profile is:
 
 ```json
 {
+  "name": "The Gray Angel Chronicles",
   "schema": "book",
   "book": {
-    "title": "The Gray Angel Chronicles",
     "authors": ["Alejandro Dolina"],
     "publishers": ["Editorial Planeta"]
   }
 }
 ```
 
-`title` is the minimum input for a later Open Library search. `authors` and `publishers` are optional
-and recommended when known because they improve disambiguation. Do not make these fields mandatory
-in the inventory model, and preserve unknown attributes. ISBN resolution and external catalog
+The item's `name` is the minimum input for a later Open Library search. `authors` and `publishers`
+are optional and recommended when known because they improve disambiguation. Do not make these
+fields mandatory in the inventory model, and preserve unknown attributes. ISBN resolution and external catalog
 metadata are separate, read-only or explicitly confirmed workflows; they do not block the ordinary
 bulk upsert.
 

@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
@@ -24,7 +24,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
@@ -1080,6 +1080,17 @@ class ItemViewSet(WorkspaceScopedViewSet):
     serializer_class = ItemSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["key", "name", "description", "category"]
+
+    def perform_update(self, serializer):
+        try:
+            serializer.instance = update_item(
+                workspace=self.require_write_access(),
+                item=serializer.instance,
+                data=serializer.validated_data,
+                actor=self.request.user,
+            )
+        except ValidationError as error:
+            raise serializers.ValidationError(error.messages)
 
 
 class HoldingViewSet(WorkspaceScopedViewSet):
