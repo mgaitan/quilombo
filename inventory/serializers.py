@@ -1,6 +1,7 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from .attribute_profiles import normalize_item_attributes, schema_item_defaults
 from .models import (
     ApiToken,
     Holding,
@@ -114,6 +115,12 @@ class ItemSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate(self, attrs):
+        attributes = normalize_item_attributes(
+            attrs.get("attributes", getattr(self.instance, "attributes", {})),
+            attrs.get("category", getattr(self.instance, "category", "")),
+        )
+        attrs["attributes"] = attributes
+        attrs.update(schema_item_defaults(attributes))
         minimum = attrs.get("minimum_quantity", getattr(self.instance, "minimum_quantity", None))
         target = attrs.get("target_quantity", getattr(self.instance, "target_quantity", None))
         if minimum is not None and minimum < 0:

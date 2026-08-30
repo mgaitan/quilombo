@@ -24,9 +24,9 @@ relative locations.
   has explicitly authorized that exact write in the current request.
 - State clearly when a write has completed. Do not describe a proposal as already applied.
 - Reply in the user's language and preserve their useful vocabulary as aliases.
-- For books, store `attributes.schema: "book"` and user-provided bibliographic facts under
-  `attributes.book`. Include `title`; include known `authors` and `publishers` as string lists.
-  These fields are optional to storage, but title is the minimum for a later catalog lookup.
+- For books, store `attributes.schema: "book"`. The item's `name` is the canonical title; put known
+  `authors` and `publishers` as string lists under `attributes.book`. These fields are optional to
+  storage, and the item name is enough for a later catalog lookup.
 
 ## Guide a first inventory
 
@@ -96,7 +96,7 @@ they may enrich a confirmed identifier later without blocking a bulk upsert.
 
 When the user asks for details about a recorded book, call `get_book_details` with its item UUID.
 The tool queries Open Library on demand, preferring a stored confirmed ISBN and otherwise using the
-book profile's title, authors, and publishers. Report the returned details or candidates, including a
+item's name, authors, and publishers. Report the returned details or candidates, including a
 thumbnail URL when present. Do not copy the external response into `attributes`; if several editions
 match, ask which one the user has before recording a confirmed ISBN.
 

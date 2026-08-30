@@ -1407,6 +1407,31 @@ def test_item_rejects_target_below_minimum(users, workspaces):
 
 
 @pytest.mark.django_db
+def test_item_api_book_schema_sets_item_defaults(users, workspaces):
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    response = client.post(
+        "/api/workspaces/workshop/items/",
+        {
+            "key": "matilda",
+            "name": "Matilda",
+            "category": "libros",
+            "attributes": {},
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": "unit",
+        },
+        format="json",
+    )
+
+    item = workspaces[0].items.get(key="matilda")
+    assert response.status_code == 201
+    assert item.attributes == {"schema": "book"}
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert item.unit == "copy"
+
+
+@pytest.mark.django_db
 def test_book_lookup_normalizes_open_library_metadata_and_is_tenant_scoped(users, workspaces):
     cache.clear()
     payload = {
@@ -2852,6 +2877,70 @@ def test_web_crud_renders_library_paths(client, users, workspaces):
 
 
 @pytest.mark.django_db
+def test_web_book_type_sets_schema_and_item_defaults(client, users, workspaces):
+    workspace, _ = workspaces
+    shelf = Location.objects.create(workspace=workspace, key="shelf", name="Shelf")
+    client.force_login(users[0])
+
+    new_item_page = client.get("/app/workshop/items/new/")
+    created = client.post(
+        "/app/workshop/items/new/",
+        {
+            "key": "matilda",
+            "name": "Matilda",
+            "schema": "book",
+            "description": "",
+            "category": "libros",
+            "aliases": "",
+            "tracking_mode": Item.TrackingMode.BULK,
+            "unit": "unit",
+            "minimum_quantity": "",
+            "target_quantity": "",
+            "holding-location": shelf.id,
+            "holding-quantity": "1",
+            "holding-notes": "",
+        },
+    )
+
+    item = workspace.items.get(key="matilda")
+    assert new_item_page.status_code == 200
+    assert 'name="schema"' in new_item_page.content.decode()
+    assert created.status_code == 302
+    assert item.attributes == {"schema": "book"}
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert item.unit == "copy"
+    assert item.holdings.get().quantity == Decimal("1")
+
+
+@pytest.mark.django_db
+def test_legacy_book_schema_migration_preserves_attributes(users, workspaces):
+    from importlib import import_module
+
+    workspace, _ = workspaces
+    item = Item.objects.create(
+        workspace=workspace,
+        key="legacy-book",
+        name="Legacy book",
+        category="libros",
+        attributes={"author": "An author", "publisher": "A publisher"},
+        tracking_mode=Item.TrackingMode.BULK,
+        unit="unit",
+    )
+
+    migration = import_module("inventory.migrations.0013_normalize_book_schema")
+    migration.normalize_book_schema(
+        SimpleNamespace(get_model=lambda app_label, model_name: Item),
+        None,
+    )
+
+    item.refresh_from_db()
+    assert item.attributes == {"author": "An author", "publisher": "A publisher", "schema": "book"}
+    assert "title" not in item.attributes.get("book", {})
+    assert item.tracking_mode == Item.TrackingMode.DISCRETE
+    assert item.unit == "copy"
+
+
+@pytest.mark.django_db
 def test_web_book_detail_shows_editions_and_confirms_identifier(client, users, workspaces):
     workspace, _ = workspaces
     book = Item.objects.create(
@@ -3759,7 +3848,10 @@ def test_mcp_attribute_profile_handles_alias_and_invalid_categories(users, works
     profile = get_attribute_profile(" books ", ctx)
 
     assert profile["category"] == "book"
-    assert profile["minimum_for_catalog_lookup"] == ["title"]
+    assert profile["version"] == "1.1"
+    assert profile["tracking_mode"] == "discrete"
+    assert profile["unit"] == "copy"
+    assert profile["minimum_for_catalog_lookup"] == []
     with pytest.raises(StructuredToolError) as empty_category:
         get_attribute_profile("   ", ctx)
     with pytest.raises(StructuredToolError) as unknown_category:
@@ -4107,7 +4199,7 @@ def test_streamable_http_mcp_authenticates_and_searches(users, workspaces):
                     )
                     assert profile.is_error is False
                     assert profile.structured_content["category"] == "book"
-                    assert profile.structured_content["minimum_for_catalog_lookup"] == ["title"]
+                    assert profile.structured_content["minimum_for_catalog_lookup"] == []
                     assert profile.structured_content["recommended_for_disambiguation"] == [
                         "authors",
                         "publishers",

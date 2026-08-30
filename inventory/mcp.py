@@ -81,9 +81,9 @@ interpretation, and decisions about what to confirm belong to the client.
   payload, and search or read the affected state before retrying an uncertain result.
 - Clients may interpret photos or videos, but Quilombo receives only facts and provenance. Never
   claim that the server uploaded, interpreted, or retained source media.
-- For books, store `attributes.schema` as `book` and put user-provided `title`, `authors`, and
-  `publishers` under `attributes.book`. Title is enough for a catalog lookup; authors and publishers
-  improve disambiguation. These profile fields guide clients but are not server-required.
+- For books, store `attributes.schema` as `book`. The item's `name` is its canonical title; put
+  user-provided authors and publishers under `attributes.book`. These profile fields guide clients
+  but are not server-required.
 - When the user asks for book details, use `get_book_details` with the item's UUID. It queries Open
   Library on demand, prefers a stored confirmed ISBN, and never copies the external response into
   inventory. Present multiple candidates for user confirmation before recording an identifier.
@@ -459,7 +459,8 @@ def get_inventory_status(ctx: Context) -> dict[str, Any]:
     title="Get an attribute profile",
     description=(
         "Return the stable attribute profile for a category. Use the book profile when recording "
-        "books so user-provided title, authors, and publishers are stored under attributes.book. "
+        "books so user-provided authors and publishers are stored under attributes.book; the "
+        "item name is the canonical title. "
         "Profiles guide clients and do not make optional fields mandatory."
     ),
     annotations=READ_ONLY,
@@ -563,7 +564,7 @@ def _book_result_context(item, match_method):
     title="Get book details",
     description=(
         "Read a book from the workspace and fetch its current details from Open Library. Use a "
-        "confirmed ISBN when one is stored; otherwise search with the stored title, authors, and "
+        "confirmed ISBN when one is stored; otherwise search with the item's name, authors, and "
         "publishers. Returns details or candidates and never changes inventory."
     ),
     annotations=EXTERNAL_READ,
