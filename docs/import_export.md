@@ -56,3 +56,15 @@ from a document are not deleted. References must resolve within the document. UU
 workspace, conflicting stable keys, invalid
 hierarchies, cross-workspace relationships, negative quantities, and fractional quantities for
 discrete items are rejected before commit.
+
+## Web UI
+
+Signed-in members have an **Import / export** page for each workspace
+(`/app/{slug}/transfer/`):
+
+- **Export** downloads the whole workspace as a JSON or CSV file.
+- **Import** takes a JSON or CSV upload and always shows a dry-run preview with
+  created/updated counts first. "Apply import" then commits it in one transaction and
+  redirects to the history. Re-applying the same preview is idempotent.
+
+Members with read-only access can export but not import.

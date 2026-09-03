@@ -2,7 +2,7 @@ import html
 import json
 from copy import deepcopy
 from io import BytesIO
-from uuid import UUID
+from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import segno
@@ -42,6 +42,7 @@ from .catalogs import (
 )
 from .forms import (
     HoldingForm,
+    InventoryImportUploadForm,
     ItemForm,
     LocationForm,
     MemberAccessForm,
@@ -439,6 +440,112 @@ def workspace_member(request, workspace_slug, user_id):
                 can_write=form.cleaned_data["can_write"],
             )
     return HttpResponseRedirect(reverse("workspace-settings", args=[workspace.slug]))
+
+
+@login_required
+@require_http_methods(["GET"])
+def workspace_export(request, workspace_slug):
+    workspace = _workspace_membership(request.user, workspace_slug).workspace
+    format_name = request.GET.get("format", "json").casefold()
+    if format_name not in {"json", "csv"}:
+        raise Http404("format must be json or csv.")
+    document = export_inventory_document(workspace)
+    if format_name == "csv":
+        body = export_inventory_csv(document)
+        content_type = "text/csv; charset=utf-8"
+    else:
+        body = json.dumps(document, ensure_ascii=False, indent=2)
+        content_type = "application/json"
+    response = HttpResponse(body, content_type=content_type)
+    response["Content-Disposition"] = (
+        f'attachment; filename="{workspace.slug}-inventory.{format_name}"'
+    )
+    return response
+
+
+def _run_web_import(*, workspace, actor, format_name, content, dry_run, idempotency_key):
+    document = parse_inventory_document(format_name=format_name, content=content)
+    provenance = {"source_kind": "import", "client_actor": "web"}
+    return import_inventory_document(
+        workspace=workspace,
+        actor=actor,
+        document=document,
+        dry_run=dry_run,
+        idempotency_key=idempotency_key,
+        provenance=provenance,
+        request_hash=hash_request(
+            {"document": document, "idempotency_key": idempotency_key, "provenance": provenance}
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_transfer(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    can_write = membership_can_write(membership)
+    context = {
+        "workspace": workspace,
+        "can_write": can_write,
+        "upload_form": InventoryImportUploadForm(),
+    }
+
+    if request.method == "POST":
+        if not can_write:
+            raise PermissionDenied(_("This inventory is shared as read-only."))
+        action = request.POST.get("action")
+
+        if action == "apply":
+            format_name = request.POST.get("format", "json")
+            content = request.POST.get("content", "")
+            idempotency_key = request.POST.get("idempotency_key") or str(uuid4())
+            try:
+                summary, event, replayed = _run_web_import(
+                    workspace=workspace,
+                    actor=request.user,
+                    format_name=format_name,
+                    content=content,
+                    dry_run=False,
+                    idempotency_key=idempotency_key,
+                )
+            except InventoryTransferError as error:
+                context["import_error"] = str(error)
+                return render(request, "inventory/workspace_transfer.html", context, status=400)
+            if replayed:
+                messages.info(request, _("This import was already applied."))
+            else:
+                messages.success(request, _("Import applied."))
+            return HttpResponseRedirect(reverse("event-history", args=[workspace.slug]))
+
+        form = InventoryImportUploadForm(request.POST, request.FILES)
+        context["upload_form"] = form
+        if form.is_valid():
+            try:
+                content = form.read_content()
+                summary, _event, _replayed = _run_web_import(
+                    workspace=workspace,
+                    actor=request.user,
+                    format_name=form.cleaned_data["format"],
+                    content=content,
+                    dry_run=True,
+                    idempotency_key=str(uuid4()),
+                )
+            except (InventoryTransferError, ValidationError) as error:
+                context["import_error"] = getattr(error, "message", None) or str(error)
+            else:
+                context["preview"] = {
+                    "rows": [
+                        {"name": name, "created": counts["created"], "updated": counts["updated"]}
+                        for name, counts in summary.items()
+                    ],
+                    "format": form.cleaned_data["format"],
+                    "content": content,
+                    "idempotency_key": str(uuid4()),
+                }
+
+    status_code = 400 if context.get("import_error") else 200
+    return render(request, "inventory/workspace_transfer.html", context, status=status_code)
 
 
 @login_required
