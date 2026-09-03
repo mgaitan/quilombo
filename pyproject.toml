@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn[standard]>=0.35,<0.36",
     "whitenoise>=6.9,<7",
     "segno>=1.6,<2",
+    "sentry-sdk>=2.35,<3",
 ]
 
 [dependency-groups]

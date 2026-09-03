@@ -27,6 +27,10 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.05"
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
