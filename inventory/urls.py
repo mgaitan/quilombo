@@ -17,6 +17,7 @@ from .views import (
     LocationViewSet,
     PublicInventorySearchView,
     PublicSearchLinkDetailView,
+    PublicSearchLinkQRView,
     PublicSearchLinkRotateView,
     PublicSearchLinkView,
     StockStatusView,
@@ -93,6 +94,11 @@ urlpatterns = [
         "workspaces/<slug:workspace_slug>/public-search-links/<uuid:link_id>/rotate/",
         PublicSearchLinkRotateView.as_view(),
         name="public-search-link-rotate",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/public-search-links/<uuid:link_id>/qr/",
+        PublicSearchLinkQRView.as_view(),
+        name="public-search-link-qr",
     ),
     path(
         "workspaces/<slug:workspace_slug>/labels/",

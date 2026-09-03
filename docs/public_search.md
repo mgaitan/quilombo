@@ -29,6 +29,7 @@ can share it with visitors without giving them an account or a workspace.
 | `GET /api/workspaces/{workspace}/public-search-links/{id}/` | any member | inspect one link |
 | `DELETE /api/workspaces/{workspace}/public-search-links/{id}/` | writers | revoke the link |
 | `POST /api/workspaces/{workspace}/public-search-links/{id}/rotate/` | writers | new secret, returns the new URL once |
+| `GET /api/workspaces/{workspace}/public-search-links/{id}/qr/` | any member | QR code for the public URL |
 
 Create request body:
 
@@ -44,6 +45,16 @@ Create request body:
 
 `category` and `expires_at` are optional. The response includes `url`, the full public
 link. Save it: the list endpoint returns link metadata but never the URL or secret.
+
+## QR codes
+
+`GET /api/workspaces/{workspace}/public-search-links/{id}/qr/` renders a QR code that
+encodes **only** the public URL — never inventory data, tokens, or session credentials.
+
+- `?format=svg` (default) or `?format=png` for the bare code.
+- `?label=true` returns a printable SVG that adds the link's scope name under the code.
+- A revoked or expired link returns `404`; rotating the secret changes the URL, so any
+  previously printed QR stops working.
 
 ## Using a link (public visitor)
 

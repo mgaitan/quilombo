@@ -5572,3 +5572,83 @@ def test_public_search_unknown_secret_is_not_found():
     cache.clear()
     anon = APIClient()
     assert anon.get("/api/public/search/deadbeefdeadbeef/", {"q": "x"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_svg_and_png(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    svg = client.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/")
+    assert svg.status_code == 200
+    assert svg["Content-Type"] == "image/svg+xml"
+    assert b"<svg" in svg.content
+
+    png = client.get(
+        f"/api/workspaces/workshop/public-search-links/{link.id}/qr/", {"format": "png"}
+    )
+    assert png.status_code == 200
+    assert png["Content-Type"] == "image/png"
+    assert png.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_label_carries_scope_name_only(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Reading room catalog"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    label = client.get(
+        f"/api/workspaces/workshop/public-search-links/{link.id}/qr/", {"label": "true"}
+    )
+
+    assert label.status_code == 200
+    assert label["Content-Type"] == "image/svg+xml"
+    body = label.content.decode()
+    assert "Reading room catalog" in body
+    # No inventory contents leak into the label.
+    assert "The Gray Angel" not in body
+    assert "Lathe manual" not in body
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_follows_revocation_and_rotation(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+    base = f"/api/workspaces/workshop/public-search-links/{link.id}/qr/"
+
+    assert client.get(base).status_code == 200
+    link.rotate_secret()
+    assert client.get(base).status_code == 200
+    link.revoke()
+    assert client.get(base).status_code == 404
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_requires_membership(users, workspaces):
+    workshop, library = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    outsider = APIClient()
+    outsider.force_authenticate(users[1])
+
+    assert (
+        outsider.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/").status_code
+        == 404
+    )
