@@ -494,6 +494,14 @@ class InventoryEvent(models.Model):
         AGENT = "agent", _("Agent")
         OTHER = "other", _("Other")
 
+    class Activity(models.TextChoices):
+        """Why a stock fact was recorded, distinct from the technical kind and the
+        evidence source_kind."""
+
+        UNSPECIFIED = "unspecified", _("Unspecified")
+        OBSERVATION = "observation", _("Observation")
+        PURCHASE = "purchase", _("Purchase")
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="inventory_events"
@@ -510,6 +518,7 @@ class InventoryEvent(models.Model):
     idempotency_key = models.CharField(max_length=160, blank=True)
     request_hash = models.CharField(max_length=64, blank=True)
     source_kind = models.CharField(max_length=16, choices=SourceKind, default=SourceKind.MANUAL)
+    activity = models.CharField(max_length=16, choices=Activity, default=Activity.UNSPECIFIED)
     source_reference = models.TextField(blank=True)
     observed_at = models.DateTimeField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)

@@ -345,6 +345,11 @@ class InventoryAuditSerializer(serializers.Serializer):
     location_status = serializers.ChoiceField(choices=VerificationStatus)
     holdings = AuditHoldingSerializer(many=True, required=False)
     idempotency_key = serializers.CharField(max_length=160)
+    activity = serializers.ChoiceField(
+        choices=InventoryEvent.Activity,
+        required=False,
+        default=InventoryEvent.Activity.UNSPECIFIED,
+    )
     provenance = ProvenanceSerializer(required=False)
 
     def validate_holdings(self, rows):
@@ -417,6 +422,11 @@ class ItemDeleteSerializer(serializers.Serializer):
 
 class BulkUpsertSerializer(serializers.Serializer):
     idempotency_key = serializers.CharField(max_length=160)
+    activity = serializers.ChoiceField(
+        choices=InventoryEvent.Activity,
+        required=False,
+        default=InventoryEvent.Activity.UNSPECIFIED,
+    )
     provenance = ProvenanceSerializer(required=False)
     locations = BulkLocationSerializer(many=True, required=False, max_length=2000)
     items = BulkItemSerializer(many=True, required=False, max_length=2000)
