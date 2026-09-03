@@ -14,6 +14,7 @@ from django.db.models import (
     BooleanField,
     Case,
     DecimalField,
+    F,
     FloatField,
     IntegerField,
     Min,
@@ -40,6 +41,7 @@ from .models import (
     Location,
     LocationRelation,
     Membership,
+    PublicSearchLink,
     Workspace,
 )
 from .state import capture_inventory_state, inventory_state_hash, restore_inventory_state
@@ -732,6 +734,31 @@ def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
         "location_paths": location_paths,
         "nearby_by_holding": nearby_by_holding,
     }
+
+
+def resolve_public_search_link(raw_secret):
+    """Return the active link for a URL secret, or ``None``.
+
+    The secret is an unguessable random token looked up on its unique index.
+    Revoked or expired links resolve to ``None``.
+    """
+    if not raw_secret:
+        return None
+    link = (
+        PublicSearchLink.objects.select_related("workspace", "location")
+        .filter(secret=raw_secret)
+        .first()
+    )
+    if link is None or not link.is_active:
+        return None
+    return link
+
+
+def record_public_search_link_use(link):
+    """Best-effort access log: bump the counter and last-used timestamp."""
+    PublicSearchLink.objects.filter(pk=link.pk).update(
+        last_used_at=timezone.now(), use_count=F("use_count") + 1
+    )
 
 
 def get_stock_status(*, workspace):

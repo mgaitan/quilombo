@@ -592,6 +592,92 @@ class ApiToken(models.Model):
         return f"{self.name} ({self.prefix})"
 
 
+def _new_link_secret():
+    return secrets.token_urlsafe(32)
+
+
+class PublicSearchLink(models.Model):
+    """A revocable, read-only search URL scoped to one location and optional category.
+
+    ``secret`` is an unguessable capability token that appears in the shareable
+    URL and, later, in a QR code, so it is stored as-is rather than hashed. It is
+    only ever returned to a workspace member. Rotating or revoking the link
+    invalidates the previous URL (and any QR that encodes it).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="public_search_links"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="public_search_links",
+    )
+    name = models.CharField(max_length=120)
+    secret = models.CharField(max_length=64, unique=True, default=_new_link_secret)
+    location = models.ForeignKey(
+        Location, on_delete=models.CASCADE, related_name="public_search_links"
+    )
+    include_descendants = models.BooleanField(default=True)
+    category = models.CharField(max_length=120, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    use_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({str(self.id)[:8]})"
+
+    @classmethod
+    def issue(
+        cls,
+        *,
+        workspace,
+        location,
+        name,
+        created_by=None,
+        category="",
+        include_descendants=True,
+        expires_at=None,
+    ):
+        link = cls.objects.create(
+            workspace=workspace,
+            location=location,
+            name=name,
+            created_by=created_by,
+            category=category,
+            include_descendants=include_descendants,
+            expires_at=expires_at,
+            secret=_new_link_secret(),
+        )
+        return link, link.secret
+
+    def rotate_secret(self):
+        self.secret = _new_link_secret()
+        self.save(update_fields=["secret"])
+        return self.secret
+
+    def revoke(self):
+        if self.revoked_at is None:
+            self.revoked_at = timezone.now()
+            self.save(update_fields=["revoked_at"])
+
+    @property
+    def is_active(self):
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and self.expires_at <= timezone.now():
+            return False
+        return True
+
+
 class OAuthClient(models.Model):
     client_id = models.CharField(primary_key=True, max_length=128)
     metadata = models.JSONField()

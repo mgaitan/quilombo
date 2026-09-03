@@ -15,6 +15,10 @@ from .views import (
     LabelSuggestionView,
     LocationRelationViewSet,
     LocationViewSet,
+    PublicInventorySearchView,
+    PublicSearchLinkDetailView,
+    PublicSearchLinkRotateView,
+    PublicSearchLinkView,
     StockStatusView,
     WorkspaceViewSet,
 )
@@ -69,6 +73,26 @@ urlpatterns = [
         "workspaces/<slug:workspace_slug>/bulk-upsert/",
         BulkUpsertView.as_view(),
         name="bulk-upsert",
+    ),
+    path(
+        "public/search/<str:secret>/",
+        PublicInventorySearchView.as_view(),
+        name="public-inventory-search",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/public-search-links/",
+        PublicSearchLinkView.as_view(),
+        name="public-search-link-list",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/public-search-links/<uuid:link_id>/",
+        PublicSearchLinkDetailView.as_view(),
+        name="public-search-link-detail",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/public-search-links/<uuid:link_id>/rotate/",
+        PublicSearchLinkRotateView.as_view(),
+        name="public-search-link-rotate",
     ),
     path(
         "workspaces/<slug:workspace_slug>/labels/",
