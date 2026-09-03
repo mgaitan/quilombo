@@ -80,6 +80,36 @@ trusted machines. The branch ID, project ID, database, and role can be overridde
 Use `make help` to list all targets. The release workflow uses `make docs` to build the published
 site with warnings treated as errors.
 
+## Staging environment
+
+`quilombo-staging` (`render.yaml`) is a persistent online copy for exercising a branch or a set of
+merged branches with a real login. It deploys whatever is on the `staging` branch against its own
+Neon branch and a synthetic dataset.
+
+Deploy a branch to it:
+
+```bash
+make staging-deploy            # current branch
+make staging-deploy REF=integration/open-prs-local
+```
+
+`git push origin <ref>:staging --force` triggers a Render deploy. `build.sh` runs migrations and,
+because `APP_ENV=staging`, `manage.py seed_demo_data --ensure`.
+
+Sign in with the seeded account: username `demo`, password from `DEMO_USER_PASSWORD` (default
+`quilombo-demo`). `APP_ENV=staging` disables OAuth and the mail provider and makes email
+verification optional, so no external accounts are needed. It still runs behind HTTPS with
+production cookie and HSTS settings. `RENDER_EXTERNAL_HOSTNAME` supplies the allowed hosts,
+`PUBLIC_BASE_URL`, and the CSRF/MCP origins automatically.
+
+Rebuild the demo data at any time with `manage.py seed_demo_data --refresh`; it only ever touches
+the `demo-*` workspaces and the `demo` user.
+
+**Staging is not for real data.** Seed it synthetically; do not fork production into it.
+
+One-time setup: create the `quilombo-staging` service from the blueprint, create a persistent Neon
+branch for it and set `DATABASE_URL`, and set `DEMO_USER_PASSWORD` (and optionally `SENTRY_DSN`).
+
 ## Releases
 
 Render does not deploy branch pushes. Its deploy hook is stored as the GitHub Actions repository

@@ -1,4 +1,4 @@
-.PHONY: install lint format format-check test postgres-up postgres-down postgres-migrate test-postgres neon-local-status neon-local-url neon-local-refresh neon-local-migrate runserver-neon-local docs docs-open qa help
+.PHONY: install lint format format-check test postgres-up postgres-down postgres-migrate test-postgres neon-local-status neon-local-url neon-local-refresh neon-local-migrate runserver-neon-local staging-deploy seed-demo docs docs-open qa help
 
 DOCS_SOURCE := docs
 DOCS_BUILD := $(DOCS_SOURCE)/_build
@@ -57,6 +57,12 @@ neon-local-migrate: ## Apply current Django migrations to the isolated Neon bran
 
 runserver-neon-local: ## Run the web app against the isolated Neon branch
 	@set -a; [ ! -f .env ] || . ./.env; set +a; unset PROD_DATABASE_URL; DATABASE_URL="$$(scripts/neon-local-db.sh url)" IS_PROD=0 RESEND_API_KEY= PUBLIC_BASE_URL=http://localhost:8000 uv run python manage.py runserver 127.0.0.1:8000
+
+staging-deploy: ## Deploy the current branch (or REF=...) to the staging environment
+	@git push origin $(or $(REF),HEAD):staging --force
+
+seed-demo: ## Create synthetic demo data in the current database
+	@uv run python manage.py seed_demo_data --refresh
 
 docs: ## Build strict Sphinx/MyST documentation
 	uv run --group docs sphinx-build -b html -W --keep-going $(DOCS_SOURCE) $(DOCS_BUILD)/html

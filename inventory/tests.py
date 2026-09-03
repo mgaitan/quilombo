@@ -5652,3 +5652,61 @@ def test_public_search_link_qr_requires_membership(users, workspaces):
         outsider.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/").status_code
         == 404
     )
+from io import StringIO as _SeedStringIO  # noqa: E402
+
+from django.contrib.auth import authenticate as _dj_authenticate  # noqa: E402
+from django.core.management import call_command as _seed_call_command  # noqa: E402
+
+
+def _run_seed(*flags):
+    out = _SeedStringIO()
+    _seed_call_command("seed_demo_data", *flags, stdout=out)
+    return out.getvalue()
+
+
+def test_staging_settings_tier_is_exposed():
+    assert settings.APP_ENV == "development"
+    assert settings.SERVE_SECURE is False
+    assert settings.IS_STAGING is False
+    assert settings.ACCOUNT_EMAIL_VERIFICATION == "mandatory"
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_creates_a_verified_demo_login():
+    _run_seed("--refresh")
+
+    user_model = get_user_model()
+    user = user_model.objects.get(username="demo")
+    assert user.emailaddress_set.filter(verified=True, primary=True).exists()
+    assert _dj_authenticate(username="demo", password="quilombo-demo") == user
+
+    slugs = set(Workspace.objects.values_list("slug", flat=True))
+    assert {"demo-workshop", "demo-library"} <= slugs
+    assert Holding.objects.filter(workspace__slug="demo-workshop").exists()
+    assert Item.objects.filter(workspace__slug="demo-library", category="book").exists()
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_ensure_is_idempotent():
+    _run_seed("--refresh")
+    workshop_items = Item.objects.filter(workspace__slug="demo-workshop").count()
+
+    message = _run_seed("--ensure")
+
+    assert "already present" in message
+    assert Workspace.objects.filter(slug__startswith="demo-").count() == 2
+    assert Item.objects.filter(workspace__slug="demo-workshop").count() == workshop_items
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_refresh_rebuilds_and_spares_other_workspaces():
+    keep = Workspace.objects.create(name="Real", slug="real-workspace")
+    _run_seed("--refresh")
+    demo = Workspace.objects.get(slug="demo-workshop")
+    Item.objects.create(workspace=demo, key="stray", name="Stray item")
+
+    _run_seed("--refresh")
+
+    assert Workspace.objects.filter(slug="real-workspace").exists()
+    assert not Item.objects.filter(workspace__slug="demo-workshop", key="stray").exists()
+    assert Workspace.objects.get(pk=keep.pk).slug == "real-workspace"
