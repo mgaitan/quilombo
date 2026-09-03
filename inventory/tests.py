@@ -5752,3 +5752,29 @@ def test_seed_demo_data_refresh_rebuilds_and_spares_other_workspaces():
     assert Workspace.objects.filter(slug="real-workspace").exists()
     assert not Item.objects.filter(workspace__slug="demo-workshop", key="stray").exists()
     assert Workspace.objects.get(pk=keep.pk).slug == "real-workspace"
+from io import StringIO as _SmokeStringIO  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+
+
+@pytest.mark.django_db
+def test_release_smoke_reads_core_models_without_writing():
+    workspace = Workspace.objects.create(name="Workshop", slug="workshop")
+    location = Location.objects.create(workspace=workspace, key="bench", name="Bench")
+    item = Item.objects.create(workspace=workspace, key="drill", name="Drill")
+    Holding.objects.create(workspace=workspace, item=item, location=location, quantity=Decimal("1"))
+    before = InventoryEvent.objects.count()
+
+    out = _SmokeStringIO()
+    call_command("release_smoke", stdout=out)
+
+    assert "Release smoke OK" in out.getvalue()
+    assert "Item=1" in out.getvalue()
+    assert InventoryEvent.objects.count() == before
+
+
+@pytest.mark.django_db
+def test_release_smoke_handles_empty_database():
+    out = _SmokeStringIO()
+    call_command("release_smoke", stdout=out)
+    assert "Workspace=0" in out.getvalue()
