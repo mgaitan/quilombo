@@ -125,6 +125,35 @@ For a new release, update the project version, merge the change to `main`, and p
 tag. For example, version `0.4.0` must be released with tag `v0.4.0`. The running version appears in
 the web footer, the `/health/` response, the OpenAPI schema, and MCP initialization metadata.
 
+### Migration validation gate
+
+Before Render is triggered, the release workflow validates the exact release tag against a
+throwaway Neon branch cloned from production:
+
+1. `neondatabase/create-branch-action` forks the production branch as
+   `release/<tag>-<run_id>`.
+2. `manage.py migrate --noinput`, then `migrate --check`, `check`, and the read-only
+   `manage.py release_smoke` command run against that branch using its direct connection
+   string.
+3. `neondatabase/delete-branch-action` removes the branch on success, failure, or
+   cancellation.
+4. `deploy-render` needs this job, so a failed migration or smoke check stops the deploy.
+
+The workflow uses a single `production-release` concurrency group so two releases cannot
+validate and deploy at the same time.
+
+Required configuration:
+
+| Name | Type | Purpose |
+| --- | --- | --- |
+| `NEON_API_KEY` | secret | create/delete Neon branches |
+| `NEON_PROJECT_ID` | variable | Neon project |
+| `NEON_PRODUCTION_BRANCH_ID` | variable | parent branch to clone |
+
+**Limits.** The branch has production-shaped schema and data but no production traffic, so
+this check does not prove zero-downtime behaviour, lock duration, or old/new application
+overlap. Keep migrations backward-compatible (expand/contract) regardless.
+
 ### Versioning policy
 
 Quilombo follows Semantic Versioning. Use patch releases for fixes, documentation, and other
