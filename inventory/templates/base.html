@@ -8,6 +8,7 @@
     <title>{% if IS_STAGING %}[staging] {% endif %}{% block title %}Quilombo{% endblock %}</title>
     <meta name="description" content="{% translate "An inventory your AI agent can read and update." %}">
     {% block social_meta %}{% endblock %}
+    <link rel="icon" type="image/png" href="{% static 'inventory/quilombo-logo-white.png' %}">
     <link rel="stylesheet" href="{% static 'inventory/styles.css' %}">
   </head>
   <body>
