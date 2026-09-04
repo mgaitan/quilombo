@@ -20,6 +20,11 @@ class InventoryPagination(PageNumberPagination):
     def get_paginated_response(self, data):
         return Response({"pagination": self.metadata(), "results": data})
 
+
+class PublicSearchPagination(InventoryPagination):
+    page_size = 20
+    max_page_size = 50
+
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",

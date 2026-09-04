@@ -26,7 +26,9 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from .catalogs import (
     CatalogLookupError,
@@ -54,11 +56,12 @@ from .models import (
     LocationRelation,
     Membership,
     OAuthAuthorizationRequest,
+    PublicSearchLink,
     VerificationStatus,
     Workspace,
 )
 from .oauth import create_authorization_grant
-from .pagination import InventoryPagination
+from .pagination import InventoryPagination, PublicSearchPagination
 from .permissions import (
     membership_can_write,
     require_workspace_write,
@@ -81,6 +84,11 @@ from .serializers import (
     LabelSuggestionSerializer,
     LocationRelationSerializer,
     LocationSerializer,
+    PublicSearchLinkCreateSerializer,
+    PublicSearchLinkSecretSerializer,
+    PublicSearchLinkSerializer,
+    PublicSearchQuerySerializer,
+    PublicSearchResultSerializer,
     SearchQuerySerializer,
     SearchResultSerializer,
     StockStatusResultSerializer,
@@ -103,10 +111,12 @@ from .services import (
     hash_request,
     location_scope_ids,
     preview_inventory_undo,
+    record_public_search_link_use,
     remove_holding,
     remove_item,
     remove_workspace_member,
     rename_workspace,
+    resolve_public_search_link,
     search_holdings,
     share_workspace,
     suggest_labels,
@@ -1533,6 +1543,133 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
                 "results": page_results,
             },
             context=clue_context,
+        )
+        return Response(output.data)
+
+
+def _public_link_secret_payload(link, raw_secret):
+    """Serialize a link plus its one-time shareable URL."""
+    data = PublicSearchLinkSerializer(link).data
+    path = reverse("public-inventory-search", args=[raw_secret])
+    data["url"] = f"{settings.PUBLIC_BASE_URL}{path}"
+    return data
+
+
+class PublicSearchLinkView(WorkspaceAccessMixin, GenericAPIView):
+    """Members list a workspace's public search links; writers create them."""
+
+    serializer_class = PublicSearchLinkCreateSerializer
+
+    @extend_schema(responses=PublicSearchLinkSerializer(many=True))
+    def get(self, request, *args, **kwargs):
+        links = self.get_workspace().public_search_links.select_related("location")
+        return Response(PublicSearchLinkSerializer(links, many=True).data)
+
+    @extend_schema(
+        request=PublicSearchLinkCreateSerializer,
+        responses={status.HTTP_201_CREATED: PublicSearchLinkSecretSerializer},
+    )
+    def post(self, request, *args, **kwargs):
+        workspace = self.require_write_access()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        location = get_object_or_404(Location, workspace=workspace, key=data["location_key"])
+        link, raw_secret = PublicSearchLink.issue(
+            workspace=workspace,
+            location=location,
+            name=data["name"],
+            created_by=request.user,
+            category=data.get("category", ""),
+            include_descendants=data["include_descendants"],
+            expires_at=data.get("expires_at"),
+        )
+        return Response(
+            _public_link_secret_payload(link, raw_secret), status=status.HTTP_201_CREATED
+        )
+
+
+class PublicSearchLinkLookupMixin(WorkspaceAccessMixin):
+    def get_link(self, *, writable):
+        workspace = self.require_write_access() if writable else self.get_workspace()
+        return get_object_or_404(
+            PublicSearchLink.objects.select_related("location"),
+            workspace=workspace,
+            pk=self.kwargs["link_id"],
+        )
+
+
+class PublicSearchLinkDetailView(PublicSearchLinkLookupMixin, GenericAPIView):
+    serializer_class = PublicSearchLinkSerializer
+
+    @extend_schema(responses=PublicSearchLinkSerializer)
+    def get(self, request, *args, **kwargs):
+        return Response(PublicSearchLinkSerializer(self.get_link(writable=False)).data)
+
+    @extend_schema(request=None, responses={status.HTTP_204_NO_CONTENT: None})
+    def delete(self, request, *args, **kwargs):
+        self.get_link(writable=True).revoke()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PublicSearchLinkRotateView(PublicSearchLinkLookupMixin, GenericAPIView):
+    serializer_class = PublicSearchLinkSecretSerializer
+
+    @extend_schema(request=None, responses=PublicSearchLinkSecretSerializer)
+    def post(self, request, *args, **kwargs):
+        link = self.get_link(writable=True)
+        if not link.is_active:
+            return Response(
+                {"detail": _("Cannot rotate a revoked or expired link.")},
+                status=status.HTTP_409_CONFLICT,
+            )
+        raw_secret = link.rotate_secret()
+        return Response(_public_link_secret_payload(link, raw_secret))
+
+
+class PublicInventorySearchView(GenericAPIView):
+    """Unauthenticated, GET-only, read-only search bound to one public link."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public-search"
+    serializer_class = PublicSearchQuerySerializer
+
+    @extend_schema(parameters=[PublicSearchQuerySerializer], responses=PublicSearchResultSerializer)
+    def get(self, request, *args, **kwargs):
+        link = resolve_public_search_link(kwargs["secret"])
+        if link is None:
+            raise Http404("Unknown or inactive public search link.")
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        query = serializer.validated_data["q"].strip()
+        results = search_holdings(
+            workspace=link.workspace,
+            query=query,
+            category=link.category,
+            location=link.location.key,
+            include_descendants=link.include_descendants,
+            limit=1001,
+        )
+        result_count = results.count() if isinstance(results, QuerySet) else len(results)
+        truncated = result_count > 1000
+        results = results[:1000]
+        paginator = PublicSearchPagination()
+        page_results = paginator.paginate_queryset(results, request, view=self)
+        add_search_match_details(page_results, query)
+        clue_context = build_holding_clue_context(workspace=link.workspace, holdings=page_results)
+        record_public_search_link_use(link)
+        output = PublicSearchResultSerializer(
+            {
+                "scope": link.name,
+                "query": query,
+                "count": min(result_count, 1000),
+                "truncated": truncated,
+                "pagination": paginator.metadata(),
+                "results": page_results,
+            },
+            context={"location_paths": clue_context["location_paths"]},
         )
         return Response(output.data)
 

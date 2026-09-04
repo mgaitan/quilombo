@@ -13,6 +13,7 @@ from .models import (
     ItemLabel,
     Location,
     LocationRelation,
+    PublicSearchLink,
     VerificationStatus,
     Workspace,
 )
@@ -805,3 +806,84 @@ class StockStatusResultSerializer(serializers.Serializer):
     workspace = serializers.CharField()
     count = serializers.IntegerField()
     items = StockStatusItemSerializer(many=True)
+
+
+class PublicSearchLinkSerializer(serializers.ModelSerializer):
+    """Owner-facing representation. Never carries the URL or the secret."""
+
+    location_key = serializers.CharField(source="location.key", read_only=True)
+    location_name = serializers.CharField(source="location.name", read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PublicSearchLink
+        fields = [
+            "id",
+            "name",
+            "location_key",
+            "location_name",
+            "include_descendants",
+            "category",
+            "expires_at",
+            "revoked_at",
+            "created_at",
+            "last_used_at",
+            "use_count",
+            "is_active",
+        ]
+        read_only_fields = fields
+
+
+class PublicSearchLinkCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=120)
+    location_key = serializers.CharField(max_length=128)
+    include_descendants = serializers.BooleanField(required=False, default=True)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=120, default="")
+    expires_at = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class PublicSearchLinkSecretSerializer(PublicSearchLinkSerializer):
+    """Returned once, on creation or secret rotation."""
+
+    url = serializers.CharField(read_only=True)
+
+    class Meta(PublicSearchLinkSerializer.Meta):
+        fields = [*PublicSearchLinkSerializer.Meta.fields, "url"]
+        read_only_fields = fields
+
+
+class PublicSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
+    page = serializers.IntegerField(required=False, min_value=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=50)
+
+
+class PublicSearchHoldingSerializer(serializers.Serializer):
+    item_name = serializers.CharField(source="item.name")
+    item_category = serializers.CharField(source="item.category")
+    item_description = serializers.CharField(source="item.description")
+    item_aliases = serializers.ListField(source="item.aliases", child=serializers.CharField())
+    item_attributes = serializers.JSONField(source="item.attributes")
+    quantity = serializers.DecimalField(max_digits=20, decimal_places=6)
+    approximate = serializers.BooleanField()
+    unit = serializers.CharField(source="item.unit")
+    location_name = serializers.CharField(source="location.name")
+    location_path = serializers.SerializerMethodField()
+    search = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_location_path(self, holding):
+        return self.context.get("location_paths", {}).get(holding.location_id, [])
+
+    @extend_schema_field(serializers.DictField())
+    def get_search(self, holding):
+        return getattr(holding, "_search_match", None)
+
+
+class PublicSearchResultSerializer(serializers.Serializer):
+    scope = serializers.CharField()
+    query = serializers.CharField()
+    count = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    pagination = PaginationMetadataSerializer()
+    results = PublicSearchHoldingSerializer(many=True)

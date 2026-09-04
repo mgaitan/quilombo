@@ -49,6 +49,7 @@ from .models import (
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
+    PublicSearchLink,
     VerificationStatus,
     Workspace,
 )
@@ -5361,3 +5362,213 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
         ).count()
         == 1
     )
+
+
+def _seed_public_scope(workspace):
+    """A small two-branch location tree with holdings for public-link tests."""
+    library = Location.objects.create(workspace=workspace, key="library", name="Library")
+    reading = Location.objects.create(
+        workspace=workspace, key="reading-room", name="Reading room", parent=library
+    )
+    shelf = Location.objects.create(
+        workspace=workspace, key="shelf-2", name="Shelf 2", parent=reading
+    )
+    office = Location.objects.create(workspace=workspace, key="office", name="Office")
+    novel = Item.objects.create(
+        workspace=workspace, key="novel", name="The Gray Angel", category="book"
+    )
+    manual = Item.objects.create(
+        workspace=workspace, key="manual", name="Lathe manual", category="manual"
+    )
+    private = Item.objects.create(
+        workspace=workspace, key="ledger", name="Membership ledger", category="book"
+    )
+    Holding.objects.create(workspace=workspace, item=novel, location=shelf, quantity=Decimal("2"))
+    Holding.objects.create(workspace=workspace, item=manual, location=shelf, quantity=Decimal("1"))
+    Holding.objects.create(
+        workspace=workspace,
+        item=private,
+        location=office,
+        quantity=Decimal("1"),
+        notes="secret combination 1234",
+    )
+    return {"library": library, "reading": reading, "shelf": shelf, "office": office}
+
+
+@pytest.mark.django_db
+def test_public_search_link_create_returns_url_once_and_list_hides_secret(users, workspaces):
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    created = client.post(
+        "/api/workspaces/workshop/public-search-links/",
+        {"name": "Front desk", "location_key": "reading-room", "category": "book"},
+        format="json",
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["url"].startswith("http")
+    assert "/api/public/search/" in body["url"]
+    assert body["is_active"] is True
+    link = PublicSearchLink.objects.get(id=body["id"])
+    assert body["url"].rstrip("/").endswith(link.secret)
+
+    listing = client.get("/api/workspaces/workshop/public-search-links/").json()
+    assert len(listing) == 1
+    assert "url" not in listing[0]
+    assert "secret" not in listing[0]
+    assert listing[0]["location_key"] == "reading-room"
+
+
+@pytest.mark.django_db
+def test_public_search_link_creation_requires_write_access(users, workspaces):
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    response = client.post(
+        "/api/workspaces/workshop/public-search-links/",
+        {"name": "nope", "location_key": "reading-room"},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert PublicSearchLink.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_public_search_is_scoped_read_only_and_tenant_isolated(users, workspaces):
+    cache.clear()
+    workshop, library = workspaces
+    _seed_public_scope(workshop)
+    other = Location.objects.create(workspace=library, key="reading-room", name="Other room")
+    other_item = Item.objects.create(
+        workspace=library, key="secret-book", name="The Gray Angel", category="book"
+    )
+    Holding.objects.create(
+        workspace=library, item=other_item, location=other, quantity=Decimal("9")
+    )
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop,
+        location=Location.objects.get(workspace=workshop, key="reading-room"),
+        name="Front desk",
+    )
+    anon = APIClient()
+
+    found = anon.get(f"/api/public/search/{secret}/", {"q": "gray angel"})
+    assert found.status_code == 200
+    payload = found.json()
+    assert payload["scope"] == "Front desk"
+    assert [row["item_name"] for row in payload["results"]] == ["The Gray Angel"]
+    assert payload["results"][0]["quantity"] == "2.000000"
+    assert "notes" not in payload["results"][0]
+    assert [step["key"] for step in payload["results"][0]["location_path"]] == [
+        "library",
+        "reading-room",
+        "shelf-2",
+    ]
+
+    # Out-of-scope location is invisible even with a matching name.
+    assert all(row["quantity"] != "9.000000" for row in payload["results"])
+    # Private office holding (with notes) is outside the scope.
+    empty = anon.get(f"/api/public/search/{secret}/", {"q": "ledger"}).json()
+    assert empty["results"] == []
+
+    # GET only.
+    assert anon.post(f"/api/public/search/{secret}/").status_code == 405
+    assert anon.delete(f"/api/public/search/{secret}/").status_code == 405
+
+
+@pytest.mark.django_db
+def test_public_search_empty_query_lists_scope_and_category_filters(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    shelf = Location.objects.get(workspace=workshop, key="shelf-2")
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=shelf, name="Shelf", category="book"
+    )
+    anon = APIClient()
+
+    listing = anon.get(f"/api/public/search/{secret}/").json()
+    assert [row["item_name"] for row in listing["results"]] == ["The Gray Angel"]
+    assert listing["count"] == 1
+
+
+@pytest.mark.django_db
+def test_public_search_link_revocation_and_rotation(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    anon = APIClient()
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 200
+
+    rotated = client.post(f"/api/workspaces/workshop/public-search-links/{link.id}/rotate/").json()
+    new_secret = rotated["url"].rsplit("/api/public/search/", 1)[1].strip("/")
+    assert new_secret != secret
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 404
+    assert anon.get(f"/api/public/search/{new_secret}/").status_code == 200
+
+    assert (
+        client.delete(f"/api/workspaces/workshop/public-search-links/{link.id}/").status_code == 204
+    )
+    assert anon.get(f"/api/public/search/{new_secret}/").status_code == 404
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+    assert (
+        client.post(f"/api/workspaces/workshop/public-search-links/{link.id}/rotate/").status_code
+        == 409
+    )
+
+
+@pytest.mark.django_db
+def test_public_search_link_expiry_blocks_access(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop,
+        location=scope["reading"],
+        name="Expired",
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    anon = APIClient()
+
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 404
+    assert PublicSearchLink.objects.get(pk=link.pk).is_active is False
+
+
+@pytest.mark.django_db
+def test_public_search_records_link_usage(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    anon = APIClient()
+
+    anon.get(f"/api/public/search/{secret}/", {"q": "gray"})
+    anon.get(f"/api/public/search/{secret}/", {"q": "manual"})
+
+    link.refresh_from_db()
+    assert link.use_count == 2
+    assert link.last_used_at is not None
+
+
+@pytest.mark.django_db
+def test_public_search_unknown_secret_is_not_found():
+    cache.clear()
+    anon = APIClient()
+    assert anon.get("/api/public/search/deadbeefdeadbeef/", {"q": "x"}).status_code == 404

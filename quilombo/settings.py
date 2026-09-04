@@ -290,6 +290,9 @@ REST_FRAMEWORK = {
     "URL_FORMAT_OVERRIDE": None,
     "DEFAULT_PAGINATION_CLASS": "inventory.pagination.InventoryPagination",
     "PAGE_SIZE": 50,
+    "DEFAULT_THROTTLE_RATES": {
+        "public-search": os.environ.get("PUBLIC_SEARCH_THROTTLE_RATE", "60/min"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {

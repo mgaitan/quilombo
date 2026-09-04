@@ -64,6 +64,12 @@ Deterministic normalization handles case, Unicode compatibility forms, and white
 multilingual equivalence require explicit confirmation. See [Labels and emerging facets](labels.md)
 for the model, API flow, and facet-promotion design.
 
+## Public search links
+
+A workspace member can publish a revocable, read-only search URL scoped to one location
+and optional category, so visitors to a library or workshop can look things up without an
+account. See [Public search links](public_search.md).
+
 ## Provenance
 
 Quilombo stores provenance metadata supplied by the client, such as “processed from a workshop
