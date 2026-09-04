@@ -4181,11 +4181,17 @@ def test_inventory_audit_rejects_observation_older_than_current_fact(users, work
     assert not workspace.inventory_events.exists()
 
 
-def test_public_web_footer_shows_runtime_version(client):
-    response = client.get("/")
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=False,
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_public_web_footer_links_version_to_its_github_release(client):
+    body = client.get("/").content.decode()
 
-    assert response.status_code == 200
-    assert f"v{settings.APP_VERSION}" in response.content.decode()
+    assert '<a href="https://github.com/mgaitan/quilombo/releases/tag/v0.6.0"' in body
+    assert ">v0.6.0</a>" in body
 
 
 @pytest.mark.django_db
@@ -4198,7 +4204,8 @@ def test_public_web_footer_shows_runtime_version(client):
 def test_staging_footer_shows_commit_linking_to_release_diff(client):
     body = client.get("/").content.decode()
 
-    assert "<span>v0.6.0</span>" not in body
+    assert ">v0.6.0</a>" not in body
+    assert "/releases/tag/" not in body
     assert ">abcdef123</a>" in body
     assert "https://github.com/mgaitan/quilombo/compare/v0.6.0...abcdef1234567890" in body
 
