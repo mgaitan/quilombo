@@ -1,9 +1,11 @@
+import html
 import json
 from copy import deepcopy
 from io import BytesIO
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import segno
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -23,7 +25,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
@@ -1625,6 +1627,66 @@ class PublicSearchLinkRotateView(PublicSearchLinkLookupMixin, GenericAPIView):
             )
         raw_secret = link.rotate_secret()
         return Response(_public_link_secret_payload(link, raw_secret))
+
+
+def _qr_label_svg(qr, caption):
+    """A printable SVG: the QR code with the link's scope name underneath."""
+    data_uri = qr.svg_data_uri(scale=8, border=2)
+    safe_caption = html.escape(caption)
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="420" '
+        'viewBox="0 0 360 420">'
+        '<rect width="360" height="420" fill="#ffffff"/>'
+        f'<image x="40" y="24" width="280" height="280" href="{data_uri}"/>'
+        f'<text x="180" y="338" text-anchor="middle" font-family="sans-serif" '
+        f'font-size="20" font-weight="bold" fill="#111111">{safe_caption}</text>'
+        '<text x="180" y="368" text-anchor="middle" font-family="sans-serif" '
+        'font-size="14" fill="#444444">Scan to search</text>'
+        "</svg>"
+    )
+
+
+class PublicSearchLinkQRView(PublicSearchLinkLookupMixin, GenericAPIView):
+    """Return a QR code, or a printable label, that encodes only the public URL."""
+
+    serializer_class = PublicSearchLinkSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "format",
+                str,
+                OpenApiParameter.QUERY,
+                enum=["svg", "png"],
+                description="Image format for the bare QR code (default svg).",
+            ),
+            OpenApiParameter(
+                "label",
+                bool,
+                OpenApiParameter.QUERY,
+                description="Return a printable SVG label captioned with the scope name.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="QR image (image/svg+xml or image/png)."),
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        link = self.get_link(writable=False)
+        if not link.is_active:
+            raise Http404("This public search link is revoked or expired.")
+        path = reverse("public-inventory-search", args=[link.secret])
+        qr = segno.make(f"{settings.PUBLIC_BASE_URL}{path}", error="m")
+
+        if request.query_params.get("label", "").lower() in ("1", "true", "yes"):
+            return HttpResponse(_qr_label_svg(qr, link.name), content_type="image/svg+xml")
+
+        buffer = BytesIO()
+        if request.query_params.get("format", "svg").lower() == "png":
+            qr.save(buffer, kind="png", scale=8, border=2)
+            return HttpResponse(buffer.getvalue(), content_type="image/png")
+        qr.save(buffer, kind="svg", scale=8, border=2)
+        return HttpResponse(buffer.getvalue(), content_type="image/svg+xml")
 
 
 class PublicInventorySearchView(GenericAPIView):
