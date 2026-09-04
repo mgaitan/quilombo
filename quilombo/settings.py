@@ -44,6 +44,12 @@ APP_ENV = os.environ.get("APP_ENV", "production" if IS_PROD else "development")
 IS_STAGING = APP_ENV == "staging"
 SERVE_SECURE = IS_PROD or IS_STAGING
 DEBUG = APP_ENV == "development"
+
+# Deployed commit (Render injects RENDER_GIT_COMMIT). On staging the footer shows
+# this short hash linking to its diff against the last released version instead of
+# the semantic version.
+APP_SOURCE_URL = os.environ.get("APP_SOURCE_URL", "https://github.com/mgaitan/quilombo").rstrip("/")
+APP_REVISION = os.environ.get("RENDER_GIT_COMMIT", "").strip()
 PUBLIC_BASE_URL = os.environ.get(
     "PUBLIC_BASE_URL",
     "https://quilombo.life" if IS_PROD else "http://localhost:8000",

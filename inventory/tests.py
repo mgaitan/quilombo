@@ -3988,7 +3988,12 @@ def test_health_check_includes_database(client):
     response = client.get("/health/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
+    assert response.json() == {
+        "status": "ok",
+        "version": settings.APP_VERSION,
+        "revision": settings.APP_REVISION,
+        "environment": settings.APP_ENV,
+    }
 
 
 @pytest.mark.django_db
@@ -4176,11 +4181,46 @@ def test_inventory_audit_rejects_observation_older_than_current_fact(users, work
     assert not workspace.inventory_events.exists()
 
 
-def test_public_web_footer_shows_runtime_version(client):
-    response = client.get("/")
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=False,
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_public_web_footer_links_version_to_its_github_release(client):
+    body = client.get("/").content.decode()
 
-    assert response.status_code == 200
-    assert f"v{settings.APP_VERSION}" in response.content.decode()
+    assert '<a href="https://github.com/mgaitan/quilombo/releases/tag/v0.6.0"' in body
+    assert ">v0.6.0</a>" in body
+    assert "env-badge" not in body
+    assert "<title>Quilombo" in body
+
+
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=True,
+    APP_REVISION="abcdef1234567890",
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_staging_footer_shows_commit_linking_to_release_diff(client):
+    body = client.get("/").content.decode()
+
+    assert ">v0.6.0</a>" not in body
+    assert "/releases/tag/" not in body
+    assert ">abcdef123</a>" in body
+    assert "https://github.com/mgaitan/quilombo/compare/v0.6.0...abcdef1234567890" in body
+    assert '<span class="env-badge">staging</span>' in body
+    assert "<title>[staging] " in body
+
+
+@pytest.mark.django_db
+@override_settings(APP_REVISION="deadbeefcafe")
+def test_health_check_reports_revision_and_environment(client):
+    payload = client.get("/health/").json()
+
+    assert payload["revision"] == "deadbeefcafe"
+    assert payload["environment"] == settings.APP_ENV
 
 
 @pytest.mark.django_db

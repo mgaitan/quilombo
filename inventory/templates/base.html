@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Quilombo{% endblock %}</title>
+    <title>{% if IS_STAGING %}[staging] {% endif %}{% block title %}Quilombo{% endblock %}</title>
     <meta name="description" content="{% translate "An inventory your AI agent can read and update." %}">
     {% block social_meta %}{% endblock %}
     <link rel="stylesheet" href="{% static 'inventory/styles.css' %}">
@@ -15,6 +15,7 @@
       <a class="wordmark" href="{% url 'home' %}">
         <img src="{% static 'inventory/quilombo-mark.png' %}" alt="">
         <span>Quilombo</span>
+        {% if IS_STAGING %}<span class="env-badge">staging</span>{% endif %}
       </a>
       <nav class="nav" aria-label="{% translate "Main navigation" %}">
         <a href="{% url 'connector-guide' %}">{% translate "Connect" %}</a>
@@ -55,7 +56,7 @@
       <a href="{% url 'privacy-policy' %}">{% if LANGUAGE_CODE == "en" %}Privacy{% else %}Privacidad{% endif %}</a>
       <a href="{% url 'terms-of-service' %}">{% if LANGUAGE_CODE == "en" %}Terms{% else %}Términos{% endif %}</a>
       <a href="{% url 'api-docs' %}">API</a>
-      <span>v{{ APP_VERSION }}</span>
+      <a href="{{ APP_VERSION_LINK }}" rel="external" title="{{ APP_VERSION_TITLE }}">{{ APP_VERSION_LABEL }}</a>
     </footer>
     {% block scripts %}{% endblock %}
   </body>

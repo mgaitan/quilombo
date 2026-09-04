@@ -42,7 +42,14 @@ def health_check(request):
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         cursor.fetchone()
-    return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
+    return JsonResponse(
+        {
+            "status": "ok",
+            "version": settings.APP_VERSION,
+            "revision": settings.APP_REVISION,
+            "environment": settings.APP_ENV,
+        }
+    )
 
 
 urlpatterns = [
