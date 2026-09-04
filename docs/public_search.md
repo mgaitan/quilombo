@@ -22,6 +22,10 @@ can share it with visitors without giving them an account or a workspace.
 
 ## Managing links (workspace members)
 
+Signed-in members have a **Public links** page (`/app/{slug}/public-links/`) to create,
+rotate, and revoke links and to view or download each link's QR. The full URL is shown once,
+as a flash message, when a link is created or its secret is rotated.
+
 | Method & path | Who | Purpose |
 | --- | --- | --- |
 | `GET /api/workspaces/{workspace}/public-search-links/` | any member | list links (no working URL) |

@@ -52,6 +52,10 @@ Accents and punctuation are folded only into a non-unique search key. Plurals an
 equivalence are never inferred. This lets entry suggest a nearby term without silently collapsing
 knowledge that may be different.
 
+The web item detail page lists an item's labels and lets a member with write access add a
+label (creating the canonical label if needed) or remove an assertion. It posts single-item
+assertions through the same service as the bulk API.
+
 ## Write and suggestion flow
 
 `GET /api/workspaces/{workspace}/labels/?q=...` is read-only. It ranks an exact canonical identity,

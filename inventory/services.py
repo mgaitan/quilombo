@@ -160,7 +160,9 @@ def update_location(*, workspace, location, data):
 
 
 @transaction.atomic
-def create_item_with_holding(*, workspace, item_data, holding_data):
+def create_item_with_holding(
+    *, workspace, item_data, holding_data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item_data = dict(item_data)
     item_data["attributes"] = normalize_item_attributes(
@@ -173,6 +175,9 @@ def create_item_with_holding(*, workspace, item_data, holding_data):
     holding = Holding(workspace=workspace, item=item, **holding_data)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return item
 
 
@@ -221,24 +226,50 @@ def remove_item(*, workspace, item):
     item.delete()
 
 
+def _record_holding_adjustment(*, workspace, item, holding, actor, activity):
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=InventoryEvent.Kind.ADJUSTMENT,
+        actor=actor,
+        activity=activity or InventoryEvent.Activity.UNSPECIFIED,
+        source_kind=InventoryEvent.SourceKind.MANUAL,
+        summary={
+            "item_key": item.key,
+            "location_key": holding.location.key,
+            "quantity": str(holding.quantity),
+            "unit": item.unit,
+        },
+    )
+
+
 @transaction.atomic
-def create_holding(*, workspace, item, data):
+def create_holding(
+    *, workspace, item, data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
     holding = Holding(workspace=workspace, item=item, **data)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return holding
 
 
 @transaction.atomic
-def update_holding(*, workspace, item, holding, data):
+def update_holding(
+    *, workspace, item, holding, data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     holding = Holding.objects.select_for_update().get(pk=holding.pk, workspace=workspace, item=item)
     for field, value in data.items():
         setattr(holding, field, value)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return holding
 
 

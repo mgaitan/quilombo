@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 
 from .attribute_profiles import normalize_item_attributes, schema_item_defaults
 from .catalogs import normalize_edition_key, normalize_isbn
-from .models import Holding, Item, Location
+from .models import Holding, InventoryEvent, Item, Location
 from .services import normalize_aliases
 
 
@@ -301,6 +301,14 @@ class LocationForm(AliasesFormMixin, forms.ModelForm):
 
 
 class HoldingForm(forms.ModelForm):
+    activity = forms.ChoiceField(
+        label=_("Why is this stock recorded?"),
+        choices=InventoryEvent.Activity.choices,
+        initial=InventoryEvent.Activity.UNSPECIFIED,
+        required=False,
+        help_text=_("Records a history event tagged as an observation or a purchase."),
+    )
+
     class Meta:
         model = Holding
         fields = ["location", "quantity", "approximate", "notes"]
@@ -369,3 +377,25 @@ class InventoryImportUploadForm(forms.Form):
             return self.cleaned_data["file"].read().decode("utf-8-sig")
         except UnicodeDecodeError as error:
             raise forms.ValidationError(_("Import files must be UTF-8 encoded.")) from error
+
+
+class PublicSearchLinkForm(forms.Form):
+    name = forms.CharField(label=_("Name"), max_length=120)
+    include_descendants = forms.BooleanField(
+        label=_("Include sub-locations"), required=False, initial=True
+    )
+    category = forms.CharField(label=_("Category (optional)"), required=False, max_length=120)
+    expires_at = forms.DateTimeField(
+        label=_("Expires (optional)"),
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"],
+    )
+    field_order = ["name", "location", "include_descendants", "category", "expires_at"]
+
+    def __init__(self, *args, workspace, **kwargs):
+        super().__init__(*args, **kwargs)
+        locations, labels = _location_choices(workspace)
+        self.fields["location"] = LocationChoiceField(
+            queryset=locations, labels=labels, label=_("Location")
+        )

@@ -46,6 +46,7 @@ from .forms import (
     ItemForm,
     LocationForm,
     MemberAccessForm,
+    PublicSearchLinkForm,
     WorkspaceCreateForm,
     WorkspaceRenameForm,
     WorkspaceShareForm,
@@ -55,6 +56,7 @@ from .models import (
     Holding,
     InventoryEvent,
     Item,
+    ItemLabel,
     Location,
     LocationRelation,
     Membership,
@@ -779,10 +781,14 @@ def item_create(request, workspace_slug):
         prefix="holding",
     )
     if request.method == "POST" and item_form.is_valid() and holding_form.is_valid():
+        holding_data = dict(holding_form.cleaned_data)
+        activity = holding_data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
         item = create_item_with_holding(
             workspace=workspace,
             item_data=item_form.cleaned_data,
-            holding_data=holding_form.cleaned_data,
+            holding_data=holding_data,
+            actor=request.user,
+            activity=activity,
         )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
@@ -990,6 +996,7 @@ def item_detail(request, workspace_slug, item_id):
             "catalog_result": catalog_result,
             "catalog_error": catalog_error,
             "item_attribute_rows": _item_attribute_rows(item.attributes),
+            "item_labels": item.label_assertions.select_related("label").order_by("label__name"),
         },
     )
 
@@ -1107,7 +1114,11 @@ def holding_create(request, workspace_slug, item_id):
     item = get_object_or_404(Item, workspace=workspace, id=item_id)
     form = HoldingForm(request.POST or None, workspace=workspace, item=item)
     if request.method == "POST" and form.is_valid():
-        create_holding(workspace=workspace, item=item, data=form.cleaned_data)
+        data = dict(form.cleaned_data)
+        activity = data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
+        create_holding(
+            workspace=workspace, item=item, data=data, actor=request.user, activity=activity
+        )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
         request,
@@ -1129,11 +1140,15 @@ def holding_edit(request, workspace_slug, item_id, holding_id):
         item=item,
     )
     if request.method == "POST" and form.is_valid():
+        data = dict(form.cleaned_data)
+        activity = data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
         update_holding(
             workspace=workspace,
             item=item,
             holding=holding,
-            data=form.cleaned_data,
+            data=data,
+            actor=request.user,
+            activity=activity,
         )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
@@ -1161,6 +1176,96 @@ def holding_delete(request, workspace_slug, item_id, holding_id):
             "detail": _("The item itself will remain."),
         },
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def item_label_add(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    value = (request.POST.get("value") or "").strip()
+    if value:
+        payload = {
+            "assertions": [{"item_key": item.key, "value": value, "source": "user"}],
+            "idempotency_key": f"web-label-{uuid4()}",
+            "provenance": {"source_kind": "manual", "client_actor": "web"},
+        }
+        try:
+            assert_item_labels(
+                workspace=workspace,
+                actor=request.user,
+                data=payload,
+                request_hash=hash_request(payload),
+            )
+        except (BulkUpsertError, LabelConflictError, ValidationError) as error:
+            messages.error(request, _("Could not add the label: %(error)s") % {"error": error})
+    return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+
+@login_required
+@require_http_methods(["POST"])
+def item_label_remove(request, workspace_slug, item_id, assertion_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    ItemLabel.objects.filter(workspace=workspace, item=item, id=assertion_id).delete()
+    return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_public_links(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    can_write = membership_can_write(membership)
+    form = PublicSearchLinkForm(workspace=workspace)
+
+    if request.method == "POST":
+        if not can_write:
+            raise PermissionDenied(_("This inventory is shared as read-only."))
+        action = request.POST.get("action")
+        link_id = request.POST.get("link_id")
+
+        if action in {"revoke", "rotate"} and link_id:
+            link = get_object_or_404(workspace.public_search_links, id=link_id)
+            if action == "revoke":
+                link.revoke()
+                messages.success(request, _("Public link revoked."))
+            else:
+                secret = link.rotate_secret()
+                messages.success(
+                    request,
+                    _("New URL (copy it now): %(url)s") % {"url": _public_link_url(secret)},
+                )
+            return HttpResponseRedirect(reverse("web-public-links", args=[workspace.slug]))
+
+        form = PublicSearchLinkForm(request.POST, workspace=workspace)
+        if form.is_valid():
+            link, secret = PublicSearchLink.issue(
+                workspace=workspace,
+                location=form.cleaned_data["location"],
+                name=form.cleaned_data["name"],
+                created_by=request.user,
+                category=form.cleaned_data["category"],
+                include_descendants=form.cleaned_data["include_descendants"],
+                expires_at=form.cleaned_data["expires_at"],
+            )
+            messages.success(
+                request,
+                _("Public link created. URL (copy it now): %(url)s")
+                % {"url": _public_link_url(secret)},
+            )
+            return HttpResponseRedirect(reverse("web-public-links", args=[workspace.slug]))
+
+    links = workspace.public_search_links.select_related("location")
+    return render(
+        request,
+        "inventory/workspace_public_links.html",
+        {"workspace": workspace, "can_write": can_write, "form": form, "links": links},
+    )
+
+
+def _public_link_url(secret):
+    return f"{settings.PUBLIC_BASE_URL}{reverse('public-inventory-search', args=[secret])}"
 
 
 @login_required

@@ -20,6 +20,7 @@
       <a class="button" href="{% url 'web-location-list' workspace.slug %}">{% translate "Locations" %}</a>
       <a class="button" href="{% url 'event-history' workspace.slug %}">{% translate "History" %}</a>
       <a class="button" href="{% url 'web-inventory-transfer' workspace.slug %}">{% translate "Import / export" %}</a>
+      <a class="button" href="{% url 'web-public-links' workspace.slug %}">{% translate "Public links" %}</a>
       {% if can_manage %}<a class="button" href="{% url 'workspace-settings' workspace.slug %}">{% translate "Settings" %}</a>{% endif %}
     </div>
   </div>
