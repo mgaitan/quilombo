@@ -5752,6 +5752,8 @@ def test_seed_demo_data_refresh_rebuilds_and_spares_other_workspaces():
     assert Workspace.objects.filter(slug="real-workspace").exists()
     assert not Item.objects.filter(workspace__slug="demo-workshop", key="stray").exists()
     assert Workspace.objects.get(pk=keep.pk).slug == "real-workspace"
+
+
 from io import StringIO as _SmokeStringIO  # noqa: E402
 
 from django.core.management import call_command  # noqa: E402
