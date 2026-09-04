@@ -18,6 +18,8 @@ def runtime(request):
         link = f"{settings.APP_SOURCE_URL}/releases/tag/v{version}"
         title = f"Release notes for v{version}"
     return {
+        "APP_ENV": settings.APP_ENV,
+        "IS_STAGING": settings.IS_STAGING,
         "APP_VERSION": version,
         "APP_REVISION": settings.APP_REVISION,
         "APP_VERSION_LABEL": label,

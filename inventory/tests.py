@@ -4192,6 +4192,8 @@ def test_public_web_footer_links_version_to_its_github_release(client):
 
     assert '<a href="https://github.com/mgaitan/quilombo/releases/tag/v0.6.0"' in body
     assert ">v0.6.0</a>" in body
+    assert "env-badge" not in body
+    assert "<title>Quilombo" in body
 
 
 @pytest.mark.django_db
@@ -4208,6 +4210,8 @@ def test_staging_footer_shows_commit_linking_to_release_diff(client):
     assert "/releases/tag/" not in body
     assert ">abcdef123</a>" in body
     assert "https://github.com/mgaitan/quilombo/compare/v0.6.0...abcdef1234567890" in body
+    assert '<span class="env-badge">staging</span>' in body
+    assert "<title>[staging] " in body
 
 
 @pytest.mark.django_db
