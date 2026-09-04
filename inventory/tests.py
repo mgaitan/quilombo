@@ -5827,3 +5827,117 @@ def test_sentry_before_send_transaction_drops_health_check():
     )
     assert kept is not None
     assert kept["extra"]["secret"] == observability.FILTERED
+
+
+def _web_seed_workshop(users):
+    workshop = Workspace.objects.create(name="Workshop", slug="workshop")
+    Membership.objects.create(workspace=workshop, user=users[0], role=Membership.Role.OWNER)
+    root = Location.objects.create(workspace=workshop, key="workshop", name="Workshop")
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer", parent=root)
+    item = Item.objects.create(
+        workspace=workshop, key="screws", name="Screws", category="fasteners", unit="piece"
+    )
+    Holding.objects.create(workspace=workshop, item=item, location=drawer, quantity=Decimal("8"))
+    return workshop
+
+
+@pytest.mark.django_db
+def test_web_inventory_export_downloads_json_and_csv(client, users):
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    as_json = client.get("/app/workshop/transfer/export/", {"format": "json"})
+    assert as_json.status_code == 200
+    assert "workshop-inventory.json" in as_json["Content-Disposition"]
+    document = json.loads(as_json.content.decode())
+    assert document["items"][0]["key"] == "screws"
+
+    as_csv = client.get("/app/workshop/transfer/export/", {"format": "csv"})
+    assert as_csv.status_code == 200
+    assert "workshop-inventory.csv" in as_csv["Content-Disposition"]
+    assert b"screws" in as_csv.content
+
+    assert client.get("/app/workshop/transfer/export/", {"format": "xml"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_web_transfer_page_shows_export_links(client, users):
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    page = client.get("/app/workshop/transfer/")
+
+    assert page.status_code == 200
+    assert b"Download JSON" in page.content
+    assert b"Preview import" in page.content
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_previews_then_applies_idempotently(client, users):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    workshop = _web_seed_workshop(users)
+    client.force_login(users[0])
+    document_text = client.get(
+        "/app/workshop/transfer/export/", {"format": "json"}
+    ).content.decode()
+    events_before = InventoryEvent.objects.filter(workspace=workshop).count()
+
+    upload = SimpleUploadedFile("inv.json", document_text.encode(), content_type="application/json")
+    preview = client.post("/app/workshop/transfer/", {"file": upload, "format": "json"})
+    assert preview.status_code == 200
+    assert b"Apply import" in preview.content
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before
+
+    apply_payload = {
+        "action": "apply",
+        "format": "json",
+        "content": document_text,
+        "idempotency_key": "web-import-001",
+    }
+    applied = client.post("/app/workshop/transfer/", apply_payload)
+    assert applied.status_code == 302
+    assert applied["Location"] == "/app/workshop/history/"
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before + 1
+
+    replay = client.post("/app/workshop/transfer/", apply_payload)
+    assert replay.status_code == 302
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before + 1
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_blocked_for_read_only_members(client, users):
+    workshop = _web_seed_workshop(users)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client.force_login(users[1])
+
+    page = client.get("/app/workshop/transfer/")
+    assert page.status_code == 200
+    assert b"Preview import" not in page.content
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    blocked = client.post(
+        "/app/workshop/transfer/",
+        {"file": SimpleUploadedFile("inv.json", b"{}", content_type="application/json")},
+    )
+    assert blocked.status_code == 403
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_reports_invalid_file(client, users):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    response = client.post(
+        "/app/workshop/transfer/",
+        {
+            "file": SimpleUploadedFile("inv.json", b"not json at all", content_type="text/plain"),
+            "format": "json",
+        },
+    )
+
+    assert response.status_code == 400
+    assert b"form-error" in response.content

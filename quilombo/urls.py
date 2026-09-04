@@ -31,10 +31,12 @@ from inventory.views import (
     privacy_policy,
     terms_of_service,
     workspace_create,
+    workspace_export,
     workspace_inventory,
     workspace_member,
     workspace_settings,
     workspace_share,
+    workspace_transfer,
 )
 
 
@@ -71,6 +73,16 @@ urlpatterns = [
     ),
     path("app/<slug:workspace_slug>/items/", item_list, name="web-item-list"),
     path("app/<slug:workspace_slug>/history/", event_history, name="event-history"),
+    path(
+        "app/<slug:workspace_slug>/transfer/",
+        workspace_transfer,
+        name="web-inventory-transfer",
+    ),
+    path(
+        "app/<slug:workspace_slug>/transfer/export/",
+        workspace_export,
+        name="web-inventory-export",
+    ),
     path(
         "app/<slug:workspace_slug>/history/<uuid:event_id>/undo/",
         event_undo,

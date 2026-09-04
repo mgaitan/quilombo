@@ -356,3 +356,16 @@ class WorkspaceShareForm(forms.Form):
 
 class MemberAccessForm(forms.Form):
     can_write = forms.BooleanField(label=_("Can edit"), required=False)
+
+
+class InventoryImportUploadForm(forms.Form):
+    FORMAT_CHOICES = [("json", "JSON"), ("csv", "CSV")]
+
+    file = forms.FileField(label=_("Inventory file"))
+    format = forms.ChoiceField(choices=FORMAT_CHOICES, initial="json", label=_("Format"))
+
+    def read_content(self):
+        try:
+            return self.cleaned_data["file"].read().decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            raise forms.ValidationError(_("Import files must be UTF-8 encoded.")) from error
