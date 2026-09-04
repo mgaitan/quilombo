@@ -6032,3 +6032,113 @@ def test_audit_records_business_activity(users, workspaces):
     assert replayed is False
     assert event.kind == InventoryEvent.Kind.AUDIT
     assert event.activity == InventoryEvent.Activity.OBSERVATION
+
+
+def _web_seed_item(users, *, category="tools"):
+    workshop = Workspace.objects.create(name="Workshop", slug="workshop")
+    Membership.objects.create(workspace=workshop, user=users[0], role=Membership.Role.OWNER)
+    location = Location.objects.create(workspace=workshop, key="bench", name="Bench")
+    item = Item.objects.create(
+        workspace=workshop, key="drill", name="Cordless drill", category=category
+    )
+    return workshop, location, item
+
+
+@pytest.mark.django_db
+def test_web_public_links_page_create_rotate_revoke(client, users):
+    workshop, location, _item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    page = client.get("/app/workshop/public-links/")
+    assert page.status_code == 200
+    assert b"No public links yet" in page.content
+
+    created = client.post(
+        "/app/workshop/public-links/",
+        {"name": "Front desk", "location": str(location.id), "include_descendants": "on"},
+        follow=True,
+    )
+    assert created.status_code == 200
+    link = PublicSearchLink.objects.get(workspace=workshop)
+    assert "/api/public/search/" in [m.message for m in created.context["messages"]][0]
+
+    anon = APIClient()
+    assert anon.get(f"/api/public/search/{link.secret}/").status_code == 200
+
+    listing = client.get("/app/workshop/public-links/")
+    assert b"Front desk" in listing.content
+    assert f"/public-search-links/{link.id}/qr/".encode() in listing.content
+
+    qr = client.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/")
+    assert qr.status_code == 200 and qr["Content-Type"] == "image/svg+xml"
+
+    old_secret = link.secret
+    client.post("/app/workshop/public-links/", {"action": "rotate", "link_id": str(link.id)})
+    link.refresh_from_db()
+    assert link.secret != old_secret
+    assert anon.get(f"/api/public/search/{old_secret}/").status_code == 404
+
+    client.post("/app/workshop/public-links/", {"action": "revoke", "link_id": str(link.id)})
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+    assert anon.get(f"/api/public/search/{link.secret}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_web_public_links_read_only_member_cannot_create(client, users):
+    workshop, location, _item = _web_seed_item(users)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client.force_login(users[1])
+
+    assert client.get("/app/workshop/public-links/").status_code == 200
+    blocked = client.post(
+        "/app/workshop/public-links/",
+        {"name": "x", "location": str(location.id)},
+    )
+    assert blocked.status_code == 403
+    assert PublicSearchLink.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_web_item_detail_adds_and_removes_labels(client, users):
+    workshop, _location, item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    detail = client.get(f"/app/workshop/items/{item.id}/")
+    assert b"No labels yet" in detail.content
+
+    client.post(f"/app/workshop/items/{item.id}/labels/", {"value": "Bosch"})
+    assertion = ItemLabel.objects.get(workspace=workshop, item=item)
+    assert assertion.label.name == "Bosch"
+    assert b"Bosch" in client.get(f"/app/workshop/items/{item.id}/").content
+
+    client.post(
+        f"/app/workshop/items/{item.id}/labels/{assertion.id}/delete/",
+    )
+    assert not ItemLabel.objects.filter(item=item).exists()
+
+
+@pytest.mark.django_db
+def test_web_holding_form_records_activity_event(client, users):
+    workshop, location, item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    client.post(
+        f"/app/workshop/items/{item.id}/holdings/new/",
+        {"location": str(location.id), "quantity": "4", "activity": "purchase"},
+    )
+    event = workshop.inventory_events.get(kind=InventoryEvent.Kind.ADJUSTMENT)
+    assert event.activity == InventoryEvent.Activity.PURCHASE
+    assert event.actor == users[0]
+
+    holding = item.holdings.get()
+    client.post(
+        f"/app/workshop/items/{item.id}/holdings/{holding.id}/edit/",
+        {"location": str(location.id), "quantity": "3", "activity": "observation"},
+    )
+    activities = sorted(
+        workshop.inventory_events.filter(kind=InventoryEvent.Kind.ADJUSTMENT).values_list(
+            "activity", flat=True
+        )
+    )
+    assert activities == ["observation", "purchase"]
