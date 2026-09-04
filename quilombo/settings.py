@@ -36,7 +36,14 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-development-only")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 IS_PROD = os.environ.get("IS_PROD") == "1"
-DEBUG = not IS_PROD
+
+# Deployment tier. "staging" runs online behind HTTPS with production-like
+# hardening, but keeps development-style auth and email so it can be exercised
+# without real OAuth accounts or a mail provider.
+APP_ENV = os.environ.get("APP_ENV", "production" if IS_PROD else "development")
+IS_STAGING = APP_ENV == "staging"
+SERVE_SECURE = IS_PROD or IS_STAGING
+DEBUG = APP_ENV == "development"
 PUBLIC_BASE_URL = os.environ.get(
     "PUBLIC_BASE_URL",
     "https://quilombo.life" if IS_PROD else "http://localhost:8000",
@@ -95,6 +102,20 @@ if IS_PROD:
             CSRF_TRUSTED_ORIGINS.append(origin)
         if origin not in MCP_ALLOWED_ORIGINS:
             MCP_ALLOWED_ORIGINS.append(origin)
+
+# Render injects the service's own hostname; trust it so any Render deploy
+# (production or staging) is reachable without hand-maintaining every list.
+RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if RENDER_EXTERNAL_HOSTNAME:
+    render_origin = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+    for host_list in (ALLOWED_HOSTS, MCP_ALLOWED_HOSTS):
+        if RENDER_EXTERNAL_HOSTNAME not in host_list:
+            host_list.append(RENDER_EXTERNAL_HOSTNAME)
+    for origin_list in (CSRF_TRUSTED_ORIGINS, MCP_ALLOWED_ORIGINS):
+        if render_origin not in origin_list:
+            origin_list.append(render_origin)
+    if not os.environ.get("PUBLIC_BASE_URL"):
+        PUBLIC_BASE_URL = render_origin
 
 
 # Application definition
@@ -243,7 +264,9 @@ SOCIALACCOUNT_ADAPTER = "inventory.accounts.QuilomboSocialAccountAdapter"
 ACCOUNT_ADAPTER = "inventory.accounts.QuilomboAccountAdapter"
 ACCOUNT_SIGNUP_FIELDS = ["username*", "email*", "password1*", "password2*"]
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
-ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+# Staging has no mail provider, so it cannot require email verification; every
+# other tier (production and local development) keeps it mandatory.
+ACCOUNT_EMAIL_VERIFICATION = "optional" if IS_STAGING else "mandatory"
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
@@ -262,7 +285,7 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-if IS_PROD:
+if SERVE_SECURE:
     STORAGES["staticfiles"]["BACKEND"] = "whitenoise.storage.CompressedManifestStaticFilesStorage"
     MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
