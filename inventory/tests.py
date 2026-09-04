@@ -5780,3 +5780,50 @@ def test_release_smoke_handles_empty_database():
     out = _SmokeStringIO()
     call_command("release_smoke", stdout=out)
     assert "Workspace=0" in out.getvalue()
+
+
+from quilombo import observability  # noqa: E402
+
+
+def test_sentry_is_disabled_without_a_dsn(monkeypatch):
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    assert observability.init_sentry(release="quilombo@test", is_prod=False) is False
+
+
+def test_sentry_scrub_event_drops_bodies_and_filters_sensitive_keys():
+    event = {
+        "request": {
+            "data": {"password": "hunter2"},
+            "cookies": {"sessionid": "abc"},
+            "headers": {"Authorization": "Bearer x", "User-Agent": "pytest"},
+            "query_string": "q=drill",
+        },
+        "extra": {"api_token": "qlo_secret", "note": "workshop photo"},
+        "tags": {"workspace": "workshop"},
+    }
+
+    scrubbed = observability.scrub_event(event)
+
+    assert "data" not in scrubbed["request"]
+    assert "cookies" not in scrubbed["request"]
+    assert scrubbed["request"]["headers"]["Authorization"] == observability.FILTERED
+    assert scrubbed["request"]["headers"]["User-Agent"] == "pytest"
+    assert scrubbed["extra"]["api_token"] == observability.FILTERED
+    assert scrubbed["extra"]["note"] == "workshop photo"
+    assert scrubbed["tags"]["workspace"] == "workshop"
+
+
+def test_sentry_traces_sampler_skips_health_check(monkeypatch):
+    monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", "0.25")
+    assert observability.traces_sampler({"asgi_scope": {"path": "/health/"}}) == 0.0
+    assert observability.traces_sampler({"wsgi_environ": {"PATH_INFO": "/health/"}}) == 0.0
+    assert observability.traces_sampler({"asgi_scope": {"path": "/api/"}}) == 0.25
+
+
+def test_sentry_before_send_transaction_drops_health_check():
+    assert observability.before_send_transaction({"transaction": "/health/"}) is None
+    kept = observability.before_send_transaction(
+        {"transaction": "/api/workspaces/workshop/search/", "extra": {"secret": "x"}}
+    )
+    assert kept is not None
+    assert kept["extra"]["secret"] == observability.FILTERED

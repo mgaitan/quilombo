@@ -114,6 +114,31 @@ version. `/health/` also returns `revision` and `environment`.
 One-time setup: create the `quilombo-staging` service from the blueprint, create a persistent Neon
 branch for it and set `DATABASE_URL`, and set `DEMO_USER_PASSWORD` (and optionally `SENTRY_DSN`).
 
+## Error monitoring
+
+Quilombo reports unhandled exceptions and a small sample of performance traces to
+[Sentry](https://sentry.io) when `SENTRY_DSN` is set. Without it — local development and
+tests — monitoring is a no-op.
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `SENTRY_DSN` | Render secret (`sync: false`) | Project DSN. Never commit it. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Render var | Trace sample rate, default `0.05`. |
+| `SENTRY_ENVIRONMENT` | optional | Overrides the auto `production` / `development` tag. |
+
+Events carry the release (`quilombo@<version>`) and environment. `send_default_pii` is off;
+request bodies and cookies are dropped, and header/context keys that look like passwords,
+tokens, authorization, cookies, API keys, or credentials are filtered before sending.
+`/health/` is excluded from tracing.
+
+To try it locally, export a DSN and send a controlled event:
+
+```bash
+export SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+uv run python manage.py verify_sentry          # info message
+uv run python manage.py verify_sentry --error  # handled exception
+```
+
 ## Releases
 
 Render does not deploy branch pushes. Its deploy hook is stored as the GitHub Actions repository

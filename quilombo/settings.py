@@ -330,3 +330,9 @@ SPECTACULAR_SETTINGS = {
     "VERSION": APP_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+
+# Error and performance monitoring. No-op unless SENTRY_DSN is set.
+from quilombo.observability import init_sentry  # noqa: E402
+
+SENTRY_ENABLED = init_sentry(release=f"quilombo@{APP_VERSION}", is_prod=IS_PROD)
