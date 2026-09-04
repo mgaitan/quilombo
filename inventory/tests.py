@@ -5652,6 +5652,8 @@ def test_public_search_link_qr_requires_membership(users, workspaces):
         outsider.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/").status_code
         == 404
     )
+
+
 from io import StringIO as _SeedStringIO  # noqa: E402
 
 from django.contrib.auth import authenticate as _dj_authenticate  # noqa: E402
