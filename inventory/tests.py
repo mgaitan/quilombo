@@ -5941,3 +5941,94 @@ def test_web_inventory_import_reports_invalid_file(client, users):
 
     assert response.status_code == 400
     assert b"form-error" in response.content
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_records_business_activity(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "pantry-shop-2026-09-03",
+        "activity": "purchase",
+        "items": [{"key": "pasta", "name": "Bow-tie pasta", "unit": "package"}],
+        "locations": [{"key": "pantry", "name": "Pantry"}],
+        "holdings": [{"item_key": "pasta", "location_key": "pantry", "quantity": "4"}],
+    }
+
+    response = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+
+    assert response.status_code == 201
+    event = workspace.inventory_events.get()
+    assert event.activity == InventoryEvent.Activity.PURCHASE
+    assert event.kind == InventoryEvent.Kind.BULK_UPSERT
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_activity_defaults_to_unspecified(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "no-activity",
+        "items": [{"key": "pasta", "name": "Pasta"}],
+    }
+
+    client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+
+    assert workspace.inventory_events.get().activity == InventoryEvent.Activity.UNSPECIFIED
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_same_key_different_activity_conflicts(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "reused",
+        "activity": "purchase",
+        "items": [{"key": "pasta", "name": "Pasta"}],
+    }
+
+    first = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert first.status_code == 201
+
+    replay = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+
+    payload["activity"] = "observation"
+    conflict = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert conflict.status_code == 409
+    assert workspace.inventory_events.count() == 1
+
+
+@pytest.mark.django_db
+def test_audit_records_business_activity(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="pantry", name="Pantry")
+    item = Item.objects.create(workspace=workspace, key="pasta", name="Pasta")
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("3")
+    )
+    data = {
+        "location_key": "pantry",
+        "location_status": VerificationStatus.CONFIRMED,
+        "idempotency_key": "audit-obs-1",
+        "activity": InventoryEvent.Activity.OBSERVATION,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("1"),
+            }
+        ],
+    }
+
+    event, replayed = audit_inventory(
+        workspace=workspace, actor=users[0], data=data, request_hash=hash_request(data)
+    )
+
+    assert replayed is False
+    assert event.kind == InventoryEvent.Kind.AUDIT
+    assert event.activity == InventoryEvent.Activity.OBSERVATION

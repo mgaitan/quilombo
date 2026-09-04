@@ -22,6 +22,7 @@
           <tr>
             <td>
               <strong>{{ event.get_kind_display }}</strong>
+              {% if event.activity != "unspecified" %}<span class="row-detail">{{ event.get_activity_display }}</span>{% endif %}
               <span class="row-detail">{{ event.id }}</span>
               {% if event.can_undo %}<a href="{% url 'event-undo' workspace.slug event.id %}">{% translate "Preview undo" %}</a>{% endif %}
             </td>
