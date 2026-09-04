@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0014_alter_inventoryevent_kind_label_itemlabel_labelalias_and_more'),
+        ('inventory', '0015_publicsearchlink'),
     ]
 
     operations = [
