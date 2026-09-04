@@ -5941,6 +5941,8 @@ def test_web_inventory_import_reports_invalid_file(client, users):
 
     assert response.status_code == 400
     assert b"form-error" in response.content
+
+
 @pytest.mark.django_db
 def test_bulk_upsert_records_business_activity(users, workspaces):
     workspace, _ = workspaces
