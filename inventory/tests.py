@@ -5827,6 +5827,8 @@ def test_sentry_before_send_transaction_drops_health_check():
     )
     assert kept is not None
     assert kept["extra"]["secret"] == observability.FILTERED
+
+
 def _web_seed_workshop(users):
     workshop = Workspace.objects.create(name="Workshop", slug="workshop")
     Membership.objects.create(workspace=workshop, user=users[0], role=Membership.Role.OWNER)
