@@ -3988,7 +3988,12 @@ def test_health_check_includes_database(client):
     response = client.get("/health/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
+    assert response.json() == {
+        "status": "ok",
+        "version": settings.APP_VERSION,
+        "revision": settings.APP_REVISION,
+        "environment": settings.APP_ENV,
+    }
 
 
 @pytest.mark.django_db
@@ -4181,6 +4186,30 @@ def test_public_web_footer_shows_runtime_version(client):
 
     assert response.status_code == 200
     assert f"v{settings.APP_VERSION}" in response.content.decode()
+
+
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=True,
+    APP_REVISION="abcdef1234567890",
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_staging_footer_shows_commit_linking_to_release_diff(client):
+    body = client.get("/").content.decode()
+
+    assert "<span>v0.6.0</span>" not in body
+    assert ">abcdef123</a>" in body
+    assert "https://github.com/mgaitan/quilombo/compare/v0.6.0...abcdef1234567890" in body
+
+
+@pytest.mark.django_db
+@override_settings(APP_REVISION="deadbeefcafe")
+def test_health_check_reports_revision_and_environment(client):
+    payload = client.get("/health/").json()
+
+    assert payload["revision"] == "deadbeefcafe"
+    assert payload["environment"] == settings.APP_ENV
 
 
 @pytest.mark.django_db

@@ -105,6 +105,10 @@ production cookie and HSTS settings. `RENDER_EXTERNAL_HOSTNAME` supplies the all
 Rebuild the demo data at any time with `manage.py seed_demo_data --refresh`; it only ever touches
 the `demo-*` workspaces and the `demo` user.
 
+On staging the footer shows the deployed commit (`RENDER_GIT_COMMIT`, short form) as a link
+to its GitHub diff against the last released tag (`v<version>`), instead of the plain
+version. `/health/` also returns `revision` and `environment`.
+
 **Staging is not for real data.** Seed it synthetically; do not fork production into it.
 
 One-time setup: create the `quilombo-staging` service from the blueprint, create a persistent Neon

@@ -55,7 +55,11 @@
       <a href="{% url 'privacy-policy' %}">{% if LANGUAGE_CODE == "en" %}Privacy{% else %}Privacidad{% endif %}</a>
       <a href="{% url 'terms-of-service' %}">{% if LANGUAGE_CODE == "en" %}Terms{% else %}Términos{% endif %}</a>
       <a href="{% url 'api-docs' %}">API</a>
-      <span>v{{ APP_VERSION }}</span>
+      {% if APP_VERSION_LINK %}
+        <a href="{{ APP_VERSION_LINK }}" rel="external" title="{% translate 'Changes since the deployed release' %}">{{ APP_VERSION_LABEL }}</a>
+      {% else %}
+        <span>{{ APP_VERSION_LABEL }}</span>
+      {% endif %}
     </footer>
     {% block scripts %}{% endblock %}
   </body>
