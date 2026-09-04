@@ -5780,6 +5780,8 @@ def test_release_smoke_handles_empty_database():
     out = _SmokeStringIO()
     call_command("release_smoke", stdout=out)
     assert "Workspace=0" in out.getvalue()
+
+
 from quilombo import observability  # noqa: E402
 
 
