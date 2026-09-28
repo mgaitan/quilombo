@@ -40,6 +40,18 @@ button, input, select, textarea { font: inherit; }
 
 .wordmark img { width: 36px; height: 36px; }
 
+.env-badge {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #b45309;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
 .nav {
   display: flex;
   align-items: center;
@@ -447,6 +459,18 @@ code {
 .settings-section h2 { margin-bottom: 18px; font-size: 21px; }
 .inline-settings-form { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 14px; align-items: end; max-width: 700px; }
 .share-form { grid-template-columns: minmax(220px, 1fr) auto auto; }
+.item-labels { border-top: 1px solid #e3e6e3; padding-top: 20px; }
+.label-list { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; padding: 0; list-style: none; }
+.label-list li { display: inline-flex; align-items: center; gap: 4px; }
+.label-list form { margin: 0; }
+.label-chip {
+  border: 1px solid #cfd3d0;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #f4f5f4;
+  font: 600 13px system-ui, sans-serif;
+}
+
 .member-list { margin: 0; padding: 0; list-style: none; }
 .member-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid #eceeec; padding: 16px 0; }
 .member-row:first-child { border-top: 0; }

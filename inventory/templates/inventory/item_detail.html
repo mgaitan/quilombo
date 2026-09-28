@@ -30,6 +30,36 @@
     <div><dt>{% translate "Tracking mode" %}</dt><dd>{{ item.get_tracking_mode_display }}</dd></div>
     {% if item.aliases %}<div><dt>{% translate "Aliases" %}</dt><dd>{{ item.aliases|join:", " }}</dd></div>{% endif %}
   </dl>
+
+  <section class="item-labels">
+    <h2>{% translate "Labels" %}</h2>
+    <ul class="label-list">
+      {% for assertion in item_labels %}
+        <li>
+          <span class="label-chip">{{ assertion.label.name }}</span>
+          {% if can_write %}
+            <form method="post" action="{% url 'web-item-label-remove' workspace.slug item.id assertion.id %}">
+              {% csrf_token %}
+              <button class="text-button" type="submit" aria-label="{% translate 'Remove label' %}">×</button>
+            </form>
+          {% endif %}
+        </li>
+      {% empty %}
+        <li class="row-detail">{% translate "No labels yet." %}</li>
+      {% endfor %}
+    </ul>
+    {% if can_write %}
+      <form method="post" action="{% url 'web-item-label-add' workspace.slug item.id %}" class="inline-settings-form">
+        {% csrf_token %}
+        <div class="field">
+          <label class="sr-only" for="label-value">{% translate "Label" %}</label>
+          <input id="label-value" name="value" type="text" maxlength="200" placeholder="{% translate 'e.g. Bosch, primera edición' %}">
+        </div>
+        <button class="button" type="submit">{% translate "Add label" %}</button>
+      </form>
+    {% endif %}
+  </section>
+
   {% if item_attribute_rows %}
     <section class="item-attributes">
       <h2>{% translate "Structured metadata" %}</h2>

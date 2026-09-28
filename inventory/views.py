@@ -1,9 +1,11 @@
+import html
 import json
 from copy import deepcopy
 from io import BytesIO
-from uuid import UUID
+from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import segno
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -23,10 +25,12 @@ from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.views.decorators.http import require_http_methods
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from .catalogs import (
     CatalogLookupError,
@@ -38,9 +42,11 @@ from .catalogs import (
 )
 from .forms import (
     HoldingForm,
+    InventoryImportUploadForm,
     ItemForm,
     LocationForm,
     MemberAccessForm,
+    PublicSearchLinkForm,
     WorkspaceCreateForm,
     WorkspaceRenameForm,
     WorkspaceShareForm,
@@ -50,15 +56,17 @@ from .models import (
     Holding,
     InventoryEvent,
     Item,
+    ItemLabel,
     Location,
     LocationRelation,
     Membership,
     OAuthAuthorizationRequest,
+    PublicSearchLink,
     VerificationStatus,
     Workspace,
 )
 from .oauth import create_authorization_grant
-from .pagination import InventoryPagination
+from .pagination import InventoryPagination, PublicSearchPagination
 from .permissions import (
     membership_can_write,
     require_workspace_write,
@@ -81,6 +89,11 @@ from .serializers import (
     LabelSuggestionSerializer,
     LocationRelationSerializer,
     LocationSerializer,
+    PublicSearchLinkCreateSerializer,
+    PublicSearchLinkSecretSerializer,
+    PublicSearchLinkSerializer,
+    PublicSearchQuerySerializer,
+    PublicSearchResultSerializer,
     SearchQuerySerializer,
     SearchResultSerializer,
     StockStatusResultSerializer,
@@ -103,10 +116,12 @@ from .services import (
     hash_request,
     location_scope_ids,
     preview_inventory_undo,
+    record_public_search_link_use,
     remove_holding,
     remove_item,
     remove_workspace_member,
     rename_workspace,
+    resolve_public_search_link,
     search_holdings,
     share_workspace,
     suggest_labels,
@@ -430,6 +445,112 @@ def workspace_member(request, workspace_slug, user_id):
 
 
 @login_required
+@require_http_methods(["GET"])
+def workspace_export(request, workspace_slug):
+    workspace = _workspace_membership(request.user, workspace_slug).workspace
+    format_name = request.GET.get("format", "json").casefold()
+    if format_name not in {"json", "csv"}:
+        raise Http404("format must be json or csv.")
+    document = export_inventory_document(workspace)
+    if format_name == "csv":
+        body = export_inventory_csv(document)
+        content_type = "text/csv; charset=utf-8"
+    else:
+        body = json.dumps(document, ensure_ascii=False, indent=2)
+        content_type = "application/json"
+    response = HttpResponse(body, content_type=content_type)
+    response["Content-Disposition"] = (
+        f'attachment; filename="{workspace.slug}-inventory.{format_name}"'
+    )
+    return response
+
+
+def _run_web_import(*, workspace, actor, format_name, content, dry_run, idempotency_key):
+    document = parse_inventory_document(format_name=format_name, content=content)
+    provenance = {"source_kind": "import", "client_actor": "web"}
+    return import_inventory_document(
+        workspace=workspace,
+        actor=actor,
+        document=document,
+        dry_run=dry_run,
+        idempotency_key=idempotency_key,
+        provenance=provenance,
+        request_hash=hash_request(
+            {"document": document, "idempotency_key": idempotency_key, "provenance": provenance}
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_transfer(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    can_write = membership_can_write(membership)
+    context = {
+        "workspace": workspace,
+        "can_write": can_write,
+        "upload_form": InventoryImportUploadForm(),
+    }
+
+    if request.method == "POST":
+        if not can_write:
+            raise PermissionDenied(_("This inventory is shared as read-only."))
+        action = request.POST.get("action")
+
+        if action == "apply":
+            format_name = request.POST.get("format", "json")
+            content = request.POST.get("content", "")
+            idempotency_key = request.POST.get("idempotency_key") or str(uuid4())
+            try:
+                summary, event, replayed = _run_web_import(
+                    workspace=workspace,
+                    actor=request.user,
+                    format_name=format_name,
+                    content=content,
+                    dry_run=False,
+                    idempotency_key=idempotency_key,
+                )
+            except InventoryTransferError as error:
+                context["import_error"] = str(error)
+                return render(request, "inventory/workspace_transfer.html", context, status=400)
+            if replayed:
+                messages.info(request, _("This import was already applied."))
+            else:
+                messages.success(request, _("Import applied."))
+            return HttpResponseRedirect(reverse("event-history", args=[workspace.slug]))
+
+        form = InventoryImportUploadForm(request.POST, request.FILES)
+        context["upload_form"] = form
+        if form.is_valid():
+            try:
+                content = form.read_content()
+                summary, _event, _replayed = _run_web_import(
+                    workspace=workspace,
+                    actor=request.user,
+                    format_name=form.cleaned_data["format"],
+                    content=content,
+                    dry_run=True,
+                    idempotency_key=str(uuid4()),
+                )
+            except (InventoryTransferError, ValidationError) as error:
+                context["import_error"] = getattr(error, "message", None) or str(error)
+            else:
+                context["preview"] = {
+                    "rows": [
+                        {"name": name, "created": counts["created"], "updated": counts["updated"]}
+                        for name, counts in summary.items()
+                    ],
+                    "format": form.cleaned_data["format"],
+                    "content": content,
+                    "idempotency_key": str(uuid4()),
+                }
+
+    status_code = 400 if context.get("import_error") else 200
+    return render(request, "inventory/workspace_transfer.html", context, status=status_code)
+
+
+@login_required
 def first_inventory(request, workspace_slug):
     membership = _workspace_membership(request.user, workspace_slug)
     return render(
@@ -660,10 +781,14 @@ def item_create(request, workspace_slug):
         prefix="holding",
     )
     if request.method == "POST" and item_form.is_valid() and holding_form.is_valid():
+        holding_data = dict(holding_form.cleaned_data)
+        activity = holding_data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
         item = create_item_with_holding(
             workspace=workspace,
             item_data=item_form.cleaned_data,
-            holding_data=holding_form.cleaned_data,
+            holding_data=holding_data,
+            actor=request.user,
+            activity=activity,
         )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
@@ -871,6 +996,7 @@ def item_detail(request, workspace_slug, item_id):
             "catalog_result": catalog_result,
             "catalog_error": catalog_error,
             "item_attribute_rows": _item_attribute_rows(item.attributes),
+            "item_labels": item.label_assertions.select_related("label").order_by("label__name"),
         },
     )
 
@@ -988,7 +1114,11 @@ def holding_create(request, workspace_slug, item_id):
     item = get_object_or_404(Item, workspace=workspace, id=item_id)
     form = HoldingForm(request.POST or None, workspace=workspace, item=item)
     if request.method == "POST" and form.is_valid():
-        create_holding(workspace=workspace, item=item, data=form.cleaned_data)
+        data = dict(form.cleaned_data)
+        activity = data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
+        create_holding(
+            workspace=workspace, item=item, data=data, actor=request.user, activity=activity
+        )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
         request,
@@ -1010,11 +1140,15 @@ def holding_edit(request, workspace_slug, item_id, holding_id):
         item=item,
     )
     if request.method == "POST" and form.is_valid():
+        data = dict(form.cleaned_data)
+        activity = data.pop("activity", "") or InventoryEvent.Activity.UNSPECIFIED
         update_holding(
             workspace=workspace,
             item=item,
             holding=holding,
-            data=form.cleaned_data,
+            data=data,
+            actor=request.user,
+            activity=activity,
         )
         return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
     return render(
@@ -1042,6 +1176,96 @@ def holding_delete(request, workspace_slug, item_id, holding_id):
             "detail": _("The item itself will remain."),
         },
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def item_label_add(request, workspace_slug, item_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    value = (request.POST.get("value") or "").strip()
+    if value:
+        payload = {
+            "assertions": [{"item_key": item.key, "value": value, "source": "user"}],
+            "idempotency_key": f"web-label-{uuid4()}",
+            "provenance": {"source_kind": "manual", "client_actor": "web"},
+        }
+        try:
+            assert_item_labels(
+                workspace=workspace,
+                actor=request.user,
+                data=payload,
+                request_hash=hash_request(payload),
+            )
+        except (BulkUpsertError, LabelConflictError, ValidationError) as error:
+            messages.error(request, _("Could not add the label: %(error)s") % {"error": error})
+    return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+
+@login_required
+@require_http_methods(["POST"])
+def item_label_remove(request, workspace_slug, item_id, assertion_id):
+    workspace = _writable_workspace(request.user, workspace_slug)
+    item = get_object_or_404(Item, workspace=workspace, id=item_id)
+    ItemLabel.objects.filter(workspace=workspace, item=item, id=assertion_id).delete()
+    return HttpResponseRedirect(reverse("web-item-detail", args=[workspace.slug, item.id]))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_public_links(request, workspace_slug):
+    membership = _workspace_membership(request.user, workspace_slug)
+    workspace = membership.workspace
+    can_write = membership_can_write(membership)
+    form = PublicSearchLinkForm(workspace=workspace)
+
+    if request.method == "POST":
+        if not can_write:
+            raise PermissionDenied(_("This inventory is shared as read-only."))
+        action = request.POST.get("action")
+        link_id = request.POST.get("link_id")
+
+        if action in {"revoke", "rotate"} and link_id:
+            link = get_object_or_404(workspace.public_search_links, id=link_id)
+            if action == "revoke":
+                link.revoke()
+                messages.success(request, _("Public link revoked."))
+            else:
+                secret = link.rotate_secret()
+                messages.success(
+                    request,
+                    _("New URL (copy it now): %(url)s") % {"url": _public_link_url(secret)},
+                )
+            return HttpResponseRedirect(reverse("web-public-links", args=[workspace.slug]))
+
+        form = PublicSearchLinkForm(request.POST, workspace=workspace)
+        if form.is_valid():
+            link, secret = PublicSearchLink.issue(
+                workspace=workspace,
+                location=form.cleaned_data["location"],
+                name=form.cleaned_data["name"],
+                created_by=request.user,
+                category=form.cleaned_data["category"],
+                include_descendants=form.cleaned_data["include_descendants"],
+                expires_at=form.cleaned_data["expires_at"],
+            )
+            messages.success(
+                request,
+                _("Public link created. URL (copy it now): %(url)s")
+                % {"url": _public_link_url(secret)},
+            )
+            return HttpResponseRedirect(reverse("web-public-links", args=[workspace.slug]))
+
+    links = workspace.public_search_links.select_related("location")
+    return render(
+        request,
+        "inventory/workspace_public_links.html",
+        {"workspace": workspace, "can_write": can_write, "form": form, "links": links},
+    )
+
+
+def _public_link_url(secret):
+    return f"{settings.PUBLIC_BASE_URL}{reverse('public-inventory-search', args=[secret])}"
 
 
 @login_required
@@ -1533,6 +1757,193 @@ class InventorySearchView(WorkspaceAccessMixin, GenericAPIView):
                 "results": page_results,
             },
             context=clue_context,
+        )
+        return Response(output.data)
+
+
+def _public_link_secret_payload(link, raw_secret):
+    """Serialize a link plus its one-time shareable URL."""
+    data = PublicSearchLinkSerializer(link).data
+    path = reverse("public-inventory-search", args=[raw_secret])
+    data["url"] = f"{settings.PUBLIC_BASE_URL}{path}"
+    return data
+
+
+class PublicSearchLinkView(WorkspaceAccessMixin, GenericAPIView):
+    """Members list a workspace's public search links; writers create them."""
+
+    serializer_class = PublicSearchLinkCreateSerializer
+
+    @extend_schema(responses=PublicSearchLinkSerializer(many=True))
+    def get(self, request, *args, **kwargs):
+        links = self.get_workspace().public_search_links.select_related("location")
+        return Response(PublicSearchLinkSerializer(links, many=True).data)
+
+    @extend_schema(
+        request=PublicSearchLinkCreateSerializer,
+        responses={status.HTTP_201_CREATED: PublicSearchLinkSecretSerializer},
+    )
+    def post(self, request, *args, **kwargs):
+        workspace = self.require_write_access()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        location = get_object_or_404(Location, workspace=workspace, key=data["location_key"])
+        link, raw_secret = PublicSearchLink.issue(
+            workspace=workspace,
+            location=location,
+            name=data["name"],
+            created_by=request.user,
+            category=data.get("category", ""),
+            include_descendants=data["include_descendants"],
+            expires_at=data.get("expires_at"),
+        )
+        return Response(
+            _public_link_secret_payload(link, raw_secret), status=status.HTTP_201_CREATED
+        )
+
+
+class PublicSearchLinkLookupMixin(WorkspaceAccessMixin):
+    def get_link(self, *, writable):
+        workspace = self.require_write_access() if writable else self.get_workspace()
+        return get_object_or_404(
+            PublicSearchLink.objects.select_related("location"),
+            workspace=workspace,
+            pk=self.kwargs["link_id"],
+        )
+
+
+class PublicSearchLinkDetailView(PublicSearchLinkLookupMixin, GenericAPIView):
+    serializer_class = PublicSearchLinkSerializer
+
+    @extend_schema(responses=PublicSearchLinkSerializer)
+    def get(self, request, *args, **kwargs):
+        return Response(PublicSearchLinkSerializer(self.get_link(writable=False)).data)
+
+    @extend_schema(request=None, responses={status.HTTP_204_NO_CONTENT: None})
+    def delete(self, request, *args, **kwargs):
+        self.get_link(writable=True).revoke()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PublicSearchLinkRotateView(PublicSearchLinkLookupMixin, GenericAPIView):
+    serializer_class = PublicSearchLinkSecretSerializer
+
+    @extend_schema(request=None, responses=PublicSearchLinkSecretSerializer)
+    def post(self, request, *args, **kwargs):
+        link = self.get_link(writable=True)
+        if not link.is_active:
+            return Response(
+                {"detail": _("Cannot rotate a revoked or expired link.")},
+                status=status.HTTP_409_CONFLICT,
+            )
+        raw_secret = link.rotate_secret()
+        return Response(_public_link_secret_payload(link, raw_secret))
+
+
+def _qr_label_svg(qr, caption):
+    """A printable SVG: the QR code with the link's scope name underneath."""
+    data_uri = qr.svg_data_uri(scale=8, border=2)
+    safe_caption = html.escape(caption)
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="420" '
+        'viewBox="0 0 360 420">'
+        '<rect width="360" height="420" fill="#ffffff"/>'
+        f'<image x="40" y="24" width="280" height="280" href="{data_uri}"/>'
+        f'<text x="180" y="338" text-anchor="middle" font-family="sans-serif" '
+        f'font-size="20" font-weight="bold" fill="#111111">{safe_caption}</text>'
+        '<text x="180" y="368" text-anchor="middle" font-family="sans-serif" '
+        'font-size="14" fill="#444444">Scan to search</text>'
+        "</svg>"
+    )
+
+
+class PublicSearchLinkQRView(PublicSearchLinkLookupMixin, GenericAPIView):
+    """Return a QR code, or a printable label, that encodes only the public URL."""
+
+    serializer_class = PublicSearchLinkSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "format",
+                str,
+                OpenApiParameter.QUERY,
+                enum=["svg", "png"],
+                description="Image format for the bare QR code (default svg).",
+            ),
+            OpenApiParameter(
+                "label",
+                bool,
+                OpenApiParameter.QUERY,
+                description="Return a printable SVG label captioned with the scope name.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="QR image (image/svg+xml or image/png)."),
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        link = self.get_link(writable=False)
+        if not link.is_active:
+            raise Http404("This public search link is revoked or expired.")
+        path = reverse("public-inventory-search", args=[link.secret])
+        qr = segno.make(f"{settings.PUBLIC_BASE_URL}{path}", error="m")
+
+        if request.query_params.get("label", "").lower() in ("1", "true", "yes"):
+            return HttpResponse(_qr_label_svg(qr, link.name), content_type="image/svg+xml")
+
+        buffer = BytesIO()
+        if request.query_params.get("format", "svg").lower() == "png":
+            qr.save(buffer, kind="png", scale=8, border=2)
+            return HttpResponse(buffer.getvalue(), content_type="image/png")
+        qr.save(buffer, kind="svg", scale=8, border=2)
+        return HttpResponse(buffer.getvalue(), content_type="image/svg+xml")
+
+
+class PublicInventorySearchView(GenericAPIView):
+    """Unauthenticated, GET-only, read-only search bound to one public link."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public-search"
+    serializer_class = PublicSearchQuerySerializer
+
+    @extend_schema(parameters=[PublicSearchQuerySerializer], responses=PublicSearchResultSerializer)
+    def get(self, request, *args, **kwargs):
+        link = resolve_public_search_link(kwargs["secret"])
+        if link is None:
+            raise Http404("Unknown or inactive public search link.")
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        query = serializer.validated_data["q"].strip()
+        results = search_holdings(
+            workspace=link.workspace,
+            query=query,
+            category=link.category,
+            location=link.location.key,
+            include_descendants=link.include_descendants,
+            limit=1001,
+        )
+        result_count = results.count() if isinstance(results, QuerySet) else len(results)
+        truncated = result_count > 1000
+        results = results[:1000]
+        paginator = PublicSearchPagination()
+        page_results = paginator.paginate_queryset(results, request, view=self)
+        add_search_match_details(page_results, query)
+        clue_context = build_holding_clue_context(workspace=link.workspace, holdings=page_results)
+        record_public_search_link_use(link)
+        output = PublicSearchResultSerializer(
+            {
+                "scope": link.name,
+                "query": query,
+                "count": min(result_count, 1000),
+                "truncated": truncated,
+                "pagination": paginator.metadata(),
+                "results": page_results,
+            },
+            context={"location_paths": clue_context["location_paths"]},
         )
         return Response(output.data)
 

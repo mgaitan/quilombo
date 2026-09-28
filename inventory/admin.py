@@ -15,6 +15,7 @@ from .models import (
     Location,
     LocationRelation,
     Membership,
+    PublicSearchLink,
     Workspace,
 )
 
@@ -278,6 +279,34 @@ class ApiTokenAdmin(admin.ModelAdmin):
     ordering = ("-created_at", "workspace__name", "name")
     date_hierarchy = "created_at"
     exclude = ("token_hash",)
+
+
+@admin.register(PublicSearchLink)
+class PublicSearchLinkAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "workspace",
+        "location",
+        "category",
+        "expires_at",
+        "revoked_at",
+        "last_used_at",
+        "use_count",
+        "created_at",
+    )
+    list_filter = ("workspace", "revoked_at", "created_at", "expires_at")
+    search_fields = (
+        "name",
+        "workspace__name",
+        "workspace__slug",
+        "location__name",
+        "location__key",
+    )
+    list_select_related = ("workspace", "location", "created_by")
+    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+    exclude = ("secret",)
+    readonly_fields = ("last_used_at", "use_count", "created_at")
 
 
 @admin.register(AccessEvent)

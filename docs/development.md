@@ -80,6 +80,65 @@ trusted machines. The branch ID, project ID, database, and role can be overridde
 Use `make help` to list all targets. The release workflow uses `make docs` to build the published
 site with warnings treated as errors.
 
+## Staging environment
+
+`quilombo-staging` (`render.yaml`) is a persistent online copy for exercising a branch or a set of
+merged branches with a real login. It deploys whatever is on the `staging` branch against its own
+Neon branch and a synthetic dataset.
+
+Deploy a branch to it:
+
+```bash
+make staging-deploy            # current branch
+make staging-deploy REF=integration/open-prs-local
+```
+
+`git push origin <ref>:staging --force` triggers a Render deploy. `build.sh` runs migrations and,
+because `APP_ENV=staging`, `manage.py seed_demo_data --ensure`.
+
+Sign in with the seeded account: username `demo`, password from `DEMO_USER_PASSWORD` (default
+`quilombo-demo`). `APP_ENV=staging` disables OAuth and the mail provider and makes email
+verification optional, so no external accounts are needed. It still runs behind HTTPS with
+production cookie and HSTS settings. `RENDER_EXTERNAL_HOSTNAME` supplies the allowed hosts,
+`PUBLIC_BASE_URL`, and the CSRF/MCP origins automatically.
+
+Rebuild the demo data at any time with `manage.py seed_demo_data --refresh`; it only ever touches
+the `demo-*` workspaces and the `demo` user.
+
+On staging the footer shows the deployed commit (`RENDER_GIT_COMMIT`, short form) as a link
+to its GitHub diff against the last released tag (`v<version>`), instead of the plain
+version. `/health/` also returns `revision` and `environment`.
+
+**Staging is not for real data.** Seed it synthetically; do not fork production into it.
+
+One-time setup: create the `quilombo-staging` service from the blueprint, create a persistent Neon
+branch for it and set `DATABASE_URL`, and set `DEMO_USER_PASSWORD` (and optionally `SENTRY_DSN`).
+
+## Error monitoring
+
+Quilombo reports unhandled exceptions and a small sample of performance traces to
+[Sentry](https://sentry.io) when `SENTRY_DSN` is set. Without it — local development and
+tests — monitoring is a no-op.
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `SENTRY_DSN` | Render secret (`sync: false`) | Project DSN. Never commit it. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Render var | Trace sample rate, default `0.05`. |
+| `SENTRY_ENVIRONMENT` | optional | Overrides the auto `production` / `development` tag. |
+
+Events carry the release (`quilombo@<version>`) and environment. `send_default_pii` is off;
+request bodies and cookies are dropped, and header/context keys that look like passwords,
+tokens, authorization, cookies, API keys, or credentials are filtered before sending.
+`/health/` is excluded from tracing.
+
+To try it locally, export a DSN and send a controlled event:
+
+```bash
+export SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+uv run python manage.py verify_sentry          # info message
+uv run python manage.py verify_sentry --error  # handled exception
+```
+
 ## Releases
 
 Render does not deploy branch pushes. Its deploy hook is stored as the GitHub Actions repository
@@ -90,6 +149,35 @@ documentation, and asks Render to deploy that exact tagged commit.
 For a new release, update the project version, merge the change to `main`, and publish the matching
 tag. For example, version `0.4.0` must be released with tag `v0.4.0`. The running version appears in
 the web footer, the `/health/` response, the OpenAPI schema, and MCP initialization metadata.
+
+### Migration validation gate
+
+Before Render is triggered, the release workflow validates the exact release tag against a
+throwaway Neon branch cloned from production:
+
+1. `neondatabase/create-branch-action` forks the production branch as
+   `release/<tag>-<run_id>`.
+2. `manage.py migrate --noinput`, then `migrate --check`, `check`, and the read-only
+   `manage.py release_smoke` command run against that branch using its direct connection
+   string.
+3. `neondatabase/delete-branch-action` removes the branch on success, failure, or
+   cancellation.
+4. `deploy-render` needs this job, so a failed migration or smoke check stops the deploy.
+
+The workflow uses a single `production-release` concurrency group so two releases cannot
+validate and deploy at the same time.
+
+Required configuration:
+
+| Name | Type | Purpose |
+| --- | --- | --- |
+| `NEON_API_KEY` | secret | create/delete Neon branches |
+| `NEON_PROJECT_ID` | variable | Neon project |
+| `NEON_PRODUCTION_BRANCH_ID` | variable | parent branch to clone |
+
+**Limits.** The branch has production-shaped schema and data but no production traffic, so
+this check does not prove zero-downtime behaviour, lock duration, or old/new application
+overlap. Keep migrations backward-compatible (expand/contract) regardless.
 
 ### Versioning policy
 

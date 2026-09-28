@@ -14,6 +14,7 @@ from django.db.models import (
     BooleanField,
     Case,
     DecimalField,
+    F,
     FloatField,
     IntegerField,
     Min,
@@ -40,6 +41,7 @@ from .models import (
     Location,
     LocationRelation,
     Membership,
+    PublicSearchLink,
     Workspace,
 )
 from .state import capture_inventory_state, inventory_state_hash, restore_inventory_state
@@ -158,7 +160,9 @@ def update_location(*, workspace, location, data):
 
 
 @transaction.atomic
-def create_item_with_holding(*, workspace, item_data, holding_data):
+def create_item_with_holding(
+    *, workspace, item_data, holding_data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item_data = dict(item_data)
     item_data["attributes"] = normalize_item_attributes(
@@ -171,6 +175,9 @@ def create_item_with_holding(*, workspace, item_data, holding_data):
     holding = Holding(workspace=workspace, item=item, **holding_data)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return item
 
 
@@ -219,24 +226,50 @@ def remove_item(*, workspace, item):
     item.delete()
 
 
+def _record_holding_adjustment(*, workspace, item, holding, actor, activity):
+    InventoryEvent.objects.create(
+        workspace=workspace,
+        kind=InventoryEvent.Kind.ADJUSTMENT,
+        actor=actor,
+        activity=activity or InventoryEvent.Activity.UNSPECIFIED,
+        source_kind=InventoryEvent.SourceKind.MANUAL,
+        summary={
+            "item_key": item.key,
+            "location_key": holding.location.key,
+            "quantity": str(holding.quantity),
+            "unit": item.unit,
+        },
+    )
+
+
 @transaction.atomic
-def create_holding(*, workspace, item, data):
+def create_holding(
+    *, workspace, item, data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     item = Item.objects.select_for_update().get(pk=item.pk, workspace=workspace)
     holding = Holding(workspace=workspace, item=item, **data)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return holding
 
 
 @transaction.atomic
-def update_holding(*, workspace, item, holding, data):
+def update_holding(
+    *, workspace, item, holding, data, actor=None, activity=InventoryEvent.Activity.UNSPECIFIED
+):
     Workspace.objects.select_for_update().get(pk=workspace.pk)
     holding = Holding.objects.select_for_update().get(pk=holding.pk, workspace=workspace, item=item)
     for field, value in data.items():
         setattr(holding, field, value)
     holding.full_clean()
     holding.save()
+    _record_holding_adjustment(
+        workspace=workspace, item=item, holding=holding, actor=actor, activity=activity
+    )
     return holding
 
 
@@ -734,6 +767,31 @@ def build_holding_clue_context(*, workspace, holdings, nearby_limit=5):
     }
 
 
+def resolve_public_search_link(raw_secret):
+    """Return the active link for a URL secret, or ``None``.
+
+    The secret is an unguessable random token looked up on its unique index.
+    Revoked or expired links resolve to ``None``.
+    """
+    if not raw_secret:
+        return None
+    link = (
+        PublicSearchLink.objects.select_related("workspace", "location")
+        .filter(secret=raw_secret)
+        .first()
+    )
+    if link is None or not link.is_active:
+        return None
+    return link
+
+
+def record_public_search_link_use(link):
+    """Best-effort access log: bump the counter and last-used timestamp."""
+    PublicSearchLink.objects.filter(pk=link.pk).update(
+        last_used_at=timezone.now(), use_count=F("use_count") + 1
+    )
+
+
 def get_stock_status(*, workspace):
     items = workspace.items.filter(minimum_quantity__isnull=False).annotate(
         current_quantity=Coalesce(
@@ -1123,6 +1181,7 @@ def bulk_upsert_inventory(*, workspace, actor, data, request_hash):
         client_actor=provenance.get("client_actor", ""),
         idempotency_key=idempotency_key,
         request_hash=request_hash,
+        activity=data.get("activity") or InventoryEvent.Activity.UNSPECIFIED,
         source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),
@@ -1241,6 +1300,7 @@ def _mutation_event(*, workspace, actor, kind, data, request_hash, summary):
         client_actor=provenance.get("client_actor", ""),
         idempotency_key=data["idempotency_key"],
         request_hash=request_hash,
+        activity=data.get("activity") or InventoryEvent.Activity.UNSPECIFIED,
         source_kind=provenance.get("source_kind", InventoryEvent.SourceKind.MANUAL),
         source_reference=provenance.get("source_reference", ""),
         observed_at=provenance.get("observed_at"),

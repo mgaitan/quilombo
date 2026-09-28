@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Public links" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Public links" %}</span>
+  </nav>
+  <h1>{% translate "Public search links" %}</h1>
+  <p class="lede">{% translate "Read-only search URLs scoped to one location, for visitors. The full URL is shown only once." %}</p>
+
+  {% if links %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{% translate "Name" %}</th>
+            <th>{% translate "Scope" %}</th>
+            <th>{% translate "Status" %}</th>
+            <th>{% translate "Uses" %}</th>
+            <th>QR</th>
+            {% if can_write %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for link in links %}
+            <tr>
+              <td><strong>{{ link.name }}</strong></td>
+              <td>
+                {{ link.location.name }}
+                <span class="row-detail">
+                  {% if link.include_descendants %}{% translate "and sub-locations" %}{% endif %}
+                  {% if link.category %}· {{ link.category }}{% endif %}
+                </span>
+              </td>
+              <td>
+                {% if link.is_active %}{% translate "Active" %}{% elif link.revoked_at %}{% translate "Revoked" %}{% else %}{% translate "Expired" %}{% endif %}
+                {% if link.expires_at %}<span class="row-detail">{% blocktranslate with date=link.expires_at|date:"SHORT_DATETIME_FORMAT" %}until {{ date }}{% endblocktranslate %}</span>{% endif %}
+              </td>
+              <td>{{ link.use_count }}{% if link.last_used_at %}<span class="row-detail">{{ link.last_used_at|date:"SHORT_DATETIME_FORMAT" }}</span>{% endif %}</td>
+              <td>
+                {% if link.is_active %}
+                  <img src="{% url 'public-search-link-qr' workspace.slug link.id %}" alt="QR" width="88" height="88">
+                  <span class="row-detail">
+                    <a href="{% url 'public-search-link-qr' workspace.slug link.id %}?format=png">PNG</a> ·
+                    <a href="{% url 'public-search-link-qr' workspace.slug link.id %}?label=true">{% translate "label" %}</a>
+                  </span>
+                {% else %}—{% endif %}
+              </td>
+              {% if can_write %}
+                <td>
+                  <form method="post" class="member-controls">
+                    {% csrf_token %}
+                    <input type="hidden" name="link_id" value="{{ link.id }}">
+                    {% if link.is_active %}
+                      <button class="button" type="submit" name="action" value="rotate">{% translate "New URL" %}</button>
+                      <button class="button button-danger" type="submit" name="action" value="revoke">{% translate "Revoke" %}</button>
+                    {% endif %}
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>{% translate "No public links yet." %}</p>
+  {% endif %}
+
+  {% if can_write %}
+    <section class="settings-section">
+      <h2>{% translate "New public link" %}</h2>
+      <form method="post" class="stacked-form">
+        {% csrf_token %}
+        <div class="form-grid">
+          {% for field in form %}
+            {% if field.field.widget.input_type == "checkbox" %}
+              <label class="toggle-control field-wide">{{ field }} <span>{{ field.label }}</span></label>
+            {% else %}
+              <div class="field">
+                {{ field.label_tag }}
+                {{ field }}
+                {% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}
+                {{ field.errors }}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <div class="actions">
+          <button class="button button-primary" type="submit">{% translate "Create link" %}</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+{% endblock %}

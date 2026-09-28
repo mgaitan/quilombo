@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Import / export" %} | {{ workspace.name }} | Quilombo{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="{% translate 'Breadcrumb' %}">
+    <a href="{% url 'dashboard' %}">{% translate "Inventories" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{% url 'workspace-inventory' workspace.slug %}">{{ workspace.name }}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% translate "Import / export" %}</span>
+  </nav>
+  <h1>{% translate "Import / export" %}</h1>
+
+  <section class="settings-section">
+    <h2>{% translate "Export" %}</h2>
+    <p class="lede">{% translate "Download the whole inventory as a portable file." %}</p>
+    <div class="actions">
+      <a class="button" href="{% url 'web-inventory-export' workspace.slug %}?format=json">{% translate "Download JSON" %}</a>
+      <a class="button" href="{% url 'web-inventory-export' workspace.slug %}?format=csv">{% translate "Download CSV" %}</a>
+    </div>
+  </section>
+
+  {% if can_write %}
+    <section class="settings-section">
+      <h2>{% translate "Import" %}</h2>
+
+      {% if import_error %}
+        <p class="form-error" role="alert">{{ import_error }}</p>
+      {% endif %}
+
+      {% if preview %}
+        <p class="lede">{% translate "Review the changes below, then apply them." %}</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{% translate "Records" %}</th>
+                <th>{% translate "New" %}</th>
+                <th>{% translate "Updated" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in preview.rows %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.created }}</td>
+                  <td>{{ row.updated }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="apply">
+          <input type="hidden" name="format" value="{{ preview.format }}">
+          <input type="hidden" name="idempotency_key" value="{{ preview.idempotency_key }}">
+          <textarea name="content" hidden>{{ preview.content }}</textarea>
+          <div class="actions">
+            <button class="button button-primary" type="submit">{% translate "Apply import" %}</button>
+            <a class="button" href="{% url 'web-inventory-transfer' workspace.slug %}">{% translate "Choose a different file" %}</a>
+          </div>
+        </form>
+      {% else %}
+        <p class="lede">{% translate "Upload a JSON or CSV file. You will see a preview before anything changes." %}</p>
+        <form method="post" enctype="multipart/form-data" class="inline-settings-form">
+          {% csrf_token %}
+          <div class="field">
+            {{ upload_form.file.label_tag }}
+            {{ upload_form.file }}
+            {{ upload_form.file.errors }}
+          </div>
+          <div class="field">
+            {{ upload_form.format.label_tag }}
+            {{ upload_form.format }}
+            {{ upload_form.format.errors }}
+          </div>
+          <button class="button button-primary" type="submit">{% translate "Preview import" %}</button>
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

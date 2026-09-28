@@ -49,6 +49,7 @@ from .models import (
     OAuthAuthorizationRequest,
     OAuthClient,
     OAuthCredential,
+    PublicSearchLink,
     VerificationStatus,
     Workspace,
 )
@@ -3987,7 +3988,12 @@ def test_health_check_includes_database(client):
     response = client.get("/health/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": settings.APP_VERSION}
+    assert response.json() == {
+        "status": "ok",
+        "version": settings.APP_VERSION,
+        "revision": settings.APP_REVISION,
+        "environment": settings.APP_ENV,
+    }
 
 
 @pytest.mark.django_db
@@ -4175,11 +4181,46 @@ def test_inventory_audit_rejects_observation_older_than_current_fact(users, work
     assert not workspace.inventory_events.exists()
 
 
-def test_public_web_footer_shows_runtime_version(client):
-    response = client.get("/")
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=False,
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_public_web_footer_links_version_to_its_github_release(client):
+    body = client.get("/").content.decode()
 
-    assert response.status_code == 200
-    assert f"v{settings.APP_VERSION}" in response.content.decode()
+    assert '<a href="https://github.com/mgaitan/quilombo/releases/tag/v0.6.0"' in body
+    assert ">v0.6.0</a>" in body
+    assert "env-badge" not in body
+    assert "<title>Quilombo" in body
+
+
+@pytest.mark.django_db
+@override_settings(
+    IS_STAGING=True,
+    APP_REVISION="abcdef1234567890",
+    APP_SOURCE_URL="https://github.com/mgaitan/quilombo",
+    APP_VERSION="0.6.0",
+)
+def test_staging_footer_shows_commit_linking_to_release_diff(client):
+    body = client.get("/").content.decode()
+
+    assert ">v0.6.0</a>" not in body
+    assert "/releases/tag/" not in body
+    assert ">abcdef123</a>" in body
+    assert "https://github.com/mgaitan/quilombo/compare/v0.6.0...abcdef1234567890" in body
+    assert '<span class="env-badge">staging</span>' in body
+    assert "<title>[staging] " in body
+
+
+@pytest.mark.django_db
+@override_settings(APP_REVISION="deadbeefcafe")
+def test_health_check_reports_revision_and_environment(client):
+    payload = client.get("/health/").json()
+
+    assert payload["revision"] == "deadbeefcafe"
+    assert payload["environment"] == settings.APP_ENV
 
 
 @pytest.mark.django_db
@@ -5361,3 +5402,743 @@ def test_oauth_pkce_flow_issues_and_refreshes_mcp_access(client, users, workspac
         ).count()
         == 1
     )
+
+
+def _seed_public_scope(workspace):
+    """A small two-branch location tree with holdings for public-link tests."""
+    library = Location.objects.create(workspace=workspace, key="library", name="Library")
+    reading = Location.objects.create(
+        workspace=workspace, key="reading-room", name="Reading room", parent=library
+    )
+    shelf = Location.objects.create(
+        workspace=workspace, key="shelf-2", name="Shelf 2", parent=reading
+    )
+    office = Location.objects.create(workspace=workspace, key="office", name="Office")
+    novel = Item.objects.create(
+        workspace=workspace, key="novel", name="The Gray Angel", category="book"
+    )
+    manual = Item.objects.create(
+        workspace=workspace, key="manual", name="Lathe manual", category="manual"
+    )
+    private = Item.objects.create(
+        workspace=workspace, key="ledger", name="Membership ledger", category="book"
+    )
+    Holding.objects.create(workspace=workspace, item=novel, location=shelf, quantity=Decimal("2"))
+    Holding.objects.create(workspace=workspace, item=manual, location=shelf, quantity=Decimal("1"))
+    Holding.objects.create(
+        workspace=workspace,
+        item=private,
+        location=office,
+        quantity=Decimal("1"),
+        notes="secret combination 1234",
+    )
+    return {"library": library, "reading": reading, "shelf": shelf, "office": office}
+
+
+@pytest.mark.django_db
+def test_public_search_link_create_returns_url_once_and_list_hides_secret(users, workspaces):
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    created = client.post(
+        "/api/workspaces/workshop/public-search-links/",
+        {"name": "Front desk", "location_key": "reading-room", "category": "book"},
+        format="json",
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["url"].startswith("http")
+    assert "/api/public/search/" in body["url"]
+    assert body["is_active"] is True
+    link = PublicSearchLink.objects.get(id=body["id"])
+    assert body["url"].rstrip("/").endswith(link.secret)
+
+    listing = client.get("/api/workspaces/workshop/public-search-links/").json()
+    assert len(listing) == 1
+    assert "url" not in listing[0]
+    assert "secret" not in listing[0]
+    assert listing[0]["location_key"] == "reading-room"
+
+
+@pytest.mark.django_db
+def test_public_search_link_creation_requires_write_access(users, workspaces):
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client = APIClient()
+    client.force_authenticate(users[1])
+
+    response = client.post(
+        "/api/workspaces/workshop/public-search-links/",
+        {"name": "nope", "location_key": "reading-room"},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert PublicSearchLink.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_public_search_is_scoped_read_only_and_tenant_isolated(users, workspaces):
+    cache.clear()
+    workshop, library = workspaces
+    _seed_public_scope(workshop)
+    other = Location.objects.create(workspace=library, key="reading-room", name="Other room")
+    other_item = Item.objects.create(
+        workspace=library, key="secret-book", name="The Gray Angel", category="book"
+    )
+    Holding.objects.create(
+        workspace=library, item=other_item, location=other, quantity=Decimal("9")
+    )
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop,
+        location=Location.objects.get(workspace=workshop, key="reading-room"),
+        name="Front desk",
+    )
+    anon = APIClient()
+
+    found = anon.get(f"/api/public/search/{secret}/", {"q": "gray angel"})
+    assert found.status_code == 200
+    payload = found.json()
+    assert payload["scope"] == "Front desk"
+    assert [row["item_name"] for row in payload["results"]] == ["The Gray Angel"]
+    assert payload["results"][0]["quantity"] == "2.000000"
+    assert "notes" not in payload["results"][0]
+    assert [step["key"] for step in payload["results"][0]["location_path"]] == [
+        "library",
+        "reading-room",
+        "shelf-2",
+    ]
+
+    # Out-of-scope location is invisible even with a matching name.
+    assert all(row["quantity"] != "9.000000" for row in payload["results"])
+    # Private office holding (with notes) is outside the scope.
+    empty = anon.get(f"/api/public/search/{secret}/", {"q": "ledger"}).json()
+    assert empty["results"] == []
+
+    # GET only.
+    assert anon.post(f"/api/public/search/{secret}/").status_code == 405
+    assert anon.delete(f"/api/public/search/{secret}/").status_code == 405
+
+
+@pytest.mark.django_db
+def test_public_search_empty_query_lists_scope_and_category_filters(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    _seed_public_scope(workshop)
+    shelf = Location.objects.get(workspace=workshop, key="shelf-2")
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=shelf, name="Shelf", category="book"
+    )
+    anon = APIClient()
+
+    listing = anon.get(f"/api/public/search/{secret}/").json()
+    assert [row["item_name"] for row in listing["results"]] == ["The Gray Angel"]
+    assert listing["count"] == 1
+
+
+@pytest.mark.django_db
+def test_public_search_link_revocation_and_rotation(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    anon = APIClient()
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 200
+
+    rotated = client.post(f"/api/workspaces/workshop/public-search-links/{link.id}/rotate/").json()
+    new_secret = rotated["url"].rsplit("/api/public/search/", 1)[1].strip("/")
+    assert new_secret != secret
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 404
+    assert anon.get(f"/api/public/search/{new_secret}/").status_code == 200
+
+    assert (
+        client.delete(f"/api/workspaces/workshop/public-search-links/{link.id}/").status_code == 204
+    )
+    assert anon.get(f"/api/public/search/{new_secret}/").status_code == 404
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+    assert (
+        client.post(f"/api/workspaces/workshop/public-search-links/{link.id}/rotate/").status_code
+        == 409
+    )
+
+
+@pytest.mark.django_db
+def test_public_search_link_expiry_blocks_access(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop,
+        location=scope["reading"],
+        name="Expired",
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    anon = APIClient()
+
+    assert anon.get(f"/api/public/search/{secret}/").status_code == 404
+    assert PublicSearchLink.objects.get(pk=link.pk).is_active is False
+
+
+@pytest.mark.django_db
+def test_public_search_records_link_usage(users, workspaces):
+    cache.clear()
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    anon = APIClient()
+
+    anon.get(f"/api/public/search/{secret}/", {"q": "gray"})
+    anon.get(f"/api/public/search/{secret}/", {"q": "manual"})
+
+    link.refresh_from_db()
+    assert link.use_count == 2
+    assert link.last_used_at is not None
+
+
+@pytest.mark.django_db
+def test_public_search_unknown_secret_is_not_found():
+    cache.clear()
+    anon = APIClient()
+    assert anon.get("/api/public/search/deadbeefdeadbeef/", {"q": "x"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_svg_and_png(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    svg = client.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/")
+    assert svg.status_code == 200
+    assert svg["Content-Type"] == "image/svg+xml"
+    assert b"<svg" in svg.content
+
+    png = client.get(
+        f"/api/workspaces/workshop/public-search-links/{link.id}/qr/", {"format": "png"}
+    )
+    assert png.status_code == 200
+    assert png["Content-Type"] == "image/png"
+    assert png.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_label_carries_scope_name_only(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Reading room catalog"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+
+    label = client.get(
+        f"/api/workspaces/workshop/public-search-links/{link.id}/qr/", {"label": "true"}
+    )
+
+    assert label.status_code == 200
+    assert label["Content-Type"] == "image/svg+xml"
+    body = label.content.decode()
+    assert "Reading room catalog" in body
+    # No inventory contents leak into the label.
+    assert "The Gray Angel" not in body
+    assert "Lathe manual" not in body
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_follows_revocation_and_rotation(users, workspaces):
+    workshop, _ = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    client = APIClient()
+    client.force_authenticate(users[0])
+    base = f"/api/workspaces/workshop/public-search-links/{link.id}/qr/"
+
+    assert client.get(base).status_code == 200
+    link.rotate_secret()
+    assert client.get(base).status_code == 200
+    link.revoke()
+    assert client.get(base).status_code == 404
+
+
+@pytest.mark.django_db
+def test_public_search_link_qr_requires_membership(users, workspaces):
+    workshop, library = workspaces
+    scope = _seed_public_scope(workshop)
+    link, _secret = PublicSearchLink.issue(
+        workspace=workshop, location=scope["reading"], name="Front desk"
+    )
+    outsider = APIClient()
+    outsider.force_authenticate(users[1])
+
+    assert (
+        outsider.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/").status_code
+        == 404
+    )
+
+
+from io import StringIO as _SeedStringIO  # noqa: E402
+
+from django.contrib.auth import authenticate as _dj_authenticate  # noqa: E402
+from django.core.management import call_command as _seed_call_command  # noqa: E402
+
+
+def _run_seed(*flags):
+    out = _SeedStringIO()
+    _seed_call_command("seed_demo_data", *flags, stdout=out)
+    return out.getvalue()
+
+
+def test_staging_settings_tier_is_exposed():
+    assert settings.APP_ENV == "development"
+    assert settings.SERVE_SECURE is False
+    assert settings.IS_STAGING is False
+    assert settings.ACCOUNT_EMAIL_VERIFICATION == "mandatory"
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_creates_a_verified_demo_login():
+    _run_seed("--refresh")
+
+    user_model = get_user_model()
+    user = user_model.objects.get(username="demo")
+    assert user.emailaddress_set.filter(verified=True, primary=True).exists()
+    assert _dj_authenticate(username="demo", password="quilombo-demo") == user
+
+    slugs = set(Workspace.objects.values_list("slug", flat=True))
+    assert {"demo-workshop", "demo-library"} <= slugs
+    assert Holding.objects.filter(workspace__slug="demo-workshop").exists()
+    assert Item.objects.filter(workspace__slug="demo-library", category="book").exists()
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_ensure_is_idempotent():
+    _run_seed("--refresh")
+    workshop_items = Item.objects.filter(workspace__slug="demo-workshop").count()
+
+    message = _run_seed("--ensure")
+
+    assert "already present" in message
+    assert Workspace.objects.filter(slug__startswith="demo-").count() == 2
+    assert Item.objects.filter(workspace__slug="demo-workshop").count() == workshop_items
+
+
+@pytest.mark.django_db
+def test_seed_demo_data_refresh_rebuilds_and_spares_other_workspaces():
+    keep = Workspace.objects.create(name="Real", slug="real-workspace")
+    _run_seed("--refresh")
+    demo = Workspace.objects.get(slug="demo-workshop")
+    Item.objects.create(workspace=demo, key="stray", name="Stray item")
+
+    _run_seed("--refresh")
+
+    assert Workspace.objects.filter(slug="real-workspace").exists()
+    assert not Item.objects.filter(workspace__slug="demo-workshop", key="stray").exists()
+    assert Workspace.objects.get(pk=keep.pk).slug == "real-workspace"
+
+
+from io import StringIO as _SmokeStringIO  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+
+
+@pytest.mark.django_db
+def test_release_smoke_reads_core_models_without_writing():
+    workspace = Workspace.objects.create(name="Workshop", slug="workshop")
+    location = Location.objects.create(workspace=workspace, key="bench", name="Bench")
+    item = Item.objects.create(workspace=workspace, key="drill", name="Drill")
+    Holding.objects.create(workspace=workspace, item=item, location=location, quantity=Decimal("1"))
+    before = InventoryEvent.objects.count()
+
+    out = _SmokeStringIO()
+    call_command("release_smoke", stdout=out)
+
+    assert "Release smoke OK" in out.getvalue()
+    assert "Item=1" in out.getvalue()
+    assert InventoryEvent.objects.count() == before
+
+
+@pytest.mark.django_db
+def test_release_smoke_handles_empty_database():
+    out = _SmokeStringIO()
+    call_command("release_smoke", stdout=out)
+    assert "Workspace=0" in out.getvalue()
+
+
+from quilombo import observability  # noqa: E402
+
+
+def test_sentry_is_disabled_without_a_dsn(monkeypatch):
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    assert observability.init_sentry(release="quilombo@test", is_prod=False) is False
+
+
+def test_sentry_scrub_event_drops_bodies_and_filters_sensitive_keys():
+    event = {
+        "request": {
+            "data": {"password": "hunter2"},
+            "cookies": {"sessionid": "abc"},
+            "headers": {"Authorization": "Bearer x", "User-Agent": "pytest"},
+            "query_string": "q=drill",
+        },
+        "extra": {"api_token": "qlo_secret", "note": "workshop photo"},
+        "tags": {"workspace": "workshop"},
+    }
+
+    scrubbed = observability.scrub_event(event)
+
+    assert "data" not in scrubbed["request"]
+    assert "cookies" not in scrubbed["request"]
+    assert scrubbed["request"]["headers"]["Authorization"] == observability.FILTERED
+    assert scrubbed["request"]["headers"]["User-Agent"] == "pytest"
+    assert scrubbed["extra"]["api_token"] == observability.FILTERED
+    assert scrubbed["extra"]["note"] == "workshop photo"
+    assert scrubbed["tags"]["workspace"] == "workshop"
+
+
+def test_sentry_traces_sampler_skips_health_check(monkeypatch):
+    monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", "0.25")
+    assert observability.traces_sampler({"asgi_scope": {"path": "/health/"}}) == 0.0
+    assert observability.traces_sampler({"wsgi_environ": {"PATH_INFO": "/health/"}}) == 0.0
+    assert observability.traces_sampler({"asgi_scope": {"path": "/api/"}}) == 0.25
+
+
+def test_sentry_before_send_transaction_drops_health_check():
+    assert observability.before_send_transaction({"transaction": "/health/"}) is None
+    kept = observability.before_send_transaction(
+        {"transaction": "/api/workspaces/workshop/search/", "extra": {"secret": "x"}}
+    )
+    assert kept is not None
+    assert kept["extra"]["secret"] == observability.FILTERED
+
+
+def _web_seed_workshop(users):
+    workshop = Workspace.objects.create(name="Workshop", slug="workshop")
+    Membership.objects.create(workspace=workshop, user=users[0], role=Membership.Role.OWNER)
+    root = Location.objects.create(workspace=workshop, key="workshop", name="Workshop")
+    drawer = Location.objects.create(workspace=workshop, key="drawer", name="Drawer", parent=root)
+    item = Item.objects.create(
+        workspace=workshop, key="screws", name="Screws", category="fasteners", unit="piece"
+    )
+    Holding.objects.create(workspace=workshop, item=item, location=drawer, quantity=Decimal("8"))
+    return workshop
+
+
+@pytest.mark.django_db
+def test_web_inventory_export_downloads_json_and_csv(client, users):
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    as_json = client.get("/app/workshop/transfer/export/", {"format": "json"})
+    assert as_json.status_code == 200
+    assert "workshop-inventory.json" in as_json["Content-Disposition"]
+    document = json.loads(as_json.content.decode())
+    assert document["items"][0]["key"] == "screws"
+
+    as_csv = client.get("/app/workshop/transfer/export/", {"format": "csv"})
+    assert as_csv.status_code == 200
+    assert "workshop-inventory.csv" in as_csv["Content-Disposition"]
+    assert b"screws" in as_csv.content
+
+    assert client.get("/app/workshop/transfer/export/", {"format": "xml"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_web_transfer_page_shows_export_links(client, users):
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    page = client.get("/app/workshop/transfer/")
+
+    assert page.status_code == 200
+    assert b"Download JSON" in page.content
+    assert b"Preview import" in page.content
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_previews_then_applies_idempotently(client, users):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    workshop = _web_seed_workshop(users)
+    client.force_login(users[0])
+    document_text = client.get(
+        "/app/workshop/transfer/export/", {"format": "json"}
+    ).content.decode()
+    events_before = InventoryEvent.objects.filter(workspace=workshop).count()
+
+    upload = SimpleUploadedFile("inv.json", document_text.encode(), content_type="application/json")
+    preview = client.post("/app/workshop/transfer/", {"file": upload, "format": "json"})
+    assert preview.status_code == 200
+    assert b"Apply import" in preview.content
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before
+
+    apply_payload = {
+        "action": "apply",
+        "format": "json",
+        "content": document_text,
+        "idempotency_key": "web-import-001",
+    }
+    applied = client.post("/app/workshop/transfer/", apply_payload)
+    assert applied.status_code == 302
+    assert applied["Location"] == "/app/workshop/history/"
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before + 1
+
+    replay = client.post("/app/workshop/transfer/", apply_payload)
+    assert replay.status_code == 302
+    assert InventoryEvent.objects.filter(workspace=workshop).count() == events_before + 1
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_blocked_for_read_only_members(client, users):
+    workshop = _web_seed_workshop(users)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client.force_login(users[1])
+
+    page = client.get("/app/workshop/transfer/")
+    assert page.status_code == 200
+    assert b"Preview import" not in page.content
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    blocked = client.post(
+        "/app/workshop/transfer/",
+        {"file": SimpleUploadedFile("inv.json", b"{}", content_type="application/json")},
+    )
+    assert blocked.status_code == 403
+
+
+@pytest.mark.django_db
+def test_web_inventory_import_reports_invalid_file(client, users):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    _web_seed_workshop(users)
+    client.force_login(users[0])
+
+    response = client.post(
+        "/app/workshop/transfer/",
+        {
+            "file": SimpleUploadedFile("inv.json", b"not json at all", content_type="text/plain"),
+            "format": "json",
+        },
+    )
+
+    assert response.status_code == 400
+    assert b"form-error" in response.content
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_records_business_activity(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "pantry-shop-2026-09-03",
+        "activity": "purchase",
+        "items": [{"key": "pasta", "name": "Bow-tie pasta", "unit": "package"}],
+        "locations": [{"key": "pantry", "name": "Pantry"}],
+        "holdings": [{"item_key": "pasta", "location_key": "pantry", "quantity": "4"}],
+    }
+
+    response = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+
+    assert response.status_code == 201
+    event = workspace.inventory_events.get()
+    assert event.activity == InventoryEvent.Activity.PURCHASE
+    assert event.kind == InventoryEvent.Kind.BULK_UPSERT
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_activity_defaults_to_unspecified(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "no-activity",
+        "items": [{"key": "pasta", "name": "Pasta"}],
+    }
+
+    client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+
+    assert workspace.inventory_events.get().activity == InventoryEvent.Activity.UNSPECIFIED
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_same_key_different_activity_conflicts(users, workspaces):
+    workspace, _ = workspaces
+    client = APIClient()
+    client.force_authenticate(users[0])
+    payload = {
+        "idempotency_key": "reused",
+        "activity": "purchase",
+        "items": [{"key": "pasta", "name": "Pasta"}],
+    }
+
+    first = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert first.status_code == 201
+
+    replay = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+
+    payload["activity"] = "observation"
+    conflict = client.post("/api/workspaces/workshop/bulk-upsert/", payload, format="json")
+    assert conflict.status_code == 409
+    assert workspace.inventory_events.count() == 1
+
+
+@pytest.mark.django_db
+def test_audit_records_business_activity(users, workspaces):
+    workspace, _ = workspaces
+    location = Location.objects.create(workspace=workspace, key="pantry", name="Pantry")
+    item = Item.objects.create(workspace=workspace, key="pasta", name="Pasta")
+    holding = Holding.objects.create(
+        workspace=workspace, item=item, location=location, quantity=Decimal("3")
+    )
+    data = {
+        "location_key": "pantry",
+        "location_status": VerificationStatus.CONFIRMED,
+        "idempotency_key": "audit-obs-1",
+        "activity": InventoryEvent.Activity.OBSERVATION,
+        "holdings": [
+            {
+                "holding_id": holding.id,
+                "status": VerificationStatus.CONFIRMED,
+                "quantity": Decimal("1"),
+            }
+        ],
+    }
+
+    event, replayed = audit_inventory(
+        workspace=workspace, actor=users[0], data=data, request_hash=hash_request(data)
+    )
+
+    assert replayed is False
+    assert event.kind == InventoryEvent.Kind.AUDIT
+    assert event.activity == InventoryEvent.Activity.OBSERVATION
+
+
+def _web_seed_item(users, *, category="tools"):
+    workshop = Workspace.objects.create(name="Workshop", slug="workshop")
+    Membership.objects.create(workspace=workshop, user=users[0], role=Membership.Role.OWNER)
+    location = Location.objects.create(workspace=workshop, key="bench", name="Bench")
+    item = Item.objects.create(
+        workspace=workshop, key="drill", name="Cordless drill", category=category
+    )
+    return workshop, location, item
+
+
+@pytest.mark.django_db
+def test_web_public_links_page_create_rotate_revoke(client, users):
+    workshop, location, _item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    page = client.get("/app/workshop/public-links/")
+    assert page.status_code == 200
+    assert b"No public links yet" in page.content
+
+    created = client.post(
+        "/app/workshop/public-links/",
+        {"name": "Front desk", "location": str(location.id), "include_descendants": "on"},
+        follow=True,
+    )
+    assert created.status_code == 200
+    link = PublicSearchLink.objects.get(workspace=workshop)
+    assert "/api/public/search/" in [m.message for m in created.context["messages"]][0]
+
+    anon = APIClient()
+    assert anon.get(f"/api/public/search/{link.secret}/").status_code == 200
+
+    listing = client.get("/app/workshop/public-links/")
+    assert b"Front desk" in listing.content
+    assert f"/public-search-links/{link.id}/qr/".encode() in listing.content
+
+    qr = client.get(f"/api/workspaces/workshop/public-search-links/{link.id}/qr/")
+    assert qr.status_code == 200 and qr["Content-Type"] == "image/svg+xml"
+
+    old_secret = link.secret
+    client.post("/app/workshop/public-links/", {"action": "rotate", "link_id": str(link.id)})
+    link.refresh_from_db()
+    assert link.secret != old_secret
+    assert anon.get(f"/api/public/search/{old_secret}/").status_code == 404
+
+    client.post("/app/workshop/public-links/", {"action": "revoke", "link_id": str(link.id)})
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+    assert anon.get(f"/api/public/search/{link.secret}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_web_public_links_read_only_member_cannot_create(client, users):
+    workshop, location, _item = _web_seed_item(users)
+    Membership.objects.create(workspace=workshop, user=users[1], can_write=False)
+    client.force_login(users[1])
+
+    assert client.get("/app/workshop/public-links/").status_code == 200
+    blocked = client.post(
+        "/app/workshop/public-links/",
+        {"name": "x", "location": str(location.id)},
+    )
+    assert blocked.status_code == 403
+    assert PublicSearchLink.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_web_item_detail_adds_and_removes_labels(client, users):
+    workshop, _location, item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    detail = client.get(f"/app/workshop/items/{item.id}/")
+    assert b"No labels yet" in detail.content
+
+    client.post(f"/app/workshop/items/{item.id}/labels/", {"value": "Bosch"})
+    assertion = ItemLabel.objects.get(workspace=workshop, item=item)
+    assert assertion.label.name == "Bosch"
+    assert b"Bosch" in client.get(f"/app/workshop/items/{item.id}/").content
+
+    client.post(
+        f"/app/workshop/items/{item.id}/labels/{assertion.id}/delete/",
+    )
+    assert not ItemLabel.objects.filter(item=item).exists()
+
+
+@pytest.mark.django_db
+def test_web_holding_form_records_activity_event(client, users):
+    workshop, location, item = _web_seed_item(users)
+    client.force_login(users[0])
+
+    client.post(
+        f"/app/workshop/items/{item.id}/holdings/new/",
+        {"location": str(location.id), "quantity": "4", "activity": "purchase"},
+    )
+    event = workshop.inventory_events.get(kind=InventoryEvent.Kind.ADJUSTMENT)
+    assert event.activity == InventoryEvent.Activity.PURCHASE
+    assert event.actor == users[0]
+
+    holding = item.holdings.get()
+    client.post(
+        f"/app/workshop/items/{item.id}/holdings/{holding.id}/edit/",
+        {"location": str(location.id), "quantity": "3", "activity": "observation"},
+    )
+    activities = sorted(
+        workshop.inventory_events.filter(kind=InventoryEvent.Kind.ADJUSTMENT).values_list(
+            "activity", flat=True
+        )
+    )
+    assert activities == ["observation", "purchase"]

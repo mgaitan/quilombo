@@ -23,6 +23,8 @@ from inventory.views import (
     item_delete,
     item_detail,
     item_edit,
+    item_label_add,
+    item_label_remove,
     item_list,
     location_create,
     location_edit,
@@ -31,10 +33,13 @@ from inventory.views import (
     privacy_policy,
     terms_of_service,
     workspace_create,
+    workspace_export,
     workspace_inventory,
     workspace_member,
+    workspace_public_links,
     workspace_settings,
     workspace_share,
+    workspace_transfer,
 )
 
 
@@ -42,7 +47,14 @@ def health_check(request):
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         cursor.fetchone()
-    return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
+    return JsonResponse(
+        {
+            "status": "ok",
+            "version": settings.APP_VERSION,
+            "revision": settings.APP_REVISION,
+            "environment": settings.APP_ENV,
+        }
+    )
 
 
 urlpatterns = [
@@ -64,6 +76,16 @@ urlpatterns = [
     ),
     path("app/<slug:workspace_slug>/items/", item_list, name="web-item-list"),
     path("app/<slug:workspace_slug>/history/", event_history, name="event-history"),
+    path(
+        "app/<slug:workspace_slug>/transfer/",
+        workspace_transfer,
+        name="web-inventory-transfer",
+    ),
+    path(
+        "app/<slug:workspace_slug>/transfer/export/",
+        workspace_export,
+        name="web-inventory-export",
+    ),
     path(
         "app/<slug:workspace_slug>/history/<uuid:event_id>/undo/",
         event_undo,
@@ -89,6 +111,21 @@ urlpatterns = [
         "app/<slug:workspace_slug>/items/<uuid:item_id>/delete/",
         item_delete,
         name="web-item-delete",
+    ),
+    path(
+        "app/<slug:workspace_slug>/items/<uuid:item_id>/labels/",
+        item_label_add,
+        name="web-item-label-add",
+    ),
+    path(
+        "app/<slug:workspace_slug>/items/<uuid:item_id>/labels/<uuid:assertion_id>/delete/",
+        item_label_remove,
+        name="web-item-label-remove",
+    ),
+    path(
+        "app/<slug:workspace_slug>/public-links/",
+        workspace_public_links,
+        name="web-public-links",
     ),
     path(
         "app/<slug:workspace_slug>/items/<uuid:item_id>/holdings/new/",

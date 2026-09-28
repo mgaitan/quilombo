@@ -32,6 +32,7 @@ audits.md
 
 mcp.md
 import_export.md
+public_search.md
 plugin/index.md
 plugin/evaluation.md
 ```

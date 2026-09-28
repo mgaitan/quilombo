@@ -786,6 +786,7 @@ def audit_inventory(
     ctx: Context,
     holdings: list[dict[str, Any]] | None = None,
     provenance: dict[str, Any] | None = None,
+    activity: str = "unspecified",
 ) -> dict[str, Any]:
     token = _write_token_from_context(ctx)
     payload = {
@@ -793,6 +794,7 @@ def audit_inventory(
         "location_status": location_status,
         "holdings": holdings or [],
         "idempotency_key": idempotency_key,
+        "activity": activity,
         "provenance": provenance or {},
     }
     _check_mutation_limits(payload, collections=("holdings",))
@@ -832,10 +834,12 @@ def bulk_upsert_inventory(
     items: list[dict[str, Any]] | None = None,
     holdings: list[dict[str, Any]] | None = None,
     location_relations: list[dict[str, Any]] | None = None,
+    activity: str = "unspecified",
 ) -> dict[str, Any]:
     token = _write_token_from_context(ctx)
     payload = {
         "idempotency_key": idempotency_key,
+        "activity": activity,
         "provenance": provenance or {},
         "locations": locations or [],
         "items": items or [],

@@ -11,8 +11,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: production-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -55,10 +55,61 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-  deploy-render:
+  validate-migrations:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     needs: build
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Create ephemeral Neon branch from production
+        id: neon
+        uses: neondatabase/create-branch-action@v5
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          parent: ${{ vars.NEON_PRODUCTION_BRANCH_ID }}
+          branch_name: release/${{ github.event.release.tag_name }}-${{ github.run_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Apply and verify release migrations
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url }}
+          IS_PROD: "0"
+        run: |
+          echo "Validating ${{ github.event.release.tag_name }} against Neon branch release/${{ github.event.release.tag_name }}-${{ github.run_id }}"
+          uv run --no-sync python manage.py migrate --noinput
+          uv run --no-sync python manage.py migrate --check
+          uv run --no-sync python manage.py check
+          uv run --no-sync python manage.py release_smoke
+
+      - name: Delete ephemeral Neon branch
+        if: always()
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: release/${{ github.event.release.tag_name }}-${{ github.run_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+  deploy-render:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    needs: [build, validate-migrations]
     steps:
       - name: Check out the release
         uses: actions/checkout@v4

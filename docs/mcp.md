@@ -27,8 +27,8 @@ Authorization: Bearer qlo_...
 | `get_inventory_status` | none | read-only | Find recorded quantities below their configured minimum. |
 | `lookup_book_by_isbn` | `isbn` | external read | Fetch a bibliographic draft from Open Library. |
 | `lookup_books_by_isbn` | `isbns` | external read | Resolve a bulk list of exact ISBNs before an inventory write. |
-| `audit_inventory` | `location_key`, `location_status`, `idempotency_key`; optional `holdings`, `provenance` | idempotent write | Verify a location and selected holdings, with optional corrections. |
-| `bulk_upsert_inventory` | `idempotency_key`; optional `locations`, `items`, `holdings`, `location_relations`, `provenance` | idempotent write | Transactionally create or replace related inventory facts. |
+| `audit_inventory` | `location_key`, `location_status`, `idempotency_key`; optional `holdings`, `provenance`, `activity` | idempotent write | Verify a location and selected holdings, with optional corrections. |
+| `bulk_upsert_inventory` | `idempotency_key`; optional `locations`, `items`, `holdings`, `location_relations`, `provenance`, `activity` | idempotent write | Transactionally create or replace related inventory facts. |
 | `move_inventory` | `item_key`, `from_location_key`, `to_location_key`, `quantity`, `idempotency_key`; optional `provenance` | idempotent write | Move a holding between locations. |
 | `update_inventory_item` | `item_id`, `idempotency_key`; optional `item`, `holdings`, `provenance` | idempotent write | Correct a known item and its holdings by stable UUID. |
 | `delete_inventory_item` | `item_id`, `idempotency_key`; optional `provenance` | idempotent write | Remove a confirmed erroneous or duplicate item by stable UUID. |
@@ -46,6 +46,12 @@ writes.
 The mutation tools write immediately. Drafts, human confirmation, and interpretation of photos or
 language belong to the client skill. Always provide a unique idempotency key and provenance for
 mutations.
+
+`bulk_upsert_inventory` and `audit_inventory` accept an optional `activity` describing *why* the
+stock fact was recorded, separate from the technical event kind and the evidence `source_kind`:
+`unspecified` (default), `observation` (a physical stock check), or `purchase` (stock recorded as
+acquired). Record `purchase` only when the user identifies the event as a purchase. The value is
+part of the idempotency hash, so replaying a key with a different `activity` is a conflict.
 
 For a book, call `get_attribute_profile` when the profile is not already known and store the minimum
 user-provided facts in this shape:
